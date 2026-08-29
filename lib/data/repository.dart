@@ -17,11 +17,14 @@ abstract interface class MagicChatRepository {
   Future<void> updateGroupAnnouncement(
       String conversationId, String announcement);
   Future<void> setGroupVisibility(String conversationId, bool isPublic);
+  Future<void> leaveGroupConversation(String conversationId);
+  Future<void> dissolveGroupConversation(String conversationId);
   Future<void> uploadConversationAvatar(
       String conversationId, AttachmentUpload upload);
   Future<void> addConversationMembers(String conversationId,
       {List<String> memberIds = const [], List<String> appIds = const []});
-  Future<void> removeConversationMember(String conversationId, String memberId);
+  Future<void> removeConversationMember(String conversationId, String memberId,
+      {String memberType = 'user'});
   Future<ChatConversation> createTopic(String conversationId, String messageId);
   Future<void> forwardMessage(
       String conversationId, String messageId, String targetConversationId);
@@ -161,6 +164,12 @@ class DemoRepository implements MagicChatRepository {
   Future<void> setGroupVisibility(String conversationId, bool isPublic) async {}
 
   @override
+  Future<void> leaveGroupConversation(String conversationId) async {}
+
+  @override
+  Future<void> dissolveGroupConversation(String conversationId) async {}
+
+  @override
   Future<void> uploadConversationAvatar(
       String conversationId, AttachmentUpload upload) async {}
 
@@ -170,8 +179,8 @@ class DemoRepository implements MagicChatRepository {
       List<String> appIds = const []}) async {}
 
   @override
-  Future<void> removeConversationMember(
-      String conversationId, String memberId) async {}
+  Future<void> removeConversationMember(String conversationId, String memberId,
+      {String memberType = 'user'}) async {}
 
   @override
   Future<ChatConversation> createTopic(
@@ -510,6 +519,18 @@ class HttpMagicChatRepository implements MagicChatRepository {
   }
 
   @override
+  Future<void> leaveGroupConversation(String conversationId) async {
+    await _request('POST',
+        '/api/client/conversations/groups/${Uri.encodeComponent(conversationId)}/leave');
+  }
+
+  @override
+  Future<void> dissolveGroupConversation(String conversationId) async {
+    await _request('DELETE',
+        '/api/client/conversations/groups/${Uri.encodeComponent(conversationId)}');
+  }
+
+  @override
   Future<void> uploadConversationAvatar(
       String conversationId, AttachmentUpload upload) async {
     final uri = baseUri.resolve(
@@ -538,10 +559,14 @@ class HttpMagicChatRepository implements MagicChatRepository {
   }
 
   @override
-  Future<void> removeConversationMember(
-      String conversationId, String memberId) async {
-    await _request('DELETE',
-        '/api/client/conversations/groups/${Uri.encodeComponent(conversationId)}/members/${Uri.encodeComponent(memberId)}');
+  Future<void> removeConversationMember(String conversationId, String memberId,
+      {String memberType = 'user'}) async {
+    final encodedConversationId = Uri.encodeComponent(conversationId);
+    final encodedMemberId = Uri.encodeComponent(memberId);
+    final path = memberType == 'user'
+        ? '/api/client/conversations/groups/$encodedConversationId/members/$encodedMemberId'
+        : '/api/client/conversations/groups/$encodedConversationId/members/${Uri.encodeComponent(memberType)}/$encodedMemberId';
+    await _request('DELETE', path);
   }
 
   @override

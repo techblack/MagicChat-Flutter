@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../data/repository.dart';
@@ -213,39 +215,117 @@ class _ProjectsPageState extends State<ProjectsPage> {
   }
 
   Future<void> _createProject(BuildContext context) async {
+    var groups = const <ChatConversation>[];
+    try {
+      groups = (await repository.conversations())
+          .where((conversation) => conversation.type == 'group')
+          .toList();
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('群聊加载失败，将创建未关联群聊的项目：$error')));
+      }
+    }
+    if (!context.mounted) return;
     final nameController = TextEditingController();
     final descriptionController = TextEditingController();
-    final result = await showDialog<({String name, String description})>(
+    final selectedGroupIds = <String>{};
+    var groupKeyword = '';
+    final result = await showDialog<
+            ({String name, String description, List<String> groupIds})>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
-              title: const Text('新建项目'),
-              content: Column(mainAxisSize: MainAxisSize.min, children: [
-                TextField(
-                    controller: nameController,
-                    autofocus: true,
-                    decoration: const InputDecoration(labelText: '项目名称')),
-                TextField(
-                    controller: descriptionController,
-                    decoration: const InputDecoration(labelText: '描述')),
-              ]),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(dialogContext),
-                    child: const Text('取消')),
-                FilledButton(
-                    onPressed: () => Navigator.pop(dialogContext, (
-                          name: nameController.text.trim(),
-                          description: descriptionController.text.trim()
-                        )),
-                    child: const Text('创建')),
-              ],
-            ));
-    nameController.dispose();
-    descriptionController.dispose();
+        builder: (dialogContext) =>
+            StatefulBuilder(builder: (dialogContext, setDialogState) {
+              return AlertDialog(
+                title: const Text('新建项目'),
+                content: SizedBox(
+                    width: 440,
+                    child: SingleChildScrollView(
+                        child:
+                            Column(mainAxisSize: MainAxisSize.min, children: [
+                      TextField(
+                          controller: nameController,
+                          autofocus: true,
+                          decoration: const InputDecoration(labelText: '项目名称')),
+                      TextField(
+                          controller: descriptionController,
+                          decoration: const InputDecoration(labelText: '描述')),
+                      if (groups.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text('关联群聊（可选）',
+                                style: Theme.of(context).textTheme.titleSmall)),
+                        TextField(
+                            decoration: const InputDecoration(
+                                prefixIcon: Icon(Icons.search),
+                                hintText: '搜索群聊'),
+                            onChanged: (value) =>
+                                setDialogState(() => groupKeyword = value)),
+                        const SizedBox(height: 4),
+                        SizedBox(
+                            height: 180,
+                            child: Builder(builder: (context) {
+                              final keyword = groupKeyword.trim().toLowerCase();
+                              final visible = keyword.isEmpty
+                                  ? groups
+                                  : groups
+                                      .where((group) => group.title
+                                          .toLowerCase()
+                                          .contains(keyword))
+                                      .toList();
+                              if (visible.isEmpty) {
+                                return const Center(child: Text('没有匹配的群聊'));
+                              }
+                              return ListView(
+                                  children: visible
+                                      .map((group) => CheckboxListTile(
+                                          dense: true,
+                                          value: selectedGroupIds
+                                              .contains(group.id),
+                                          title: Text(group.title),
+                                          subtitle:
+                                              Text('${group.members.length} 人'),
+                                          onChanged: (checked) {
+                                            setDialogState(() {
+                                              if (checked == true) {
+                                                if (selectedGroupIds.length <
+                                                    100) {
+                                                  selectedGroupIds
+                                                      .add(group.id);
+                                                }
+                                              } else {
+                                                selectedGroupIds
+                                                    .remove(group.id);
+                                              }
+                                            });
+                                          }))
+                                      .toList());
+                            }))
+                      ]
+                    ]))),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      child: const Text('取消')),
+                  FilledButton(
+                      onPressed: () => Navigator.pop(dialogContext, (
+                            name: nameController.text.trim(),
+                            description: descriptionController.text.trim(),
+                            groupIds: selectedGroupIds.toList()
+                          )),
+                      child: const Text('创建')),
+                ],
+              );
+            }));
+    unawaited(Future<void>.delayed(kThemeAnimationDuration, () {
+      nameController.dispose();
+      descriptionController.dispose();
+    }));
     if (result == null || result.name.isEmpty || !context.mounted) return;
     try {
       await repository.createProject(result.name,
-          description: result.description);
+          description: result.description, groupIds: result.groupIds);
       _reloadProjects();
       if (context.mounted) {
         ScaffoldMessenger.of(context)

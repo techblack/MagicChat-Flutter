@@ -865,15 +865,32 @@ class _ConversationList extends StatefulWidget {
 
 class _ConversationListState extends State<_ConversationList> {
   Future<List<ChatConversation>>? _future;
+  String? _currentUserId;
   @override
   void initState() {
     super.initState();
+    _currentUserId = widget.realtimeStore?.currentUserId;
     widget.realtimeStore?.addListener(_onRealtimeChanged);
+    unawaited(_loadCurrentUser());
     _reload();
   }
 
+  Future<void> _loadCurrentUser() async {
+    if (_currentUserId != null) return;
+    try {
+      final user = await widget.repository.currentUser();
+      if (mounted) setState(() => _currentUserId = user.id);
+    } catch (_) {
+      // 会话列表仍可展示；服务端会再次校验群操作权限。
+    }
+  }
+
   void _onRealtimeChanged() {
-    if (mounted) setState(_reload);
+    if (!mounted) return;
+    setState(() {
+      _currentUserId = widget.realtimeStore?.currentUserId ?? _currentUserId;
+      _reload();
+    });
   }
 
   @override
@@ -942,6 +959,24 @@ class _ConversationListState extends State<_ConversationList> {
 
   Future<void> _showConversationActions(
       BuildContext context, ChatConversation conversation) async {
+    final isGroup = conversation.type == 'group';
+    Contact? currentMember;
+    if (isGroup) {
+      for (final member in conversation.members) {
+        if (member.type == 'user' && member.id == _currentUserId) {
+          currentMember = member;
+          break;
+        }
+      }
+    }
+    final role = currentMember?.role;
+    final canManage = role == 'owner' || role == 'admin';
+    final isOwner = role == 'owner';
+    final removableMembers = conversation.members
+        .where((member) =>
+            member.role != 'owner' &&
+            !(member.type == 'user' && member.id == _currentUserId))
+        .toList();
     final action = await showModalBottomSheet<String>(
         context: context,
         builder: (context) => SafeArea(
@@ -960,31 +995,46 @@ class _ConversationListState extends State<_ConversationList> {
                   leading: const Icon(Icons.archive_outlined),
                   title: const Text('从列表移除'),
                   onTap: () => Navigator.pop(context, 'dismiss')),
-              ListTile(
-                  leading: const Icon(Icons.edit_outlined),
-                  title: const Text('修改群名称'),
-                  onTap: () => Navigator.pop(context, 'rename')),
-              ListTile(
-                  leading: const Icon(Icons.campaign_outlined),
-                  title: const Text('修改群公告'),
-                  onTap: () => Navigator.pop(context, 'announcement')),
-              ListTile(
-                  leading: const Icon(Icons.public_outlined),
-                  title: Text(conversation.isPublic ? '设为私有群' : '设为公开群'),
-                  onTap: () => Navigator.pop(context, 'visibility')),
-              ListTile(
-                  leading: const Icon(Icons.image_outlined),
-                  title: const Text('修改群头像'),
-                  onTap: () => Navigator.pop(context, 'avatar')),
-              ListTile(
-                  leading: const Icon(Icons.person_add_outlined),
-                  title: const Text('添加群成员'),
-                  onTap: () => Navigator.pop(context, 'members')),
-              if (conversation.members.isNotEmpty)
-                ListTile(
-                    leading: const Icon(Icons.person_remove_outlined),
-                    title: const Text('移除群成员'),
-                    onTap: () => Navigator.pop(context, 'remove_member')),
+              if (isGroup) ...[
+                if (currentMember != null)
+                  ListTile(
+                      leading: const Icon(Icons.edit_outlined),
+                      title: const Text('修改群名称'),
+                      onTap: () => Navigator.pop(context, 'rename')),
+                if (canManage)
+                  ListTile(
+                      leading: const Icon(Icons.campaign_outlined),
+                      title: const Text('修改群公告'),
+                      onTap: () => Navigator.pop(context, 'announcement')),
+                if (isOwner)
+                  ListTile(
+                      leading: const Icon(Icons.public_outlined),
+                      title: Text(conversation.isPublic ? '设为私有群' : '设为公开群'),
+                      onTap: () => Navigator.pop(context, 'visibility')),
+                if (canManage)
+                  ListTile(
+                      leading: const Icon(Icons.image_outlined),
+                      title: const Text('修改群头像'),
+                      onTap: () => Navigator.pop(context, 'avatar')),
+                if (currentMember != null)
+                  ListTile(
+                      leading: const Icon(Icons.person_add_outlined),
+                      title: const Text('添加群成员'),
+                      onTap: () => Navigator.pop(context, 'members')),
+                if (canManage && removableMembers.isNotEmpty)
+                  ListTile(
+                      leading: const Icon(Icons.person_remove_outlined),
+                      title: const Text('移除群成员'),
+                      onTap: () => Navigator.pop(context, 'remove_member')),
+                if (currentMember != null)
+                  ListTile(
+                      leading: Icon(isOwner
+                          ? Icons.delete_forever_outlined
+                          : Icons.logout_outlined),
+                      title: Text(isOwner ? '解散群聊' : '退出群聊'),
+                      onTap: () => Navigator.pop(
+                          context, isOwner ? 'dissolve' : 'leave')),
+              ],
             ])));
     if (!context.mounted || action == null) return;
     if (action == 'pin' || action == 'unpin') {
@@ -1107,7 +1157,7 @@ class _ConversationListState extends State<_ConversationList> {
           context: context,
           builder: (dialogContext) => SimpleDialog(
                 title: const Text('选择要移除的成员'),
-                children: conversation.members
+                children: removableMembers
                     .map((item) => SimpleDialogOption(
                         onPressed: () => Navigator.pop(dialogContext, item),
                         child: Row(children: [
@@ -1121,8 +1171,35 @@ class _ConversationListState extends State<_ConversationList> {
                     .toList(),
               ));
       if (member != null && context.mounted) {
-        await widget.repository
-            .removeConversationMember(conversation.id, member.id);
+        await widget.repository.removeConversationMember(
+            conversation.id, member.id,
+            memberType: member.type);
+      }
+    } else if (action == 'leave' || action == 'dissolve') {
+      final leaving = action == 'leave';
+      final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+                title: Text(leaving ? '退出群聊' : '解散群聊'),
+                content: Text(leaving
+                    ? '退出后将无法继续查看和发送该群聊消息。'
+                    : '解散后所有成员都无法继续查看和发送该群聊消息。此操作不可恢复。'),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(dialogContext, false),
+                      child: const Text('取消')),
+                  FilledButton(
+                      onPressed: () => Navigator.pop(dialogContext, true),
+                      child: Text(leaving ? '退出' : '解散')),
+                ],
+              ));
+      if (confirmed == true && context.mounted) {
+        if (leaving) {
+          await widget.repository.leaveGroupConversation(conversation.id);
+        } else {
+          await widget.repository.dissolveGroupConversation(conversation.id);
+        }
+        if (context.mounted) widget.onSelect('');
       }
     }
     if (mounted) setState(_reload);

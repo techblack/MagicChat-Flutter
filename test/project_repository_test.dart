@@ -64,6 +64,12 @@ void main() {
     expect(created.id, 'project-2');
     expect(created.taskCount, 3);
     expect(updated.name, 'Flutter 客户端');
+    final createRequest = requests.firstWhere((item) => item.method == 'POST');
+    expect(jsonDecode(createRequest.body), {
+      'name': '发布计划',
+      'description': '九月版本',
+      'group_ids': [],
+    });
     expect(
         requests.every(
             (item) => item.headers['Authorization'] == 'Bearer test-token'),

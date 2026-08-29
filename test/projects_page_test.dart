@@ -61,6 +61,28 @@ void main() {
     expect(find.text('团队群聊'), findsOneWidget);
   });
 
+  testWidgets('新建项目可以直接关联群聊', (tester) async {
+    final repository = _ProjectRepository();
+    await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(
+            colorScheme:
+                ColorScheme.fromSeed(seedColor: const Color(0xFF6750A4)),
+            useMaterial3: true),
+        home: Scaffold(body: ProjectsPage(repository: repository))));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('新建项目'));
+    await tester.pumpAndSettle();
+    expect(find.text('关联群聊（可选）'), findsOneWidget);
+    await tester.tap(find.byType(CheckboxListTile).first);
+    await tester.pump();
+    await tester.enterText(find.byType(TextField).at(1), '发布计划');
+    await tester.tap(find.text('创建'));
+    await tester.pumpAndSettle();
+
+    expect(repository.createdGroupIds, ['team']);
+  });
+
   testWidgets('项目工作区提供五种视图和完整任务状态', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1200, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -170,6 +192,17 @@ Widget _app() => MaterialApp(
     );
 
 class _ProjectRepository extends DemoRepository {
+  final createdGroupIds = <String>[];
+
+  @override
+  Future<Project> createProject(String name,
+      {String description = '', List<String> groupIds = const []}) async {
+    createdGroupIds
+      ..clear()
+      ..addAll(groupIds);
+    return Project(id: 'created-project', name: name, description: description);
+  }
+
   @override
   Future<List<Project>> projects() async => const [
         Project(
