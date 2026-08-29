@@ -104,6 +104,30 @@ void main() {
     }
   });
 
+  testWidgets('项目工作区连续加载任务分页', (tester) async {
+    final repository = _PagedProjectRepository();
+    await tester.binding.setSurfaceSize(const Size(1000, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(
+            colorScheme:
+                ColorScheme.fromSeed(seedColor: const Color(0xFF6750A4)),
+            useMaterial3: true),
+        home: Scaffold(body: ProjectsPage(repository: repository))));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('客户端迭代'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('第一页任务'), findsOneWidget);
+    expect(find.text('第二页任务'), findsOneWidget);
+    expect(repository.cursors, [null, 'next-page']);
+    await expectLater(find.byType(MaterialApp),
+        matchesGoldenFile('evidence/project_task_pagination.png'));
+  });
+
   testWidgets('目录不会误入编辑器且 Markdown 文档可打开', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1200, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -251,4 +275,31 @@ class _ProjectRepository extends DemoRepository {
             title: '发布说明',
             documentType: 'markdown'),
       ];
+}
+
+class _PagedProjectRepository extends _ProjectRepository {
+  final cursors = <String?>[];
+
+  @override
+  Future<ProjectTaskPage> projectTaskPage(String projectId,
+      {String? cursor,
+      int limit = 100,
+      String keyword = '',
+      List<String> statuses = const [],
+      List<int> priorities = const []}) async {
+    cursors.add(cursor);
+    if (cursor == null) {
+      return const ProjectTaskPage(tasks: [
+        ProjectTask(
+            id: 'page-1',
+            projectId: 'project-1',
+            title: '第一页任务',
+            status: 'todo')
+      ], nextCursor: 'next-page');
+    }
+    return const ProjectTaskPage(tasks: [
+      ProjectTask(
+          id: 'page-2', projectId: 'project-1', title: '第二页任务', status: 'done')
+    ], nextCursor: null);
+  }
 }

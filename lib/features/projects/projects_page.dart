@@ -346,6 +346,22 @@ class _ProjectsPageState extends State<ProjectsPage> {
     }
   }
 
+  Future<List<ProjectTask>> _loadProjectTasks(String projectId) async {
+    final tasks = <ProjectTask>[];
+    String? cursor;
+    do {
+      final page = await repository.projectTaskPage(projectId,
+          cursor: cursor, limit: 100);
+      tasks.addAll(page.tasks);
+      final nextCursor = page.nextCursor;
+      if (nextCursor == null || nextCursor.isEmpty || nextCursor == cursor) {
+        break;
+      }
+      cursor = nextCursor;
+    } while (true);
+    return tasks;
+  }
+
   Future<void> _showTasks(BuildContext context, Project project) async {
     await showModalBottomSheet<void>(
       context: context,
@@ -354,7 +370,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
         child: SizedBox(
           height: MediaQuery.sizeOf(context).height * .7,
           child: FutureBuilder<List<ProjectTask>>(
-            future: repository.tasks(project.id),
+            future: _loadProjectTasks(project.id),
             builder: (context, snapshot) {
               if (!snapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
