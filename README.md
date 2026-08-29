@@ -22,4 +22,4 @@ Linux 构建需要系统安装 `clang++`、GTK3、`libsecret-1-dev` 和 CMake；
 
 当前壳已覆盖原客户端的一级入口：消息、联系人、项目和设置，并提供登录/Server 配置入口。网络仓储契约对应 `/api/client/`，实时层对应既有 WebSocket envelope；迁移业务模块时只需替换 `MagicChatRepository` 实现，不改变页面导航。
 
-WebSocket 连接器必须由平台适配层注入，并通过 `Authorization: Bearer <token>` 发送凭据；不会把 Token 放进 URL 查询参数。
+WebSocket 连接器必须由平台适配层注入：Native 使用 `Authorization: Bearer <token>`，Web 使用浏览器自动携带的 HttpOnly `user_session` Cookie；不会把 Token 放进 URL 查询参数。

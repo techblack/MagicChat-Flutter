@@ -4,9 +4,33 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:magicchat_client/data/repository.dart';
+import 'package:magicchat_client/data/session_store.dart';
 import 'package:magicchat_client/domain/models.dart';
 
 void main() {
+  test('浏览器 Cookie 会话不发送占位 Bearer 头', () async {
+    final requests = <http.Request>[];
+    final repository = HttpMagicChatRepository(
+        serverUrl: 'https://chat.example.com',
+        sessionToken: SessionStore.cookieSessionToken,
+        client: MockClient((request) async {
+          requests.add(request);
+          return _jsonResponse({
+            'data': {
+              'user': {
+                'id': 'u1',
+                'name': '浏览器用户',
+                'email': 'web@example.com',
+              }
+            }
+          });
+        }));
+
+    await repository.currentUser();
+
+    expect(requests.single.headers.containsKey('Authorization'), isFalse);
+  });
+
   test('项目列表保留个人项目属性且写接口解析直接 data', () async {
     final requests = <http.Request>[];
     final repository = HttpMagicChatRepository(

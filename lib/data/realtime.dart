@@ -12,7 +12,8 @@ class MagicChatRealtime {
   final Uri _uri;
   final String sessionToken;
 
-  /// 平台适配层负责以 Authorization header 建立连接（Web 与 IO 实现不同）。
+  /// 平台适配层负责建立连接：Native 使用 Authorization header，Web 使用
+  /// 浏览器自动携带的 user_session Cookie。
   final WebSocketConnector connector;
   WebSocketChannel? _channel;
 

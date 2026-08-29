@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../domain/models.dart';
 import '../domain/message_content.dart';
+import 'http_client.dart';
+import 'session_store.dart';
 
 abstract interface class MagicChatRepository {
   Future<CurrentUser> currentUser();
@@ -751,11 +753,16 @@ class HttpMagicChatRepository implements MagicChatRepository {
       http.Client? client})
       : baseUri =
             Uri.parse(serverUrl.endsWith('/') ? serverUrl : '$serverUrl/'),
-        _client = client ?? http.Client();
+        _client = client ?? createMagicChatHttpClient();
   final Uri baseUri;
   final String sessionToken;
   final http.Client _client;
   String? _currentUserId;
+
+  Map<String, String> get _sessionHeaders =>
+      sessionToken == SessionStore.cookieSessionToken
+          ? const {}
+          : {'Authorization': 'Bearer $sessionToken'};
 
   @override
   Future<ChatConversation> createGroupConversation(String name,
@@ -855,7 +862,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
     final uri = baseUri.resolve(
         'api/client/conversations/${Uri.encodeComponent(conversationId)}/avatar');
     final request = http.MultipartRequest('POST', uri)
-      ..headers['Authorization'] = 'Bearer $sessionToken'
+      ..headers.addAll(_sessionHeaders)
       ..headers['Accept'] = 'application/json'
       ..files.add(upload.bytes != null
           ? http.MultipartFile.fromBytes('file', upload.bytes!,
@@ -1056,7 +1063,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
   Future<CurrentUser> uploadAvatar(AttachmentUpload upload) async {
     final uri = baseUri.resolve('api/client/me/avatar');
     final request = http.MultipartRequest('POST', uri)
-      ..headers['Authorization'] = 'Bearer $sessionToken'
+      ..headers.addAll(_sessionHeaders)
       ..headers['Accept'] = 'application/json'
       ..files.add(upload.bytes != null
           ? http.MultipartFile.fromBytes('file', upload.bytes!,
@@ -1086,7 +1093,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
     final uri = baseUri.resolve(path.replaceFirst(RegExp(r'^/'), ''));
     final headers = <String, String>{
       'Accept': 'application/json',
-      'Authorization': 'Bearer $sessionToken'
+      ..._sessionHeaders,
     };
     if (body != null) headers['Content-Type'] = 'application/json';
     final response = await _client
@@ -1331,7 +1338,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
     final uri = baseUri.resolve(
         'api/client/conversations/${Uri.encodeComponent(conversationId)}/messages/$route');
     final request = http.MultipartRequest('POST', uri)
-      ..headers['Authorization'] = 'Bearer $sessionToken'
+      ..headers.addAll(_sessionHeaders)
       ..headers['Accept'] = 'application/json'
       ..fields['client_message_id'] =
           DateTime.now().microsecondsSinceEpoch.toString()
@@ -1588,7 +1595,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
     final uri =
         baseUri.resolve('api/client/apps/${Uri.encodeComponent(appId)}/avatar');
     final request = http.MultipartRequest('POST', uri)
-      ..headers['Authorization'] = 'Bearer $sessionToken'
+      ..headers.addAll(_sessionHeaders)
       ..headers['Accept'] = 'application/json'
       ..files.add(upload.bytes != null
           ? http.MultipartFile.fromBytes('file', upload.bytes!,

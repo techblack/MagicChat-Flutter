@@ -35,6 +35,9 @@ class StoredAccount {
 }
 
 class SessionStore {
+  /// 浏览器登录只持有 HttpOnly user_session Cookie，不能从脚本读取真实 token。
+  static const cookieSessionToken = '__magicchat_cookie_session__';
+
   const SessionStore(
       {FlutterSecureStorage storage = const FlutterSecureStorage()})
       : _storage = storage;

@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'http_client.dart';
 import 'push_token_provider.dart';
+import 'session_store.dart';
 
 class PushGrant {
   const PushGrant(
@@ -17,8 +19,14 @@ class PushGrant {
 /// 私有 Server 推送授权生命周期。设备厂商 Token 由各平台插件提供，不写入普通配置。
 class PushService {
   static const requestTimeout = Duration(seconds: 30);
-  PushService({http.Client? client}) : _client = client ?? http.Client();
+  PushService({http.Client? client})
+      : _client = client ?? createMagicChatHttpClient();
   final http.Client _client;
+
+  Map<String, String> _sessionHeaders(String token) =>
+      token == SessionStore.cookieSessionToken
+          ? const {}
+          : {'Authorization': 'Bearer $token'};
 
   Future<bool> registerPlatformGrant({
     required String serverUrl,
@@ -49,7 +57,7 @@ class PushService {
     final response = await _client
         .put(base.resolve('api/client/push/grants'),
             headers: {
-              'Authorization': 'Bearer $sessionToken',
+              ..._sessionHeaders(sessionToken),
               'Content-Type': 'application/json'
             },
             body: jsonEncode({
@@ -70,12 +78,12 @@ class PushService {
       required String sessionToken,
       required String installationId}) async {
     final base = Uri.parse(serverUrl.endsWith('/') ? serverUrl : '$serverUrl/');
-    final response = await _client.delete(
-        base.resolve(
-            'api/client/push/grants/${Uri.encodeComponent(installationId)}'),
-        headers: {
-          'Authorization': 'Bearer $sessionToken'
-        }).timeout(requestTimeout);
+    final response = await _client
+        .delete(
+            base.resolve(
+                'api/client/push/grants/${Uri.encodeComponent(installationId)}'),
+            headers: _sessionHeaders(sessionToken))
+        .timeout(requestTimeout);
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('撤销推送失败（HTTP ${response.statusCode}）');
     }
@@ -86,12 +94,12 @@ class PushService {
       required String sessionToken,
       required String routeToken}) async {
     final base = Uri.parse(serverUrl.endsWith('/') ? serverUrl : '$serverUrl/');
-    final response = await _client.get(
-        base.resolve(
-            'api/client/push/routes/${Uri.encodeComponent(routeToken)}'),
-        headers: {
-          'Authorization': 'Bearer $sessionToken'
-        }).timeout(requestTimeout);
+    final response = await _client
+        .get(
+            base.resolve(
+                'api/client/push/routes/${Uri.encodeComponent(routeToken)}'),
+            headers: _sessionHeaders(sessionToken))
+        .timeout(requestTimeout);
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('打开通知失败（HTTP ${response.statusCode}）');
     }
