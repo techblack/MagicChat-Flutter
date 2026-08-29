@@ -119,7 +119,13 @@ class PushService {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('打开通知失败（HTTP ${response.statusCode}）');
     }
-    final value = jsonDecode(response.body);
+    final decoded = jsonDecode(response.body);
+    // 客户端接口的成功响应使用 `{success, data}` 包装；滚动升级期间仍兼容
+    // 直接返回路由对象的旧网关。
+    final value = decoded is Map<String, dynamic> &&
+            decoded['data'] is Map<String, dynamic>
+        ? decoded['data'] as Map<String, dynamic>
+        : decoded;
     if (value is! Map<String, dynamic> ||
         value['conversation_id'] is! String ||
         value['message_id'] is! String) {

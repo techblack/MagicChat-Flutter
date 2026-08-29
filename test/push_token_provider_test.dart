@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -67,5 +69,45 @@ void main() {
     expect(requests.single.method, 'DELETE');
     expect(requests.single.url.path, '/api/client/push/grants/install-1');
     expect(requests.single.headers['Authorization'], 'Bearer session-1');
+  });
+
+  test('解析服务端通知路由 success/data 响应', () async {
+    final requests = <http.Request>[];
+    final service = PushService(client: MockClient((request) async {
+      requests.add(request);
+      return http.Response(
+          jsonEncode({
+            'success': true,
+            'data': {
+              'conversation_id': 'conversation-1',
+              'message_id': 'message-1',
+            },
+          }),
+          200);
+    }));
+
+    final route = await service.resolveRoute(
+        serverUrl: 'https://chat.example.com',
+        sessionToken: 'session-1',
+        routeToken: 'route/token');
+
+    expect(route.conversationId, 'conversation-1');
+    expect(route.messageId, 'message-1');
+    expect(requests.single.url.path, '/api/client/push/routes/route%2Ftoken');
+    expect(requests.single.headers['Authorization'], 'Bearer session-1');
+  });
+
+  test('通知路由响应缺少 data 字段时拒绝', () async {
+    final service = PushService(
+        client: MockClient((_) async =>
+            http.Response(jsonEncode({'success': true, 'data': {}}), 200)));
+
+    expect(
+      () => service.resolveRoute(
+          serverUrl: 'https://chat.example.com',
+          sessionToken: 'session-1',
+          routeToken: 'route-token'),
+      throwsA(isA<FormatException>()),
+    );
   });
 }

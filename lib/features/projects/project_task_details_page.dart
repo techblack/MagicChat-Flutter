@@ -156,6 +156,15 @@ class _ProjectTaskDetailsPageState extends State<ProjectTaskDetailsPage> {
               Text(
                   '排期：${widget.task.startDate ?? '未设置'} → ${widget.task.dueDate ?? '未设置'}')
             ],
+            if (widget.task.reminder case final reminder?
+                when reminder.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Icon(Icons.notifications_active_outlined, size: 18),
+                const SizedBox(width: 8),
+                Expanded(child: Text(_reminderSummary(reminder)))
+              ])
+            ],
             if (widget.task.labels.isNotEmpty) ...[
               const SizedBox(height: 12),
               Wrap(
@@ -234,6 +243,54 @@ class _ProjectTaskDetailsPageState extends State<ProjectTaskDetailsPage> {
         1 => '低',
         3 => '高',
         _ => '中',
+      };
+
+  String _reminderSummary(Map<String, dynamic> reminder) {
+    final mode = reminder['mode'];
+    String summary;
+    if (mode == 'once') {
+      final at = reminder['at'];
+      final date = at is String ? DateTime.tryParse(at) : null;
+      summary = date == null ? '一次性提醒' : '一次性提醒 · ${_formatTime(at)}';
+    } else {
+      final frequency = reminder['frequency'];
+      final time = reminder['time'] is String ? reminder['time'] as String : '';
+      if (frequency == 'weekly') {
+        final days = reminder['weekdays'] is List
+            ? (reminder['weekdays'] as List)
+                .whereType<num>()
+                .map((day) => _weekdayLabel(day.toInt()))
+                .where((day) => day.isNotEmpty)
+                .join('、')
+            : '';
+        summary = '每周${days.isEmpty ? '' : days} $time'.trim();
+      } else if (frequency == 'monthly') {
+        final day = (reminder['day_of_month'] as num?)?.toInt();
+        summary = '每月${day == null ? '' : ' $day 日'} $time'.trim();
+      } else {
+        summary = '每天 $time'.trim();
+      }
+      if (summary.isEmpty) summary = '周期性提醒';
+    }
+    final paused = widget.task.status == 'done' ||
+        widget.task.status == 'canceled' ||
+        reminder['state'] == 'paused';
+    final state = reminder['state'];
+    if (paused) return '已暂停 · $summary';
+    if (state == 'fired') return '已提醒 · $summary';
+    if (state == 'expired') return '已过期 · $summary';
+    return summary;
+  }
+
+  String _weekdayLabel(int day) => switch (day) {
+        1 => '一',
+        2 => '二',
+        3 => '三',
+        4 => '四',
+        5 => '五',
+        6 => '六',
+        7 => '日',
+        _ => '',
       };
 
   String _formatTime(String value) {
