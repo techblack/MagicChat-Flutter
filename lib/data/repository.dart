@@ -306,6 +306,8 @@ class DemoRepository implements MagicChatRepository {
         pinned: current.pinned,
         muted: current.muted,
         lastMessageSeq: current.lastMessageSeq,
+        lastReadSeq: current.lastReadSeq,
+        lastChoiceSeq: current.lastChoiceSeq,
         type: current.type,
         members: current.members,
         canSend: current.canSend && !metadata.archived,
@@ -995,6 +997,8 @@ class HttpMagicChatRepository implements MagicChatRepository {
           pinned: item['pinned'] == true,
           muted: item['notification_muted'] == true,
           lastMessageSeq: (item['last_message_seq'] as num?)?.toInt() ?? 0,
+          lastReadSeq: (item['last_read_seq'] as num?)?.toInt() ?? 0,
+          lastChoiceSeq: (item['last_choice_seq'] as num?)?.toInt() ?? 0,
           canSend: item['can_send'] != false,
           topic: item['topic'] is Map<String, dynamic>
               ? TopicMetadata.fromJson(item['topic'] as Map<String, dynamic>)
@@ -1131,7 +1135,8 @@ class HttpMagicChatRepository implements MagicChatRepository {
     return values
         .whereType<Map<String, dynamic>>()
         .map((item) {
-          final content = MessageContent.parse(item['body']);
+          final content = MessageContent.fromEnvelope(item['body'],
+              revokedAt: item['revoked_at']);
           final sender = item['sender'];
           final senderName =
               sender is Map<String, dynamic> ? sender['name'] : null;

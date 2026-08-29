@@ -97,6 +97,23 @@ void main() {
     expect(store.messages['m1']?.reactions.single.reactedByMe, isTrue);
   });
 
+  test('撤回消息忽略迟到的回应更新', () {
+    final store = RealtimeStore();
+    store.messages['m1'] = const ChatMessage(
+        id: 'm1', contentType: 'revoked', text: '消息已撤回', author: 'Alice');
+    store.apply({
+      'event': 'message.reactions_updated',
+      'cursor': 1,
+      'payload': {
+        'message_id': 'm1',
+        'reactions': [
+          {'text': '👍', 'count': 1}
+        ]
+      }
+    });
+    expect(store.messages['m1']?.reactions, isEmpty);
+  });
+
   test('兼容服务端 message envelope 包装', () {
     final store = RealtimeStore();
     store.apply({
@@ -111,6 +128,63 @@ void main() {
       }
     });
     expect(store.messages['m2']?.text, 'envelope');
+  });
+
+  test('实时撤回事件不把缺失正文渲染成 null', () {
+    final store = RealtimeStore();
+    store.apply({
+      'event': 'message.updated',
+      'cursor': 1,
+      'payload': {
+        'id': 'revoked-1',
+        'conversation_id': 'c1',
+        'revoked_at': '2026-08-29T12:00:00Z',
+      }
+    });
+    expect(store.messages['revoked-1']?.contentType, 'revoked');
+    expect(store.messages['revoked-1']?.text, '消息已撤回');
+  });
+
+  test('撤回更新保留已有消息的发送者和会话归属', () {
+    final store = RealtimeStore()..setCurrentUserId('me');
+    store.apply({
+      'event': 'message.created',
+      'cursor': 1,
+      'payload': {
+        'id': 'm1',
+        'conversation_id': 'c1',
+        'seq': 4,
+        'sender': {'id': 'alice', 'name': 'Alice'},
+        'body': {'type': 'text', 'content': '原文'},
+        'reactions': [
+          {'text': '👍', 'count': 1}
+        ],
+        'reply_to': {
+          'id': 'm0',
+          'sender': {'id': 'me'},
+          'summary': '上一条消息'
+        }
+      }
+    });
+    store.apply({
+      'event': 'message.updated',
+      'cursor': 2,
+      'payload': {
+        'message': {
+          'id': 'm1',
+          'revoked_at': '2026-08-29T12:00:00Z',
+          'sender': {'id': 'alice', 'type': 'user'},
+          'seq': 4,
+          'conversation_id': 'c1'
+        }
+      }
+    });
+    final message = store.messages['m1'];
+    expect(message?.author, 'Alice');
+    expect(message?.conversationId, 'c1');
+    expect(message?.replyTo, isNull);
+    expect(message?.contentType, 'revoked');
+    expect(message?.reactions, isEmpty);
   });
 
   test('投影消息话题摘要并在回应更新时保留话题', () {

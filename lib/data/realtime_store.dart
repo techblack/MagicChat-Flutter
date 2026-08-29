@@ -71,7 +71,7 @@ class RealtimeStore extends ChangeNotifier {
     final id = payload['message_id'];
     if (id is! String) return;
     final current = messages[id];
-    if (current == null) return;
+    if (current == null || current.contentType == 'revoked') return;
     final actorText = payload['actor_text'];
     final actorReacted = payload['actor_reacted'] == true;
     final actorUserId = payload['actor_user_id'];
@@ -107,7 +107,9 @@ class RealtimeStore extends ChangeNotifier {
     if (nested is Map<String, dynamic>) payload = nested;
     final id = payload['id'];
     if (id is! String || id.isEmpty) return;
-    final body = MessageContent.parse(payload['body']);
+    final previous = messages[id];
+    final body = MessageContent.fromEnvelope(payload['body'],
+        revokedAt: payload['revoked_at']);
     final sender = payload['sender'];
     final name = sender is Map<String, dynamic> ? sender['name'] : null;
     final senderId = sender is Map<String, dynamic> ? sender['id'] : null;
@@ -121,17 +123,16 @@ class RealtimeStore extends ChangeNotifier {
     final rawTopic = payload['topic'];
     final topic = rawTopic is Map<String, dynamic>
         ? MessageTopic.fromJson(rawTopic)
-        : messages[id]?.topic;
-    messages[id] = ChatMessage(
-        id: id,
-        sequence: (payload['seq'] as num?)?.toInt(),
-        conversationId: conversationId is String ? conversationId : null,
-        authorId: senderId is String ? senderId : null,
-        author: name is String ? name : '用户',
-        contentType: body.type,
-        rawBody: body.raw,
-        text: body.text,
-        replyTo: reply is Map<String, dynamic> && reply['id'] is String
+        : previous?.topic;
+    final sequence = (payload['seq'] as num?)?.toInt() ?? previous?.sequence;
+    final author =
+        name is String && name.isNotEmpty ? name : previous?.author ?? '用户';
+    final resolvedSenderId = senderId is String ? senderId : previous?.authorId;
+    final resolvedConversationId =
+        conversationId is String ? conversationId : previous?.conversationId;
+    final replyTo = body.type == 'revoked'
+        ? null
+        : reply is Map<String, dynamic> && reply['id'] is String
             ? MessageReply(
                 id: reply['id'] as String,
                 author: replyName,
@@ -139,10 +140,26 @@ class RealtimeStore extends ChangeNotifier {
                         (reply['summary'] as String).isNotEmpty
                     ? reply['summary'] as String
                     : '[消息]')
-            : null,
+            : previous?.replyTo;
+    messages[id] = ChatMessage(
+        id: id,
+        sequence: sequence,
+        conversationId: resolvedConversationId,
+        authorId: resolvedSenderId,
+        author: author,
+        contentType: body.type,
+        rawBody: body.raw,
+        text: body.text,
+        replyTo: replyTo,
         topic: topic,
-        mine: senderId is String && senderId == currentUserId,
-        reactions: _reactions(payload['reactions']));
+        mine: resolvedSenderId == null
+            ? previous?.mine ?? false
+            : resolvedSenderId == currentUserId,
+        reactions: body.type == 'revoked'
+            ? const []
+            : payload.containsKey('reactions')
+                ? _reactions(payload['reactions'])
+                : previous?.reactions ?? const []);
   }
 
   List<MessageReaction> _reactions(Object? value) => value is List
@@ -177,6 +194,8 @@ class RealtimeStore extends ChangeNotifier {
             payload['muted'] is bool ? payload['muted'] as bool : current.muted,
         lastMessageSeq: (payload['last_message_seq'] as num?)?.toInt() ??
             current.lastMessageSeq,
+        lastReadSeq: current.lastReadSeq,
+        lastChoiceSeq: current.lastChoiceSeq,
         members: current.members,
         canSend: current.canSend,
         topic: current.topic);
@@ -209,6 +228,8 @@ class RealtimeStore extends ChangeNotifier {
         pinned: current.pinned,
         muted: current.muted,
         lastMessageSeq: current.lastMessageSeq,
+        lastReadSeq: current.lastReadSeq,
+        lastChoiceSeq: current.lastChoiceSeq,
         type: current.type,
         members: current.members,
         canSend: current.canSend && !archived,

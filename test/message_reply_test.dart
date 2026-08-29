@@ -72,4 +72,29 @@ void main() {
     expect(message.topic?.conversationId, 'topic-1');
     expect(message.topic?.recentReplies.single.summary, 'topic reply');
   });
+
+  test('历史撤回消息使用撤回占位，不读取缺失正文', () async {
+    final repository = HttpMagicChatRepository(
+      serverUrl: 'https://chat.example.com',
+      sessionToken: 'token',
+      client: MockClient((_) async => http.Response(
+          jsonEncode({
+            'data': {
+              'messages': [
+                {
+                  'id': 'revoked-1',
+                  'seq': 3,
+                  'sender': {'id': 'user-2', 'name': 'Alice'},
+                  'revoked_at': '2026-08-29T12:00:00Z',
+                }
+              ]
+            }
+          }),
+          200)),
+    );
+
+    final message = (await repository.messages('conversation-1')).single;
+    expect(message.contentType, 'revoked');
+    expect(message.text, '消息已撤回');
+  });
 }

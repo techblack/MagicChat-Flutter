@@ -25,6 +25,7 @@ import 'features/messages/history_attachments_dialog.dart';
 import 'features/messages/topic_reply_preview.dart';
 import 'features/messages/topics_dialog.dart';
 import 'features/messages/topic_source_banner.dart';
+import 'features/messages/conversation_list.dart';
 import 'features/projects/projects_page.dart';
 import 'features/qr_scanner_page.dart';
 import 'domain/models.dart';
@@ -521,7 +522,9 @@ class _AppShellState extends State<AppShell> {
     final title = sender is Map<String, dynamic> && sender['name'] is String
         ? sender['name'] as String
         : '新消息';
-    final body = MessageContent.parse(data['body']).text;
+    final body =
+        MessageContent.fromEnvelope(data['body'], revokedAt: data['revoked_at'])
+            .text;
     await _notifications.showMessage(
         conversationId: conversationId, title: title, body: body);
   }
@@ -873,6 +876,8 @@ class _ConversationList extends StatefulWidget {
 class _ConversationListState extends State<_ConversationList> {
   Future<List<ChatConversation>>? _future;
   String? _currentUserId;
+  ConversationFilter _filter = ConversationFilter.all;
+  String _query = '';
   @override
   void initState() {
     super.initState();
@@ -915,12 +920,23 @@ class _ConversationListState extends State<_ConversationList> {
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
+        final conversations = orderConversations(snapshot.data!).where((item) =>
+            matchesConversationFilter(item, _filter) &&
+            matchesConversationQuery(item, _query));
         return ListView.separated(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            itemCount: snapshot.data!.length,
+            itemCount: conversations.isEmpty ? 2 : conversations.length + 1,
             separatorBuilder: (_, __) => const SizedBox(height: 2),
             itemBuilder: (context, i) {
-              final c = snapshot.data![i];
+              if (i == 0) {
+                return _conversationFilters(context);
+              }
+              if (conversations.isEmpty) {
+                return const Padding(
+                    padding: EdgeInsets.all(32),
+                    child: Center(child: Text('没有匹配的会话')));
+              }
+              final c = conversations.elementAt(i - 1);
               return ListTile(
                   minVerticalPadding: 10,
                   contentPadding:
@@ -963,6 +979,36 @@ class _ConversationListState extends State<_ConversationList> {
                   onLongPress: () => _showConversationActions(context, c));
             });
       });
+
+  Widget _conversationFilters(BuildContext context) => Column(children: [
+        TextField(
+            decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.search),
+                hintText: '搜索会话',
+                suffixIcon: _query.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: '清除搜索',
+                        onPressed: () => setState(() => _query = ''),
+                        icon: const Icon(Icons.clear))),
+            onChanged: (value) => setState(() => _query = value)),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 36,
+          child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: ConversationFilter.values
+                  .map((filter) => Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: ChoiceChip(
+                            label: Text(conversationFilterLabel(filter)),
+                            selected: _filter == filter,
+                            onSelected: (_) =>
+                                setState(() => _filter = filter)),
+                      ))
+                  .toList()),
+        )
+      ]);
 
   Future<void> _showConversationActions(
       BuildContext context, ChatConversation conversation) async {
@@ -1676,7 +1722,8 @@ class _ConversationViewState extends State<ConversationView> {
                               ? Alignment.centerRight
                               : Alignment.centerLeft,
                           child: GestureDetector(
-                            onTap: _selectedMessageIds.isEmpty
+                            onTap: _selectedMessageIds.isEmpty ||
+                                    message.contentType == 'revoked'
                                 ? null
                                 : () => setState(() {
                                       if (!_selectedMessageIds
@@ -1685,6 +1732,7 @@ class _ConversationViewState extends State<ConversationView> {
                                       }
                                     }),
                             onLongPress: () {
+                              if (message.contentType == 'revoked') return;
                               if (_selectedMessageIds.isNotEmpty) {
                                 setState(
                                     () => _selectedMessageIds.add(message.id));
@@ -1915,7 +1963,9 @@ class _ConversationViewState extends State<ConversationView> {
     if (!_topicIsOpen(conversationId)) return;
     final selected = _visibleMessages
         .where((message) =>
-            _selectedMessageIds.contains(message.id) && message.mine)
+            _selectedMessageIds.contains(message.id) &&
+            message.mine &&
+            message.contentType != 'revoked')
         .toList();
     for (final message in selected) {
       await widget.repository.revokeMessage(conversationId, message.id);
@@ -2067,6 +2117,7 @@ class _ConversationViewState extends State<ConversationView> {
 
   Future<void> _showMessageActions(
       String conversationId, ChatMessage message) async {
+    if (message.contentType == 'revoked') return;
     final topicArchived = _topicArchived;
     final action = await showModalBottomSheet<String>(
       context: context,
@@ -2193,6 +2244,7 @@ class _MessageBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final mine = message.mine;
+    final revoked = message.contentType == 'revoked';
     final prefix = switch (message.contentType) {
       'image' => Icons.image_outlined,
       'file' => Icons.attach_file,
@@ -2217,7 +2269,7 @@ class _MessageBubble extends StatelessWidget {
         ),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        if (message.replyTo != null)
+        if (!revoked && message.replyTo != null)
           Container(
             width: double.infinity,
             margin: const EdgeInsets.only(bottom: 6),
@@ -2258,43 +2310,55 @@ class _MessageBubble extends StatelessWidget {
           if (prefix != null) Icon(prefix, size: 18),
           if (prefix != null) const SizedBox(width: 6),
           Flexible(
-              child: message.contentType == 'markdown'
-                  ? MarkdownBody(
-                      data: message.text,
-                      styleSheet: MarkdownStyleSheet.fromTheme(
-                              Theme.of(context))
-                          .copyWith(
-                              p: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium
-                                  ?.copyWith(
-                                      color: mine ? colors.onPrimary : null),
-                              a: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium
-                                  ?.copyWith(
-                                      color: mine
-                                          ? colors.onPrimary
-                                          : colors.primary,
-                                      decoration: TextDecoration.underline)),
-                      onTapLink: (text, href, title) {
-                        final uri = href == null ? null : Uri.tryParse(href);
-                        if (uri != null) {
-                          launchUrl(uri, mode: LaunchMode.externalApplication);
-                        }
-                      })
-                  : FutureBuilder<List<Contact>>(
-                      future: contactsFuture,
-                      builder: (context, snapshot) {
-                        final contacts = snapshot.data ?? const <Contact>[];
-                        return Text(
-                            formatMentionText(message.text,
-                                contacts.map((c) => (id: c.id, name: c.name))),
-                            style: TextStyle(
-                                color: mine ? colors.onPrimary : null));
-                      })),
+              child: revoked
+                  ? Text(message.text,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: colors.onSurfaceVariant,
+                          fontStyle: FontStyle.italic))
+                  : message.contentType == 'markdown'
+                      ? MarkdownBody(
+                          data: message.text,
+                          styleSheet: MarkdownStyleSheet.fromTheme(
+                                  Theme.of(context))
+                              .copyWith(
+                                  p: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.copyWith(
+                                          color:
+                                              mine ? colors.onPrimary : null),
+                                  a: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.copyWith(
+                                          color: mine
+                                              ? colors.onPrimary
+                                              : colors.primary,
+                                          decoration:
+                                              TextDecoration.underline)),
+                          onTapLink: (text, href, title) {
+                            final uri =
+                                href == null ? null : Uri.tryParse(href);
+                            if (uri != null) {
+                              launchUrl(uri,
+                                  mode: LaunchMode.externalApplication);
+                            }
+                          })
+                      : FutureBuilder<List<Contact>>(
+                          future: contactsFuture,
+                          builder: (context, snapshot) {
+                            final contacts = snapshot.data ?? const <Contact>[];
+                            return Text(
+                                formatMentionText(
+                                    message.text,
+                                    contacts
+                                        .map((c) => (id: c.id, name: c.name))),
+                                style: TextStyle(
+                                    color: mine ? colors.onPrimary : null));
+                          })),
         ]),
-        if ((message.contentType == 'image' ||
+        if (!revoked &&
+            (message.contentType == 'image' ||
                 message.contentType == 'voice' ||
                 message.contentType == 'file') &&
             message.rawBody['file_id'] is String)
@@ -2334,7 +2398,7 @@ class _MessageBubble extends StatelessWidget {
                       Text(message.contentType == 'voice' ? '播放语音' : '打开附件'));
             },
           ),
-        if (message.contentType == 'choice' && options is List)
+        if (!revoked && message.contentType == 'choice' && options is List)
           ...options.whereType<Map<String, dynamic>>().map((option) {
             final id = option['id'];
             final label = option['label'] ?? option['text'];
@@ -2349,9 +2413,10 @@ class _MessageBubble extends StatelessWidget {
                   )
                 : const SizedBox.shrink();
           }),
-        if (message.contentType == 'chart')
+        if (!revoked && message.contentType == 'chart')
           _ChartPreview(body: message.rawBody),
-        if (message.contentType == 'object' || message.contentType == 'chart')
+        if (!revoked &&
+            (message.contentType == 'object' || message.contentType == 'chart'))
           ExpansionTile(
               tilePadding: EdgeInsets.zero,
               title: Text(message.contentType == 'chart' ? '查看图表数据' : '查看对象详情'),
@@ -2363,12 +2428,12 @@ class _MessageBubble extends StatelessWidget {
                             .convert(message.rawBody),
                         style: Theme.of(context).textTheme.bodySmall))
               ]),
-        if (message.topic != null)
+        if (!revoked && message.topic != null)
           TopicReplyPreview(
               topic: message.topic!,
               contactsFuture: contactsFuture,
               onOpen: onOpenTopic),
-        if (message.reactions.isNotEmpty)
+        if (!revoked && message.reactions.isNotEmpty)
           Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Wrap(

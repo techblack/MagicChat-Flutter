@@ -10,6 +10,20 @@ void main() {
     expect(MessageContent.parse({'type': 'chart'}).text, '[图表]');
   });
 
+  test('撤回消息正文缺失时使用稳定占位文案', () {
+    final content =
+        MessageContent.fromEnvelope(null, revokedAt: '2026-08-29T12:00:00Z');
+    expect(content.type, 'revoked');
+    expect(content.text, '消息已撤回');
+    expect(content.raw['type'], 'revoked');
+  });
+
+  test('正文明确标记 revoked 时也使用撤回占位文案', () {
+    final content = MessageContent.parse({'type': 'revoked'});
+    expect(content.type, 'revoked');
+    expect(content.text, '消息已撤回');
+  });
+
   test('提及 token 按联系人名称渲染', () {
     expect(
       formatMentionText(

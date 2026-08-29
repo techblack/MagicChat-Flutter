@@ -12,6 +12,8 @@ class ChatConversation {
       this.pinned = false,
       this.muted = false,
       this.lastMessageSeq = 0,
+      this.lastReadSeq = 0,
+      this.lastChoiceSeq = 0,
       this.type = 'direct',
       this.members = const [],
       this.canSend = true,
@@ -26,6 +28,8 @@ class ChatConversation {
   final bool pinned;
   final bool muted;
   final int lastMessageSeq;
+  final int lastReadSeq;
+  final int lastChoiceSeq;
   final String type;
   final List<Contact> members;
   final bool canSend;
@@ -72,6 +76,8 @@ class ChatConversation {
       pinned: value['pinned'] == true,
       muted: value['notification_muted'] == true,
       lastMessageSeq: (value['last_message_seq'] as num?)?.toInt() ?? 0,
+      lastReadSeq: (value['last_read_seq'] as num?)?.toInt() ?? 0,
+      lastChoiceSeq: (value['last_choice_seq'] as num?)?.toInt() ?? 0,
       canSend: value['can_send'] != false,
       members: members,
       topic: rawTopic is Map<String, dynamic>

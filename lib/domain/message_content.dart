@@ -6,6 +6,12 @@ class MessageContent {
   final String text;
   final Map<String, dynamic> raw;
 
+  /// 服务端撤回消息会省略正文，仅保留 `revoked_at`。
+  const MessageContent.revoked()
+      : type = 'revoked',
+        text = '消息已撤回',
+        raw = const {'type': 'revoked'};
+
   factory MessageContent.parse(Object? value) {
     if (value is! Map<String, dynamic>) {
       return MessageContent(type: 'unknown', text: '$value');
@@ -19,8 +25,16 @@ class MessageContent {
         raw: Map.unmodifiable(value));
   }
 
+  factory MessageContent.fromEnvelope(Object? body, {Object? revokedAt}) {
+    return revokedAt is String
+        ? const MessageContent.revoked()
+        : MessageContent.parse(body);
+  }
+
   static String _summary(Object? type, Map<String, dynamic> body) {
     switch (type) {
+      case 'revoked':
+        return '消息已撤回';
       case 'image':
         return '[图片]';
       case 'file':
