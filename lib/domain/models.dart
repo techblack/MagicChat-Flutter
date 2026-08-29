@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:typed_data';
 
 class ChatConversation {
@@ -438,6 +439,81 @@ class ChatMessage {
   final List<MessageReaction> reactions;
   final MessageReply? replyTo;
   final MessageTopic? topic;
+}
+
+enum ForwardMode { separate, merged }
+
+extension ForwardModeValue on ForwardMode {
+  String get wireValue => name;
+}
+
+/// 服务端用 UUID 作为转发请求的幂等键。
+String newForwardClientId() {
+  final random = Random.secure();
+  final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  final hex =
+      bytes.map((value) => value.toRadixString(16).padLeft(2, '0')).join();
+  return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
+      '${hex.substring(12, 16)}-${hex.substring(16, 20)}-'
+      '${hex.substring(20)}';
+}
+
+class ForwardMessagesRequest {
+  const ForwardMessagesRequest({
+    required this.clientForwardId,
+    required this.messageIds,
+    required this.mode,
+    required this.targetConversationIds,
+  });
+
+  final String clientForwardId;
+  final List<String> messageIds;
+  final ForwardMode mode;
+  final List<String> targetConversationIds;
+
+  Map<String, dynamic> toJson() => {
+        'client_forward_id': clientForwardId,
+        'message_ids': messageIds,
+        'mode': mode.wireValue,
+        'target_conversation_ids': targetConversationIds,
+      };
+}
+
+class ForwardTargetError {
+  const ForwardTargetError({required this.code, required this.message});
+
+  final String code;
+  final String message;
+}
+
+class ForwardTargetResult {
+  const ForwardTargetResult({
+    required this.conversationId,
+    required this.status,
+    this.messages = const [],
+    this.error,
+  });
+
+  final String conversationId;
+  final String status;
+  final List<ChatMessage> messages;
+  final ForwardTargetError? error;
+
+  bool get sent => status == 'sent';
+}
+
+class ForwardMessagesResult {
+  const ForwardMessagesResult({
+    required this.sentCount,
+    required this.failedCount,
+    required this.results,
+  });
+
+  final int sentCount;
+  final int failedCount;
+  final List<ForwardTargetResult> results;
 }
 
 class MessageReply {

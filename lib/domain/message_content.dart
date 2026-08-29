@@ -47,6 +47,8 @@ class MessageContent {
         return '[对象]';
       case 'chart':
         return '[图表]';
+      case 'forward_bundle':
+        return '[聊天记录] ${body['item_count'] ?? 0} 条';
       default:
         return '[消息]';
     }

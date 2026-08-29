@@ -35,6 +35,8 @@ abstract interface class MagicChatRepository {
   Future<TopicDetail> topicDetail(String conversationId);
   Future<ChatConversation> participateTopic(String conversationId);
   Future<ChatConversation> archiveTopic(String conversationId);
+  Future<ForwardMessagesResult> forwardMessages(
+      String conversationId, ForwardMessagesRequest request);
   Future<void> forwardMessage(
       String conversationId, String messageId, String targetConversationId);
   Future<List<ChatMessage>> messages(String conversationId,
@@ -351,6 +353,46 @@ class DemoRepository implements MagicChatRepository {
             sourceMessageId: metadata.sourceMessageId,
             sourceMessageSeq: metadata.sourceMessageSeq,
             sourceSender: metadata.sourceSender));
+  }
+
+  @override
+  Future<ForwardMessagesResult> forwardMessages(
+      String conversationId, ForwardMessagesRequest request) async {
+    final conversations = await this.conversations();
+    final known = conversations.map((item) => item.id).toSet();
+    final results = request.targetConversationIds.map((targetId) {
+      if (!known.contains(targetId)) {
+        return ForwardTargetResult(
+            conversationId: targetId,
+            status: 'failed',
+            error: const ForwardTargetError(
+                code: 'conversation_not_found', message: '目标会话不存在'));
+      }
+      return ForwardTargetResult(
+          conversationId: targetId,
+          status: 'sent',
+          messages: request.mode == ForwardMode.merged
+              ? [
+                  ChatMessage(
+                      id: 'demo-forward-${DateTime.now().microsecondsSinceEpoch}',
+                      conversationId: targetId,
+                      author: '我',
+                      text: '转发了 ${request.messageIds.length} 条消息',
+                      mine: true)
+                ]
+              : request.messageIds
+                  .map((id) => ChatMessage(
+                      id: 'demo-forward-$id-${DateTime.now().microsecondsSinceEpoch}',
+                      conversationId: targetId,
+                      author: '我',
+                      text: '转发消息 $id',
+                      mine: true))
+                  .toList());
+    }).toList(growable: false);
+    return ForwardMessagesResult(
+        sentCount: results.where((item) => item.sent).length,
+        failedCount: results.where((item) => !item.sent).length,
+        results: results);
   }
 
   @override
@@ -979,14 +1021,81 @@ class HttpMagicChatRepository implements MagicChatRepository {
   }
 
   @override
+  Future<ForwardMessagesResult> forwardMessages(
+      String conversationId, ForwardMessagesRequest request) async {
+    final data = _data(await _request('POST',
+        '/api/client/conversations/${Uri.encodeComponent(conversationId)}/messages/forward',
+        body: request.toJson()));
+    final sentCount = _nonNegativeInteger(data['sent_count']);
+    final failedCount = _nonNegativeInteger(data['failed_count']);
+    final rawResults = data['results'];
+    if (sentCount == null || failedCount == null || rawResults is! List) {
+      throw const FormatException('转发消息响应格式不正确');
+    }
+    final results = rawResults.map((item) {
+      if (item is! Map<String, dynamic> ||
+          item['conversation_id'] is! String ||
+          (item['conversation_id'] as String).isEmpty ||
+          (item['status'] != 'sent' && item['status'] != 'failed')) {
+        throw const FormatException('转发消息响应格式不正确');
+      }
+      final status = item['status'] as String;
+      final rawMessages = item['messages'];
+      final messages = status == 'sent'
+          ? (rawMessages is List
+              ? rawMessages.map((message) {
+                  if (message is! Map<String, dynamic>) {
+                    throw const FormatException('转发消息响应格式不正确');
+                  }
+                  final parsed = _messageFromJson(
+                      message, item['conversation_id'] as String);
+                  if (parsed.id.isEmpty) {
+                    throw const FormatException('转发消息响应格式不正确');
+                  }
+                  return parsed;
+                }).toList(growable: false)
+              : throw const FormatException('转发消息响应格式不正确'))
+          : const <ChatMessage>[];
+      ForwardTargetError? error;
+      final rawError = item['error'];
+      if (status == 'failed') {
+        if (rawError is! Map<String, dynamic> ||
+            rawError['code'] is! String ||
+            (rawError['code'] as String).isEmpty ||
+            rawError['message'] is! String ||
+            (rawError['message'] as String).isEmpty) {
+          throw const FormatException('转发消息响应格式不正确');
+        }
+        error = ForwardTargetError(
+            code: rawError['code'] as String,
+            message: rawError['message'] as String);
+      }
+      return ForwardTargetResult(
+          conversationId: item['conversation_id'] as String,
+          status: status,
+          messages: messages,
+          error: error);
+    }).toList(growable: false);
+    return ForwardMessagesResult(
+        sentCount: sentCount, failedCount: failedCount, results: results);
+  }
+
+  int? _nonNegativeInteger(Object? value) {
+    if (value is! num || !value.isFinite || value < 0 || value % 1 != 0) {
+      return null;
+    }
+    return value.toInt();
+  }
+
+  @override
   Future<void> forwardMessage(String conversationId, String messageId,
       String targetConversationId) async {
     await _request('POST',
         '/api/client/conversations/${Uri.encodeComponent(conversationId)}/messages/forward',
         body: {
-          'client_forward_id': DateTime.now().microsecondsSinceEpoch.toString(),
+          'client_forward_id': newForwardClientId(),
           'message_ids': [messageId],
-          'mode': 'single',
+          'mode': ForwardMode.separate.wireValue,
           'target_conversation_ids': [targetConversationId],
         });
   }
@@ -1141,29 +1250,31 @@ class HttpMagicChatRepository implements MagicChatRepository {
     if (values is! List) throw const FormatException('消息列表响应格式不正确');
     return values
         .whereType<Map<String, dynamic>>()
-        .map((item) {
-          final content = MessageContent.fromEnvelope(item['body'],
-              revokedAt: item['revoked_at']);
-          final sender = item['sender'];
-          final senderName =
-              sender is Map<String, dynamic> ? sender['name'] : null;
-          final senderId = sender is Map<String, dynamic> ? sender['id'] : null;
-          return ChatMessage(
-              id: '${item['id'] ?? ''}',
-              sequence: (item['seq'] as num?)?.toInt(),
-              authorId: senderId is String ? senderId : null,
-              author: '${senderName ?? '用户'}',
-              conversationId: conversationId,
-              contentType: content.type,
-              rawBody: content.raw,
-              text: content.text,
-              replyTo: _replyFromJson(item['reply_to']),
-              topic: _topicFromJson(item['topic']),
-              mine: senderId is String && senderId == _currentUserId,
-              reactions: _reactionsFromJson(item['reactions']));
-        })
+        .map((item) => _messageFromJson(item, conversationId))
         .where((item) => item.id.isNotEmpty)
         .toList();
+  }
+
+  ChatMessage _messageFromJson(
+      Map<String, dynamic> item, String conversationId) {
+    final content = MessageContent.fromEnvelope(item['body'],
+        revokedAt: item['revoked_at']);
+    final sender = item['sender'];
+    final senderName = sender is Map<String, dynamic> ? sender['name'] : null;
+    final senderId = sender is Map<String, dynamic> ? sender['id'] : null;
+    return ChatMessage(
+        id: '${item['id'] ?? ''}',
+        sequence: (item['seq'] as num?)?.toInt(),
+        authorId: senderId is String ? senderId : null,
+        author: '${senderName ?? '用户'}',
+        conversationId: conversationId,
+        contentType: content.type,
+        rawBody: content.raw,
+        text: content.text,
+        replyTo: _replyFromJson(item['reply_to']),
+        topic: _topicFromJson(item['topic']),
+        mine: senderId is String && senderId == _currentUserId,
+        reactions: _reactionsFromJson(item['reactions']));
   }
 
   @override

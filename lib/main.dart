@@ -1313,6 +1313,20 @@ class ConversationView extends StatefulWidget {
 }
 
 class _ConversationViewState extends State<ConversationView> {
+  static const _maxSelectedMessages = 50;
+  static const _maxForwardTargets = 20;
+  static const _forwardableMessageTypes = {
+    'text',
+    'markdown',
+    'link',
+    'card',
+    'chart',
+    'file',
+    'image',
+    'voice',
+    'forward_bundle',
+  };
+
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
   final _voiceRecorder = VoiceRecorder();
@@ -1353,6 +1367,12 @@ class _ConversationViewState extends State<ConversationView> {
   bool get _isTopicConversation =>
       _conversation?.type == 'topic' ||
       _topicDetail?.conversation.type == 'topic';
+
+  bool _canForwardOrSelect(ChatMessage message) =>
+      _forwardableMessageTypes.contains(message.contentType);
+
+  bool _hasMessageActions(ChatMessage message) =>
+      message.contentType != 'revoked' && message.contentType != 'unsupported';
 
   @override
   void initState() {
@@ -1720,6 +1740,17 @@ class _ConversationViewState extends State<ConversationView> {
                   icon: const Icon(Icons.copy_outlined),
                   onPressed: _copySelected),
               IconButton(
+                  tooltip: '转发所选',
+                  icon: const Icon(Icons.forward_outlined),
+                  onPressed: () => _showForwardDialog(
+                      conversationId,
+                      _visibleMessages
+                          .where((message) =>
+                              _selectedMessageIds.contains(message.id) &&
+                              _canForwardOrSelect(message))
+                          .map((message) => message.id)
+                          .toList())),
+              IconButton(
                   tooltip: '撤回所选',
                   icon: const Icon(Icons.undo),
                   onPressed: !_topicIsOpen(conversationId)
@@ -1761,20 +1792,24 @@ class _ConversationViewState extends State<ConversationView> {
                               : Alignment.centerLeft,
                           child: GestureDetector(
                             onTap: _selectedMessageIds.isEmpty ||
-                                    message.contentType == 'revoked'
+                                    !_canForwardOrSelect(message)
                                 ? null
                                 : () => setState(() {
                                       if (!_selectedMessageIds
                                           .remove(message.id)) {
+                                        if (_selectedMessageIds.length >=
+                                            _maxSelectedMessages) return;
                                         _selectedMessageIds.add(message.id);
                                       }
                                     }),
                             onLongPress: () {
-                              if (message.contentType == 'revoked') return;
                               if (_selectedMessageIds.isNotEmpty) {
+                                if (!_canForwardOrSelect(message)) return;
+                                if (_selectedMessageIds.length >=
+                                    _maxSelectedMessages) return;
                                 setState(
                                     () => _selectedMessageIds.add(message.id));
-                              } else {
+                              } else if (_hasMessageActions(message)) {
                                 _showMessageActions(conversationId, message);
                               }
                             },
@@ -2155,7 +2190,7 @@ class _ConversationViewState extends State<ConversationView> {
 
   Future<void> _showMessageActions(
       String conversationId, ChatMessage message) async {
-    if (message.contentType == 'revoked') return;
+    if (!_hasMessageActions(message)) return;
     final topicArchived = _topicArchived;
     final action = await showModalBottomSheet<String>(
       context: context,
@@ -2186,19 +2221,21 @@ class _ConversationViewState extends State<ConversationView> {
               title: const Text('回复'),
               onTap: () => Navigator.pop(context, 'reply'),
             ),
-          ListTile(
-              leading: const Icon(Icons.checklist),
-              title: const Text('多选'),
-              onTap: () => Navigator.pop(context, 'select')),
+          if (_canForwardOrSelect(message))
+            ListTile(
+                leading: const Icon(Icons.checklist),
+                title: const Text('多选'),
+                onTap: () => Navigator.pop(context, 'select')),
           if (!topicArchived)
             ListTile(
                 leading: const Icon(Icons.forum_outlined),
                 title: const Text('创建话题'),
                 onTap: () => Navigator.pop(context, 'topic')),
-          ListTile(
-              leading: const Icon(Icons.forward_outlined),
-              title: const Text('转发消息'),
-              onTap: () => Navigator.pop(context, 'forward')),
+          if (_canForwardOrSelect(message))
+            ListTile(
+                leading: const Icon(Icons.forward_outlined),
+                title: const Text('转发消息'),
+                onTap: () => Navigator.pop(context, 'forward')),
         ]),
       ),
     );
@@ -2231,33 +2268,201 @@ class _ConversationViewState extends State<ConversationView> {
         }
       }
     } else if (action == 'forward') {
-      final controller = TextEditingController();
-      final target = await showDialog<String>(
-          context: context,
-          builder: (context) => AlertDialog(
-                  title: const Text('转发到会话'),
-                  content: TextField(
-                      controller: controller,
-                      autofocus: true,
-                      decoration: const InputDecoration(labelText: '目标会话 ID')),
-                  actions: [
-                    TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('取消')),
-                    FilledButton(
-                        onPressed: () =>
-                            Navigator.pop(context, controller.text.trim()),
-                        child: const Text('转发'))
-                  ]));
-      controller.dispose();
-      if (target != null && target.isNotEmpty && mounted) {
-        await widget.repository
-            .forwardMessage(conversationId, message.id, target);
-      }
+      await _showForwardDialog(conversationId, [message.id]);
     } else if (action.startsWith('reaction:') && _topicIsOpen(conversationId)) {
       await widget.repository.setReaction(conversationId, message.id,
           text: action.substring('reaction:'.length), reacted: true);
     }
+  }
+
+  Future<void> _showForwardDialog(
+      String sourceConversationId, List<String> messageIds) async {
+    final ids = messageIds.toSet().toList();
+    if (ids.isEmpty || !mounted) return;
+    final conversations = await widget.repository.conversations();
+    if (!mounted) return;
+    final targets = conversations
+        .where((conversation) => conversation.topic?.archived != true)
+        .toList(growable: false);
+    final selected = <String>{};
+    final sent = <String>{};
+    final failed = <String, String>{};
+    var keyword = '';
+    var mode = ForwardMode.separate;
+    var submitting = false;
+    final clientForwardId = newForwardClientId();
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          final normalized = keyword.trim().toLowerCase();
+          final visible = normalized.isEmpty
+              ? targets
+              : targets
+                  .where((conversation) =>
+                      conversation.title.toLowerCase().contains(normalized))
+                  .toList(growable: false);
+          Future<void> submit() async {
+            if (submitting || selected.isEmpty) return;
+            setDialogState(() => submitting = true);
+            try {
+              final result = await widget.repository.forwardMessages(
+                  sourceConversationId,
+                  ForwardMessagesRequest(
+                      clientForwardId: clientForwardId,
+                      messageIds: ids,
+                      mode: mode,
+                      targetConversationIds: selected.toList()));
+              final nextFailed = <String, String>{};
+              for (final target in result.results) {
+                if (target.sent) {
+                  sent.add(target.conversationId);
+                } else {
+                  nextFailed[target.conversationId] =
+                      target.error?.message ?? '转发失败';
+                }
+              }
+              failed
+                ..clear()
+                ..addAll(nextFailed);
+              selected
+                ..clear()
+                ..addAll(nextFailed.keys);
+              if (result.failedCount == 0) {
+                if (mounted) {
+                  setState(_selectedMessageIds.clear);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('已转发到 ${result.sentCount} 个会话')));
+                }
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+              } else {
+                setDialogState(() {});
+                if (mounted && result.sentCount > 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text(
+                          '已转发到 ${result.sentCount} 个会话，${result.failedCount} 个失败')));
+                } else if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('转发失败，请检查目标会话权限')));
+                }
+              }
+            } catch (error) {
+              if (mounted) {
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(SnackBar(content: Text('转发消息失败：$error')));
+              }
+            } finally {
+              if (dialogContext.mounted) {
+                setDialogState(() => submitting = false);
+              }
+            }
+          }
+
+          return PopScope(
+            canPop: !submitting,
+            child: AlertDialog(
+              title: Text(ids.length > 1 ? '转发 ${ids.length} 条消息' : '转发消息'),
+              content: SizedBox(
+                width: 440,
+                height: 460,
+                child: Column(children: [
+                  TextField(
+                      enabled: !submitting,
+                      decoration: const InputDecoration(
+                          prefixIcon: Icon(Icons.search), labelText: '搜索会话'),
+                      onChanged: (value) =>
+                          setDialogState(() => keyword = value)),
+                  if (ids.length > 1) ...[
+                    const SizedBox(height: 10),
+                    SegmentedButton<ForwardMode>(
+                      segments: const [
+                        ButtonSegment(
+                            value: ForwardMode.separate, label: Text('逐条转发')),
+                        ButtonSegment(
+                            value: ForwardMode.merged, label: Text('合并转发')),
+                      ],
+                      selected: {mode},
+                      onSelectionChanged: submitting
+                          ? null
+                          : (values) =>
+                              setDialogState(() => mode = values.first),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: visible.isEmpty
+                        ? const Center(child: Text('没有匹配的会话'))
+                        : ListView.builder(
+                            itemCount: visible.length,
+                            itemBuilder: (context, index) {
+                              final conversation = visible[index];
+                              final id = conversation.id;
+                              final isSent = sent.contains(id);
+                              final error = failed[id];
+                              final label = conversation.type == 'group'
+                                  ? '群聊'
+                                  : conversation.type == 'app'
+                                      ? '应用'
+                                      : conversation.type == 'topic'
+                                          ? '话题'
+                                          : '私聊';
+                              return CheckboxListTile(
+                                value: isSent || selected.contains(id),
+                                enabled: !submitting && !isSent,
+                                title: Text(conversation.title),
+                                subtitle: Text(
+                                  error ?? (isSent ? '已转发' : label),
+                                  style: error == null
+                                      ? null
+                                      : TextStyle(
+                                          color: Theme.of(dialogContext)
+                                              .colorScheme
+                                              .error),
+                                ),
+                                secondary: CircleAvatar(
+                                    child: Text(conversation.title.isEmpty
+                                        ? '?'
+                                        : conversation.title.substring(0, 1))),
+                                onChanged: (checked) => setDialogState(() {
+                                  if (checked == true) {
+                                    if (selected.length >= _maxForwardTargets) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(const SnackBar(
+                                              content: Text('最多选择 20 个目标会话')));
+                                      return;
+                                    }
+                                    selected.add(id);
+                                  } else {
+                                    selected.remove(id);
+                                  }
+                                  failed.remove(id);
+                                }),
+                              );
+                            },
+                          ),
+                  ),
+                  Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text('已选择 ${selected.length} 个会话',
+                          style: Theme.of(context).textTheme.bodySmall)),
+                ]),
+              ),
+              actions: [
+                TextButton(
+                    onPressed:
+                        submitting ? null : () => Navigator.pop(dialogContext),
+                    child: const Text('取消')),
+                FilledButton(
+                    onPressed: submitting || selected.isEmpty ? null : submit,
+                    child: Text(submitting ? '转发中…' : '转发')),
+              ],
+            ),
+          );
+        },
+      ),
+    );
   }
 }
 
@@ -2290,6 +2495,7 @@ class _MessageBubble extends StatelessWidget {
       'choice' => Icons.checklist,
       'object' => Icons.view_agenda_outlined,
       'chart' => Icons.bar_chart,
+      'forward_bundle' => Icons.forum_outlined,
       _ => null,
     };
     final options = message.rawBody['options'];
@@ -2382,18 +2588,24 @@ class _MessageBubble extends StatelessWidget {
                                   mode: LaunchMode.externalApplication);
                             }
                           })
-                      : FutureBuilder<List<Contact>>(
-                          future: contactsFuture,
-                          builder: (context, snapshot) {
-                            final contacts = snapshot.data ?? const <Contact>[];
-                            return Text(
-                                formatMentionText(
-                                    message.text,
-                                    contacts
-                                        .map((c) => (id: c.id, name: c.name))),
-                                style: TextStyle(
-                                    color: mine ? colors.onPrimary : null));
-                          })),
+                      : message.contentType == 'forward_bundle'
+                          ? _ForwardBundlePreview(
+                              body: message.rawBody,
+                              summary: message.text,
+                              textColor: mine ? colors.onPrimary : null)
+                          : FutureBuilder<List<Contact>>(
+                              future: contactsFuture,
+                              builder: (context, snapshot) {
+                                final contacts =
+                                    snapshot.data ?? const <Contact>[];
+                                return Text(
+                                    formatMentionText(
+                                        message.text,
+                                        contacts.map(
+                                            (c) => (id: c.id, name: c.name))),
+                                    style: TextStyle(
+                                        color: mine ? colors.onPrimary : null));
+                              })),
         ]),
         if (!revoked &&
             (message.contentType == 'image' ||
@@ -2492,6 +2704,44 @@ class _MessageBubble extends StatelessWidget {
                               : null))
                       .toList()))
       ]),
+    );
+  }
+}
+
+class _ForwardBundlePreview extends StatelessWidget {
+  const _ForwardBundlePreview(
+      {required this.body, required this.summary, this.textColor});
+
+  final Map<String, dynamic> body;
+  final String summary;
+  final Color? textColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = body['items'];
+    final first = items is List && items.isNotEmpty && items.first is Map
+        ? (items.first as Map)['summary']
+        : null;
+    final preview =
+        first is String && first.trim().isNotEmpty ? first.trim() : summary;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.forum_outlined, color: textColor, size: 18),
+          const SizedBox(width: 6),
+          Text('聊天记录',
+              style: TextStyle(color: textColor, fontWeight: FontWeight.w600)),
+        ]),
+        if (preview.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(preview,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: textColor)),
+          ),
+      ],
     );
   }
 }
