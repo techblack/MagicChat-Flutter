@@ -21,6 +21,7 @@ import 'data/update_service.dart';
 import 'data/voice_recorder.dart';
 import 'data/avatar_processor.dart';
 import 'features/contacts/contacts_page.dart';
+import 'features/messages/history_attachments_dialog.dart';
 import 'features/projects/projects_page.dart';
 import 'features/qr_scanner_page.dart';
 import 'domain/models.dart';
@@ -1640,6 +1641,17 @@ class _ConversationViewState extends State<ConversationView> {
                   ),
                 Row(
                   children: [
+                    IconButton(
+                      icon: const Icon(Icons.folder_outlined),
+                      tooltip: '历史附件',
+                      onPressed: _sendingFile
+                          ? null
+                          : () => showHistoryAttachmentsDialog(
+                                context,
+                                repository: widget.repository,
+                                conversationId: conversationId,
+                              ),
+                    ),
                     IconButton(
                       icon: const Icon(Icons.alternate_email),
                       tooltip: '提及成员',

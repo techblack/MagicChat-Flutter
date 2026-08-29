@@ -85,6 +85,106 @@ class AttachmentUpload {
   final Uint8List? bytes;
 }
 
+class ConversationAttachment {
+  const ConversationAttachment({
+    required this.createdAt,
+    required this.fileId,
+    required this.messageId,
+    required this.name,
+    required this.sequence,
+    required this.sizeBytes,
+  });
+
+  final String createdAt;
+  final String fileId;
+  final String messageId;
+  final String name;
+  final int sequence;
+  final int sizeBytes;
+
+  int get seq => sequence;
+
+  factory ConversationAttachment.fromJson(Map<String, dynamic> value) {
+    final createdAt = value['created_at'];
+    final fileId = value['file_id'];
+    final messageId = value['message_id'];
+    final name = value['name'];
+    final sequence = value['seq'];
+    final sizeBytes = value['size_bytes'];
+    if (createdAt is! String ||
+        createdAt.isEmpty ||
+        fileId is! String ||
+        fileId.isEmpty ||
+        messageId is! String ||
+        messageId.isEmpty ||
+        name is! String ||
+        name.isEmpty ||
+        sequence is! num ||
+        !sequence.isFinite ||
+        sequence % 1 != 0 ||
+        sequence < 1 ||
+        sizeBytes is! num ||
+        !sizeBytes.isFinite ||
+        sizeBytes % 1 != 0 ||
+        sizeBytes < 0) {
+      throw const FormatException('附件响应格式不正确');
+    }
+    return ConversationAttachment(
+      createdAt: createdAt,
+      fileId: fileId,
+      messageId: messageId,
+      name: name,
+      sequence: sequence.toInt(),
+      sizeBytes: sizeBytes.toInt(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'created_at': createdAt,
+        'file_id': fileId,
+        'message_id': messageId,
+        'name': name,
+        'seq': sequence,
+        'size_bytes': sizeBytes,
+      };
+}
+
+class AttachmentPage {
+  const AttachmentPage({required this.attachments, this.nextCursor});
+
+  final List<ConversationAttachment> attachments;
+  final String? nextCursor;
+
+  factory AttachmentPage.fromJson(Map<String, dynamic> value) {
+    final rawAttachments = value['attachments'];
+    if (rawAttachments is! List) {
+      throw const FormatException('附件列表响应格式不正确');
+    }
+    final nextCursor = value['next_cursor'];
+    if (nextCursor != null && nextCursor is! String) {
+      throw const FormatException('附件游标响应格式不正确');
+    }
+    final normalizedCursor = (nextCursor as String?)?.trim();
+    if (rawAttachments.any((item) => item is! Map<String, dynamic>)) {
+      throw const FormatException('附件列表响应格式不正确');
+    }
+    return AttachmentPage(
+      attachments: rawAttachments
+          .cast<Map<String, dynamic>>()
+          .map(ConversationAttachment.fromJson)
+          .toList(growable: false),
+      nextCursor: normalizedCursor == null || normalizedCursor.isEmpty
+          ? null
+          : normalizedCursor,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'attachments': attachments.map((item) => item.toJson()).toList(),
+        'next_cursor': nextCursor,
+      };
+}
+
 class MessageReaction {
   const MessageReaction(
       {required this.text, required this.count, required this.reactedByMe});

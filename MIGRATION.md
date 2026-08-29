@@ -17,7 +17,7 @@ Flutter 工程与现有客户端并行演进，页面层通过 `MagicChatReposit
 | 二维码 | `QrScannerPage` | Android/iOS/macOS/Web 相机扫码、HTTP(S) 链接打开、文本结果展示及桌面粘贴兜底已接入 |
 | 项目、任务视图 | `features/projects` | 个人/团队项目摘要、项目创建/编辑/删除、项目关键词过滤与游标分页、列表/看板/日历/甘特、任务创建、编辑（描述/项目成员负责人/状态/优先级/日期/标签/一次性与周期提醒）、状态更新、删除、任务详情、完整活动流与 Markdown 评论、成员列表、群组授权管理已接入；目标仍与原版一致为待完善占位 |
 | 文档协作 | `features/projects`、`DocumentRealtime` | 文档目录树、富文本/Markdown 类型、创建/重命名/移动/删除、Markdown 编辑预览、本机草稿恢复及协作标题接口已接入；`DocumentRealtime` 已能发起 Hocuspocus 路由认证和初始状态请求握手，正文 Yjs 状态解析、编辑绑定与服务端持久化仍待迁移 |
-| 图片、文件、语音、选择、对象卡片、图表、回应 | `_MessageBubble`、`flutter_markdown_plus`、文件选择器、`VoiceRecorder`、`_ChartPreview` | 文件选择与 multipart 发送、Markdown 渲染及链接、图片/音频按 MIME 分流、图片交互预览、附件打开/语音播放入口、麦克风录制发送、类型摘要、折线/柱状/饼图/雷达图专用预览、对象展开、图标、choice 选项响应和 reaction 胶囊已接入；文本和附件回复引用、输入表情选择已接入 |
+| 图片、文件、语音、选择、对象卡片、图表、回应 | `_MessageBubble`、`flutter_markdown_plus`、文件选择器、`VoiceRecorder`、`_ChartPreview` | 文件选择与 multipart 发送、Markdown 渲染及链接、图片/音频按 MIME 分流、图片交互预览、附件打开/语音播放入口、历史附件分页列表、麦克风录制发送、类型摘要、折线/柱状/饼图/雷达图专用预览、对象展开、图标、choice 选项响应和 reaction 胶囊已接入；文本和附件回复引用、输入表情选择已接入 |
 | 推送、系统通知、平台文件能力 | Flutter platform channels | 待按平台接入 |
 
 ## 迁移顺序

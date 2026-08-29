@@ -30,6 +30,8 @@ abstract interface class MagicChatRepository {
       String conversationId, String messageId, String targetConversationId);
   Future<List<ChatMessage>> messages(String conversationId,
       {int? beforeSeq, int limit = 50});
+  Future<AttachmentPage> attachments(String conversationId,
+      {String? cursor, int limit = 50});
   Future<void> sendMessage(String conversationId, String text,
       {String? replyToMessageId});
   Future<bool> setConversationPinned(String conversationId, bool pinned);
@@ -212,6 +214,11 @@ class DemoRepository implements MagicChatRepository {
   Future<List<ChatMessage>> messages(String conversationId,
           {int? beforeSeq, int limit = 50}) async =>
       List.unmodifiable(_messages);
+
+  @override
+  Future<AttachmentPage> attachments(String conversationId,
+          {String? cursor, int limit = 50}) async =>
+      const AttachmentPage(attachments: []);
 
   @override
   Future<void> sendMessage(String conversationId, String text,
@@ -898,6 +905,20 @@ class HttpMagicChatRepository implements MagicChatRepository {
         })
         .where((item) => item.id.isNotEmpty)
         .toList();
+  }
+
+  @override
+  Future<AttachmentPage> attachments(String conversationId,
+      {String? cursor, int limit = 50}) async {
+    final normalizedCursor = cursor?.trim();
+    final query = Uri(queryParameters: {
+      if (normalizedCursor != null && normalizedCursor.isNotEmpty)
+        'cursor': normalizedCursor,
+      'limit': '$limit',
+    }).query;
+    final data = _data(await _request('GET',
+        '/api/client/conversations/${Uri.encodeComponent(conversationId)}/attachments?$query'));
+    return AttachmentPage.fromJson(data);
   }
 
   List<MessageReaction> _reactionsFromJson(Object? value) => value is List
