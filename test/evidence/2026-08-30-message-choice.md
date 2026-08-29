@@ -11,7 +11,7 @@
 | 命令 | 结果 | 覆盖 |
 | --- | --- | --- |
 | `dart format --set-exit-if-changed lib/domain/models.dart lib/data/repository.dart lib/data/realtime_store.dart lib/main.dart test/realtime_store_test.dart test/app_repository_test.dart test/message_choice_test.dart` | 通过 | 选择状态模型、仓库、实时投影、消息 UI 与测试格式 |
-| `flutter test --no-pub test/realtime_store_test.dart test/app_repository_test.dart test/message_choice_test.dart` | 通过（25 项） | HTTP/实时选择状态、单/多选交互和 golden 截图 |
+| `flutter test --no-pub test/realtime_store_test.dart test/app_repository_test.dart test/message_choice_test.dart` | 通过（27 项） | HTTP/实时选择状态、单/多选交互和 golden 截图 |
 | `flutter analyze --no-pub lib/domain/models.dart lib/data/repository.dart lib/data/realtime_store.dart lib/main.dart test/message_choice_test.dart` | 通过；无 error，仅仓库既有 info | 静态检查 |
 | `git diff --check` | 通过 | 空白错误检查 |
 
