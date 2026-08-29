@@ -149,7 +149,7 @@ class ProjectTask {
       this.startDate,
       this.dueDate,
       this.labels = const [],
-      this.assigneeUserId,
+      this.assignee,
       this.reminder});
   final String id;
   final String projectId;
@@ -160,8 +160,77 @@ class ProjectTask {
   final String? startDate;
   final String? dueDate;
   final List<String> labels;
-  final String? assigneeUserId;
+  final ProjectUser? assignee;
   final Map<String, dynamic>? reminder;
+  String? get assigneeUserId => assignee?.id;
+}
+
+class ProjectUser {
+  const ProjectUser(
+      {required this.id, this.name = '', this.nickname = '', this.avatar = ''});
+
+  final String id;
+  final String name;
+  final String nickname;
+  final String avatar;
+
+  String get displayName => nickname.isNotEmpty
+      ? nickname
+      : name.isNotEmpty
+          ? name
+          : id;
+}
+
+class ProjectMember extends ProjectUser {
+  const ProjectMember(
+      {required super.id,
+      super.name,
+      super.nickname,
+      super.avatar,
+      this.email = '',
+      this.displayNameOverride = '',
+      this.role = 'member',
+      this.status = '',
+      this.sourceGroupIds = const []});
+
+  final String email;
+  final String displayNameOverride;
+  final String role;
+  final String status;
+  final List<String> sourceGroupIds;
+
+  @override
+  String get displayName =>
+      displayNameOverride.isNotEmpty ? displayNameOverride : super.displayName;
+}
+
+class ProjectTaskActivityChange {
+  const ProjectTaskActivityChange(
+      {required this.field, required this.from, required this.to});
+  final String field;
+  final Object? from;
+  final Object? to;
+}
+
+class ProjectTaskActivity {
+  const ProjectTaskActivity(
+      {required this.id,
+      required this.projectId,
+      required this.taskId,
+      required this.type,
+      required this.actor,
+      required this.createdAt,
+      this.content = '',
+      this.changes = const []});
+
+  final String id;
+  final String projectId;
+  final String taskId;
+  final String type;
+  final ProjectUser actor;
+  final String content;
+  final List<ProjectTaskActivityChange> changes;
+  final String createdAt;
 }
 
 class ProjectTaskUpdate {

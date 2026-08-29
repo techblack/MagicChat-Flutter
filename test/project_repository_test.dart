@@ -189,6 +189,88 @@ void main() {
     expect(requests.last.url.path,
         '/api/client/document/collaboration/document-1/title');
   });
+
+  test('项目成员按游标拉取并保留负责人展示字段', () async {
+    final requests = <http.Request>[];
+    final repository = HttpMagicChatRepository(
+        serverUrl: 'https://chat.example.com',
+        sessionToken: 'test-token',
+        client: MockClient((request) async {
+          requests.add(request);
+          final secondPage = request.url.queryParameters['cursor'] == 'next-1';
+          return _jsonResponse({
+            'data': {
+              'members': [
+                {
+                  'id': secondPage ? 'user-bob' : 'user-alice',
+                  'name': secondPage ? 'Bob' : 'Alice',
+                  'nickname': '',
+                  'email': secondPage ? 'bob@example.com' : 'alice@example.com',
+                  'avatar': '',
+                  'display_name': secondPage ? 'Bob' : 'Alice',
+                  'role': secondPage ? 'member' : 'owner',
+                  'status': 'active',
+                  'source_group_ids': secondPage ? ['group-1'] : [],
+                }
+              ],
+              'next_cursor': secondPage ? null : 'next-1',
+            }
+          });
+        }));
+
+    final members = await repository.projectMembers('project-1');
+
+    expect(members.map((item) => item.displayName), ['Alice', 'Bob']);
+    expect(members.last.sourceGroupIds, ['group-1']);
+    expect(requests, hasLength(2));
+    expect(requests.last.url.queryParameters['cursor'], 'next-1');
+  });
+
+  test('任务动态可加载且评论响应立即回显', () async {
+    final requests = <http.Request>[];
+    Map<String, dynamic> activity(String id, String type, String content) => {
+          'id': id,
+          'project_id': 'project-1',
+          'task_id': 'task-1',
+          'type': type,
+          'actor': {'id': 'user-alice', 'name': 'Alice'},
+          'content': content,
+          'changes': type == 'updated'
+              ? [
+                  {'field': 'status', 'from': 'todo', 'to': 'in_progress'}
+                ]
+              : [],
+          'created_at': '2026-08-29T12:00:00Z',
+        };
+    final repository = HttpMagicChatRepository(
+        serverUrl: 'https://chat.example.com',
+        sessionToken: 'test-token',
+        client: MockClient((request) async {
+          requests.add(request);
+          if (request.method == 'POST') {
+            expect(jsonDecode(request.body), {'content': '已完成联调'});
+            return _jsonResponse(
+                {'data': activity('activity-2', 'commented', '已完成联调')});
+          }
+          return _jsonResponse({
+            'data': {
+              'activities': [activity('activity-1', 'updated', '')],
+              'next_cursor': null,
+            }
+          });
+        }));
+
+    final activities = await repository.taskActivities('project-1', 'task-1');
+    final comment =
+        await repository.addTaskComment('project-1', 'task-1', '已完成联调');
+
+    expect(activities.single.actor.displayName, 'Alice');
+    expect(activities.single.changes.single.to, 'in_progress');
+    expect(comment.type, 'commented');
+    expect(comment.content, '已完成联调');
+    expect(requests.last.url.path,
+        '/api/client/projects/project-1/tasks/task-1/comments');
+  });
 }
 
 http.Response _jsonResponse(Map<String, dynamic> body) =>

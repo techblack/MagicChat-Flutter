@@ -87,6 +87,43 @@ void main() {
     expect(find.text('发布说明'), findsNWidgets(2));
     expect(find.text('项目契约已经对齐', findRichText: true), findsOneWidget);
   });
+
+  testWidgets('任务详情展示活动流且评论立即回显', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(_app());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('客户端迭代'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('完善项目概览'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('任务动态'), findsOneWidget);
+    expect(find.text('演示用户 创建了任务'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).last, '**联调完成**');
+    await tester.tap(find.byTooltip('发送评论'));
+    await tester.pumpAndSettle();
+    expect(find.text('联调完成', findRichText: true), findsOneWidget);
+  });
+
+  testWidgets('任务编辑使用项目成员选择器', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(_app());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('客户端迭代'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(PopupMenuButton<String>).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('编辑任务'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('负责人'), findsOneWidget);
+    expect(find.text('未分配'), findsOneWidget);
+    expect(find.text('负责人用户 ID'), findsNothing);
+  });
 }
 
 Widget _app() => MaterialApp(

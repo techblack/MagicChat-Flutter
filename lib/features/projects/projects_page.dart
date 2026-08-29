@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../data/repository.dart';
 import '../../domain/models.dart';
 import 'document_editor_page.dart';
+import 'project_task_details_page.dart';
 
 class ProjectsPage extends StatefulWidget {
   const ProjectsPage({required this.repository, super.key});
@@ -270,9 +271,12 @@ class _ProjectsPageState extends State<ProjectsPage> {
 
   Widget _taskTile(BuildContext context, Project project, ProjectTask task) =>
       ListTile(
-        leading: Icon(task.status == 'done'
-            ? Icons.check_circle
-            : Icons.radio_button_unchecked),
+        leading: IconButton(
+            tooltip: '推进任务状态',
+            onPressed: () => _cycleTaskStatus(context, project, task),
+            icon: Icon(task.status == 'done'
+                ? Icons.check_circle
+                : Icons.radio_button_unchecked)),
         title: Text(task.title),
         subtitle: Text(
             '${_statusLabel(task.status)} · ${_priorityLabel(task.priority)}优先级'),
@@ -309,24 +313,38 @@ class _ProjectsPageState extends State<ProjectsPage> {
                   PopupMenuItem(value: 'edit', child: Text('编辑任务')),
                   PopupMenuItem(value: 'delete', child: Text('删除任务'))
                 ]),
-        onTap: () => _cycleTaskStatus(context, project, task),
+        onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+                builder: (_) => ProjectTaskDetailsPage(
+                    repository: repository, project: project, task: task))),
         onLongPress: () => _addComment(context, project, task),
       );
 
   Future<void> _editTask(
       BuildContext context, Project project, ProjectTask task) async {
+    List<ProjectMember> members;
+    try {
+      members = await repository.projectMembers(project.id);
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('项目成员加载失败：$error')));
+      }
+      return;
+    }
+    if (!context.mounted) return;
     final titleController = TextEditingController(text: task.title);
     final descriptionController = TextEditingController(text: task.description);
     final startController = TextEditingController(text: task.startDate ?? '');
     final dueController = TextEditingController(text: task.dueDate ?? '');
     final labelsController =
         TextEditingController(text: task.labels.join(', '));
-    final assigneeController =
-        TextEditingController(text: task.assigneeUserId ?? '');
     final reminderController =
         TextEditingController(text: task.reminder?['at']?.toString() ?? '');
     var status = task.status;
     var priority = task.priority;
+    var assigneeUserId = task.assigneeUserId ?? '';
     var reminderMode = task.reminder?['mode'] as String? ?? 'once';
     var reminderFrequency = task.reminder?['frequency'] as String? ?? 'daily';
     final result = await showDialog<bool>(
@@ -383,9 +401,19 @@ class _ProjectsPageState extends State<ProjectsPage> {
                   TextField(
                       controller: labelsController,
                       decoration: const InputDecoration(labelText: '标签（逗号分隔）')),
-                  TextField(
-                      controller: assigneeController,
-                      decoration: const InputDecoration(labelText: '负责人用户 ID')),
+                  DropdownButtonFormField<String>(
+                      initialValue: assigneeUserId,
+                      decoration: const InputDecoration(labelText: '负责人'),
+                      items: [
+                        const DropdownMenuItem(value: '', child: Text('未分配')),
+                        ...members.map((member) => DropdownMenuItem(
+                            value: member.id,
+                            child: Text(member.email.isEmpty
+                                ? member.displayName
+                                : '${member.displayName} · ${member.email}')))
+                      ],
+                      onChanged: (value) =>
+                          setDialogState(() => assigneeUserId = value ?? '')),
                   TextField(
                       controller: reminderController,
                       decoration: const InputDecoration(
@@ -447,9 +475,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
                   .map((value) => value.trim())
                   .where((value) => value.isNotEmpty)
                   .toList(),
-              assigneeUserId: assigneeController.text.trim().isEmpty
-                  ? null
-                  : assigneeController.text.trim(),
+              assigneeUserId: assigneeUserId.isEmpty ? null : assigneeUserId,
               reminder: reminderController.text.trim().isEmpty
                   ? null
                   : {
@@ -469,7 +495,6 @@ class _ProjectsPageState extends State<ProjectsPage> {
     startController.dispose();
     dueController.dispose();
     labelsController.dispose();
-    assigneeController.dispose();
     reminderController.dispose();
   }
 

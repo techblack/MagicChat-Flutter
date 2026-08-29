@@ -57,7 +57,11 @@ class _ProjectHarnessRepository extends DemoRepository {
             title: '完善项目概览',
             status: 'todo',
             priority: 3,
-            dueDate: '2026-09-02'),
+            description: '对齐个人项目、团队项目和任务统计的服务端契约。',
+            dueDate: '2026-09-02',
+            labels: ['Flutter', '契约'],
+            assignee:
+                ProjectUser(id: 'user-alice', name: 'Alice', nickname: '艾丽丝')),
         ProjectTask(
             id: 'task-2',
             projectId: 'project-1',
@@ -96,6 +100,62 @@ class _ProjectHarnessRepository extends DemoRepository {
             title: '沿用旧版任务弹窗',
             status: 'canceled',
             priority: 1),
+      ];
+
+  @override
+  Future<List<ProjectMember>> projectMembers(String projectId) async => const [
+        ProjectMember(
+            id: 'demo',
+            name: '演示用户',
+            email: 'demo@example.com',
+            displayNameOverride: '演示用户',
+            role: 'owner'),
+        ProjectMember(
+            id: 'user-alice',
+            name: 'Alice',
+            nickname: '艾丽丝',
+            email: 'alice@example.com',
+            displayNameOverride: '艾丽丝'),
+        ProjectMember(
+            id: 'user-bob',
+            name: 'Bob',
+            email: 'bob@example.com',
+            displayNameOverride: 'Bob'),
+      ];
+
+  @override
+  Future<List<ProjectTaskActivity>> taskActivities(
+          String projectId, String taskId) async =>
+      [
+        ProjectTaskActivity(
+            id: 'activity-1',
+            projectId: projectId,
+            taskId: taskId,
+            type: 'created',
+            actor: const ProjectUser(id: 'demo', name: '演示用户'),
+            createdAt: '2026-08-28T09:30:00+08:00'),
+        ProjectTaskActivity(
+            id: 'activity-2',
+            projectId: projectId,
+            taskId: taskId,
+            type: 'updated',
+            actor: const ProjectUser(
+                id: 'user-alice', name: 'Alice', nickname: '艾丽丝'),
+            changes: const [
+              ProjectTaskActivityChange(
+                  field: 'assignee', from: null, to: 'user-alice'),
+              ProjectTaskActivityChange(
+                  field: 'due_date', from: null, to: '2026-09-02'),
+            ],
+            createdAt: '2026-08-28T10:15:00+08:00'),
+        ProjectTaskActivity(
+            id: 'activity-3',
+            projectId: projectId,
+            taskId: taskId,
+            type: 'commented',
+            actor: const ProjectUser(id: 'user-bob', name: 'Bob'),
+            content: '**接口字段已核对**，可以进入流程验证。',
+            createdAt: '2026-08-29T14:20:00+08:00'),
       ];
 
   @override

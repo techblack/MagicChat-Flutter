@@ -58,7 +58,10 @@ abstract interface class MagicChatRepository {
   Future<Project> updateProject(String projectId,
       {String? name, String? description});
   Future<void> deleteProject(String projectId);
+  Future<List<ProjectMember>> projectMembers(String projectId);
   Future<List<ProjectTask>> tasks(String projectId);
+  Future<List<ProjectTaskActivity>> taskActivities(
+      String projectId, String taskId);
   Future<List<ProjectDocument>> documents(String projectId);
   Future<ProjectDocument> createDocument(String projectId, String title,
       {String kind = 'document', String? documentType, String? parentId});
@@ -75,7 +78,8 @@ abstract interface class MagicChatRepository {
   Future<ProjectTask> updateTask(
       String projectId, String taskId, ProjectTaskUpdate update);
   Future<void> deleteTask(String projectId, String taskId);
-  Future<void> addTaskComment(String projectId, String taskId, String content);
+  Future<ProjectTaskActivity> addTaskComment(
+      String projectId, String taskId, String content);
 }
 
 /// 开发壳数据。接入服务端时实现本接口，UI 不依赖 HTTP/WebSocket 细节。
@@ -274,12 +278,40 @@ class DemoRepository implements MagicChatRepository {
   Future<void> deleteProject(String projectId) async {}
 
   @override
+  Future<List<ProjectMember>> projectMembers(String projectId) async => const [
+        ProjectMember(
+            id: 'demo',
+            name: '演示用户',
+            email: 'demo@example.com',
+            displayNameOverride: '演示用户',
+            role: 'owner'),
+        ProjectMember(
+            id: 'member-alice',
+            name: 'Alice',
+            email: 'alice@example.com',
+            displayNameOverride: 'Alice'),
+      ];
+
+  @override
   Future<List<ProjectTask>> tasks(String projectId) async => const [
         ProjectTask(
             id: 'demo-task',
             projectId: '1',
             title: '迁移消息渲染器',
             status: 'in_progress'),
+      ];
+
+  @override
+  Future<List<ProjectTaskActivity>> taskActivities(
+          String projectId, String taskId) async =>
+      [
+        ProjectTaskActivity(
+            id: 'activity-created',
+            projectId: projectId,
+            taskId: taskId,
+            type: 'created',
+            actor: const ProjectUser(id: 'demo', name: '演示用户'),
+            createdAt: '2026-08-29T10:00:00Z')
       ];
 
   @override
@@ -346,15 +378,25 @@ class DemoRepository implements MagicChatRepository {
           startDate: update.startDate,
           dueDate: update.dueDate,
           labels: update.labels,
-          assigneeUserId: update.assigneeUserId,
+          assignee: update.assigneeUserId == null
+              ? null
+              : ProjectUser(id: update.assigneeUserId!),
           reminder: update.reminder);
 
   @override
   Future<void> deleteTask(String projectId, String taskId) async {}
 
   @override
-  Future<void> addTaskComment(
-      String projectId, String taskId, String content) async {}
+  Future<ProjectTaskActivity> addTaskComment(
+          String projectId, String taskId, String content) async =>
+      ProjectTaskActivity(
+          id: DateTime.now().toIso8601String(),
+          projectId: projectId,
+          taskId: taskId,
+          type: 'commented',
+          actor: const ProjectUser(id: 'demo', name: '演示用户'),
+          content: content,
+          createdAt: DateTime.now().toIso8601String());
 }
 
 /// 服务端 `/api/client/` 的最小 HTTP 实现。所有响应先按 unknown 解码，再做字段校验。
@@ -986,6 +1028,28 @@ class HttpMagicChatRepository implements MagicChatRepository {
   }
 
   @override
+  Future<List<ProjectMember>> projectMembers(String projectId) async {
+    final members = <ProjectMember>[];
+    String? cursor;
+    do {
+      final query = Uri(queryParameters: {
+        'limit': '100',
+        if (cursor != null) 'cursor': cursor,
+      }).query;
+      final data = _data(await _request('GET',
+          '/api/client/projects/${Uri.encodeComponent(projectId)}/members?$query'));
+      final values = data['members'];
+      if (values is! List) {
+        throw const FormatException('项目成员响应格式不正确');
+      }
+      members.addAll(
+          values.whereType<Map<String, dynamic>>().map(_projectMemberFromJson));
+      cursor = data['next_cursor'] as String?;
+    } while (cursor != null && cursor.isNotEmpty);
+    return members;
+  }
+
+  @override
   Future<List<ProjectTask>> tasks(String projectId) async {
     final data = _data(await _request('GET',
         '/api/client/projects/${Uri.encodeComponent(projectId)}/tasks?limit=100'));
@@ -1003,12 +1067,37 @@ class HttpMagicChatRepository implements MagicChatRepository {
             startDate: item['start_date'] as String?,
             dueDate: item['due_date'] as String?,
             labels: _labels(item['labels']),
-            assigneeUserId: _assigneeId(item['assignee']),
+            assignee: item['assignee'] is Map<String, dynamic>
+                ? _projectUserFromJson(item['assignee'] as Map<String, dynamic>)
+                : null,
             reminder: item['reminder'] is Map<String, dynamic>
                 ? item['reminder'] as Map<String, dynamic>
                 : null))
         .where((task) => task.id.isNotEmpty && task.title.isNotEmpty)
         .toList();
+  }
+
+  @override
+  Future<List<ProjectTaskActivity>> taskActivities(
+      String projectId, String taskId) async {
+    final activities = <ProjectTaskActivity>[];
+    String? cursor;
+    do {
+      final query = Uri(queryParameters: {
+        'limit': '100',
+        if (cursor != null) 'cursor': cursor,
+      }).query;
+      final data = _data(await _request('GET',
+          '/api/client/projects/${Uri.encodeComponent(projectId)}/tasks/${Uri.encodeComponent(taskId)}/activities?$query'));
+      final values = data['activities'];
+      if (values is! List) {
+        throw const FormatException('任务动态响应格式不正确');
+      }
+      activities.addAll(
+          values.whereType<Map<String, dynamic>>().map(_taskActivityFromJson));
+      cursor = data['next_cursor'] as String?;
+    } while (cursor != null && cursor.isNotEmpty);
+    return activities;
   }
 
   @override
@@ -1134,11 +1223,12 @@ class HttpMagicChatRepository implements MagicChatRepository {
   }
 
   @override
-  Future<void> addTaskComment(
+  Future<ProjectTaskActivity> addTaskComment(
       String projectId, String taskId, String content) async {
-    await _request('POST',
+    final data = _data(await _request('POST',
         '/api/client/projects/${Uri.encodeComponent(projectId)}/tasks/${Uri.encodeComponent(taskId)}/comments',
-        body: {'content': content});
+        body: {'content': content}));
+    return _taskActivityFromJson(data);
   }
 
   ProjectTask _taskFromJson(Map<String, dynamic> item) => ProjectTask(
@@ -1151,7 +1241,9 @@ class HttpMagicChatRepository implements MagicChatRepository {
       startDate: item['start_date'] as String?,
       dueDate: item['due_date'] as String?,
       labels: _labels(item['labels']),
-      assigneeUserId: _assigneeId(item['assignee']),
+      assignee: item['assignee'] is Map<String, dynamic>
+          ? _projectUserFromJson(item['assignee'] as Map<String, dynamic>)
+          : null,
       reminder: item['reminder'] is Map<String, dynamic>
           ? item['reminder'] as Map<String, dynamic>
           : null);
@@ -1162,11 +1254,6 @@ class HttpMagicChatRepository implements MagicChatRepository {
           .where((item) => item.trim().isNotEmpty)
           .toList()
       : const [];
-
-  String? _assigneeId(Object? value) =>
-      value is Map<String, dynamic> && value['id'] is String
-          ? value['id'] as String
-          : null;
 
   Project _projectFromJson(Map<String, dynamic> value) {
     if (value['id'] is! String || value['name'] is! String) {
@@ -1204,5 +1291,70 @@ class HttpMagicChatRepository implements MagicChatRepository {
         documentType: value['document_type'] as String?,
         sortOrder: (value['sort_order'] as num?)?.toInt() ?? 0,
         schemaVersion: (value['schema_version'] as num?)?.toInt() ?? 1);
+  }
+
+  ProjectUser _projectUserFromJson(Map<String, dynamic> value) {
+    if (value['id'] is! String) {
+      throw const FormatException('项目用户响应格式不正确');
+    }
+    return ProjectUser(
+        id: value['id'] as String,
+        name: value['name'] is String ? value['name'] as String : '',
+        nickname:
+            value['nickname'] is String ? value['nickname'] as String : '',
+        avatar: value['avatar'] is String ? value['avatar'] as String : '');
+  }
+
+  ProjectMember _projectMemberFromJson(Map<String, dynamic> value) {
+    if (value['id'] is! String ||
+        (value['role'] != 'owner' && value['role'] != 'member') ||
+        value['source_group_ids'] is! List) {
+      throw const FormatException('项目成员响应格式不正确');
+    }
+    return ProjectMember(
+        id: value['id'] as String,
+        name: value['name'] is String ? value['name'] as String : '',
+        nickname:
+            value['nickname'] is String ? value['nickname'] as String : '',
+        avatar: value['avatar'] is String ? value['avatar'] as String : '',
+        email: value['email'] is String ? value['email'] as String : '',
+        displayNameOverride: value['display_name'] is String
+            ? value['display_name'] as String
+            : '',
+        role: value['role'] as String,
+        status: value['status'] is String ? value['status'] as String : '',
+        sourceGroupIds:
+            (value['source_group_ids'] as List).whereType<String>().toList());
+  }
+
+  ProjectTaskActivity _taskActivityFromJson(Map<String, dynamic> value) {
+    final actor = value['actor'];
+    final changes = value['changes'];
+    if (value['id'] is! String ||
+        value['project_id'] is! String ||
+        value['task_id'] is! String ||
+        !const ['created', 'updated', 'commented'].contains(value['type']) ||
+        actor is! Map<String, dynamic> ||
+        value['content'] is! String ||
+        changes is! List ||
+        value['created_at'] is! String) {
+      throw const FormatException('任务动态响应格式不正确');
+    }
+    return ProjectTaskActivity(
+        id: value['id'] as String,
+        projectId: value['project_id'] as String,
+        taskId: value['task_id'] as String,
+        type: value['type'] as String,
+        actor: _projectUserFromJson(actor),
+        content: value['content'] as String,
+        changes: changes
+            .whereType<Map<String, dynamic>>()
+            .where((change) => change['field'] is String)
+            .map((change) => ProjectTaskActivityChange(
+                field: change['field'] as String,
+                from: change['from'],
+                to: change['to']))
+            .toList(),
+        createdAt: value['created_at'] as String);
   }
 }
