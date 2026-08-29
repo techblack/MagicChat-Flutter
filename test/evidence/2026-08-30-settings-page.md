@@ -18,8 +18,8 @@
 
 ![设置页](settings_page.png)
 
-截图由 Flutter Widget golden 流程生成，分辨率为 1042x662，使用 `DemoRepository` 展示账户、服务器、通知、存储和退出登录入口；真实账号及各平台系统权限弹窗仍需在对应环境执行。
+截图由 Flutter Widget golden 流程生成，分辨率为 1042x662，使用 `DemoRepository` 展示账户、服务器、通知、存储和退出登录入口；真实账号及各平台系统权限弹窗仍需在对应环境执行。Android 与 iOS 已提供本地通知通道。
 
 ## 未覆盖项
 
-本阶段只调整页面文件边界，没有改变服务端协议。APNs/JPush 厂商 SDK、富文本 `Y.XmlFragment("body")` 编辑绑定和 Android/iOS/Windows/macOS/Linux 真机矩阵仍按迁移矩阵待后续阶段完成。
+APNs/JPush 厂商 SDK、富文本 `Y.XmlFragment("body")` 编辑绑定和 Android/iOS/Windows/macOS/Linux 真机矩阵仍按迁移矩阵待后续阶段完成。
