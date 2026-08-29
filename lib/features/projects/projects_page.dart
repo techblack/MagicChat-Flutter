@@ -423,8 +423,8 @@ class _ProjectsPageState extends State<ProjectsPage> {
                 ? Icons.check_circle
                 : Icons.radio_button_unchecked)),
         title: Text(task.title),
-        subtitle: Text(
-            '${_statusLabel(task.status)} · ${_priorityLabel(task.priority)}优先级'),
+        subtitle: Text(_taskMetadata(task),
+            maxLines: 2, overflow: TextOverflow.ellipsis),
         trailing: PopupMenuButton<String>(
             onSelected: (action) async {
               if (!context.mounted) return;
@@ -1123,6 +1123,23 @@ class _ProjectsPageState extends State<ProjectsPage> {
     controller.dispose();
     if (content == null || content.isEmpty || !context.mounted) return;
     await repository.addTaskComment(project.id, task.id, content);
+  }
+
+  String _taskMetadata(ProjectTask task) {
+    final values = <String>[
+      _statusLabel(task.status),
+      '${_priorityLabel(task.priority)}优先级',
+    ];
+    if (task.assignee case final assignee?) {
+      values.add('负责人：${assignee.displayName}');
+    }
+    if (task.startDate != null || task.dueDate != null) {
+      values.add('排期：${task.startDate ?? '未设置'} → ${task.dueDate ?? '未设置'}');
+    }
+    if (task.labels.isNotEmpty) {
+      values.add('标签：${task.labels.join('、')}');
+    }
+    return values.join(' · ');
   }
 
   String _statusLabel(String status) => switch (status) {
