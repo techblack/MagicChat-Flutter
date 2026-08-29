@@ -13,7 +13,9 @@ class ChatConversation {
       this.muted = false,
       this.lastMessageSeq = 0,
       this.type = 'direct',
-      this.members = const []});
+      this.members = const [],
+      this.canSend = true,
+      this.topic});
   final String id;
   final String title;
   final String preview;
@@ -26,7 +28,383 @@ class ChatConversation {
   final int lastMessageSeq;
   final String type;
   final List<Contact> members;
+  final bool canSend;
+  final TopicMetadata? topic;
+
+  factory ChatConversation.fromJson(Map<String, dynamic> value) {
+    final id = value['id'];
+    final name = value['name'];
+    if (id is! String || id.isEmpty || name is! String || name.isEmpty) {
+      throw const FormatException('会话响应格式不正确');
+    }
+    final rawTopic = value['topic'];
+    if (rawTopic != null && rawTopic is! Map<String, dynamic>) {
+      throw const FormatException('会话话题信息响应格式不正确');
+    }
+    final rawMembers = value['members'];
+    final members = rawMembers is List
+        ? rawMembers
+            .whereType<Map<String, dynamic>>()
+            .where((item) => item['id'] is String && item['name'] is String)
+            .map((item) => Contact(
+                id: item['id'] as String,
+                name: item['name'] as String,
+                avatar:
+                    item['avatar'] is String ? item['avatar'] as String : '',
+                type: item['type'] == 'app' ? 'app' : 'user'))
+            .toList(growable: false)
+        : const <Contact>[];
+    return ChatConversation(
+      id: id,
+      title: name,
+      type: value['type'] is String ? value['type'] as String : 'direct',
+      preview: value['last_message_summary'] is String
+          ? value['last_message_summary'] as String
+          : value['summary'] is String
+              ? value['summary'] as String
+              : '',
+      announcement: value['announcement'] is String
+          ? value['announcement'] as String
+          : '',
+      isPublic: value['visibility'] == 'public' || value['is_public'] == true,
+      avatar: value['avatar'] is String ? value['avatar'] as String : '',
+      unread: (value['unread_count'] as num?)?.toInt() ?? 0,
+      pinned: value['pinned'] == true,
+      muted: value['notification_muted'] == true,
+      lastMessageSeq: (value['last_message_seq'] as num?)?.toInt() ?? 0,
+      canSend: value['can_send'] != false,
+      members: members,
+      topic: rawTopic is Map<String, dynamic>
+          ? TopicMetadata.fromJson(rawTopic)
+          : null,
+    );
+  }
 }
+
+class TopicSourceSender {
+  const TopicSourceSender(
+      {required this.id, required this.type, this.name = '', this.avatar = ''});
+
+  final String id;
+  final String name;
+  final String avatar;
+  final String type;
+
+  factory TopicSourceSender.fromJson(Map<String, dynamic> value,
+      {bool allowSystem = false}) {
+    final rawId = value['id'];
+    final type = value['type'];
+    final validType =
+        type == 'user' || type == 'app' || (allowSystem && type == 'system');
+    final id = rawId == null && type == 'system' && allowSystem ? '' : rawId;
+    if (id is! String || (id.isEmpty && type != 'system') || !validType) {
+      throw const FormatException('话题来源消息发送者响应格式不正确');
+    }
+    return TopicSourceSender(
+        id: id,
+        type: type as String,
+        name: value['name'] is String ? value['name'] as String : '',
+        avatar: value['avatar'] is String ? value['avatar'] as String : '');
+  }
+
+  Map<String, dynamic> toJson() => {
+        'avatar': avatar,
+        'id': id,
+        'name': name,
+        'type': type,
+      };
+}
+
+class TopicMetadata {
+  const TopicMetadata(
+      {required this.archived,
+      required this.parentConversationId,
+      required this.parentConversationName,
+      required this.parentConversationType,
+      required this.participating,
+      required this.sourceMessageId,
+      required this.sourceMessageSeq,
+      required this.sourceSender});
+
+  final bool archived;
+  final String parentConversationId;
+  final String parentConversationName;
+  final String parentConversationType;
+  final bool participating;
+  final String sourceMessageId;
+  final int sourceMessageSeq;
+  final TopicSourceSender sourceSender;
+
+  factory TopicMetadata.fromJson(Map<String, dynamic> value) {
+    final parentId = value['parent_conversation_id'];
+    final parentName = value['parent_conversation_name'];
+    final sourceId = value['source_message_id'];
+    final sourceSeq = value['source_message_seq'];
+    final sender = value['source_sender'];
+    if (parentId is! String ||
+        parentId.isEmpty ||
+        parentName is! String ||
+        parentName.isEmpty ||
+        sourceId is! String ||
+        sourceId.isEmpty ||
+        sourceSeq is! num ||
+        !sourceSeq.isFinite ||
+        sourceSeq % 1 != 0 ||
+        sender is! Map<String, dynamic>) {
+      throw const FormatException('会话话题信息响应格式不正确');
+    }
+    return TopicMetadata(
+      archived: value['archived'] == true,
+      parentConversationId: parentId,
+      parentConversationName: parentName,
+      parentConversationType:
+          _topicParentType(value['parent_conversation_type']),
+      participating: value['participating'] == true,
+      sourceMessageId: sourceId,
+      sourceMessageSeq: sourceSeq.toInt(),
+      sourceSender: TopicSourceSender.fromJson(sender),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'archived': archived,
+        'parent_conversation_id': parentConversationId,
+        'parent_conversation_name': parentConversationName,
+        'parent_conversation_type': parentConversationType,
+        'participating': participating,
+        'source_message_id': sourceMessageId,
+        'source_message_seq': sourceMessageSeq,
+        'source_sender': sourceSender.toJson(),
+      };
+}
+
+class TopicReference {
+  const TopicReference(
+      {required this.id, required this.name, this.type = 'group'});
+
+  final String id;
+  final String name;
+  final String type;
+
+  factory TopicReference.fromJson(Map<String, dynamic> value) {
+    final id = value['id'];
+    final name = value['name'];
+    if (id is! String || id.isEmpty || name is! String || name.isEmpty) {
+      throw const FormatException('话题父会话响应格式不正确');
+    }
+    return TopicReference(
+        id: id, name: name, type: _topicParentType(value['type']));
+  }
+
+  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'type': type};
+}
+
+class TopicSourceReply {
+  const TopicSourceReply(
+      {required this.id,
+      required this.sender,
+      required this.sequence,
+      required this.summary});
+
+  final String id;
+  final TopicSourceSender sender;
+  final int sequence;
+  final String summary;
+
+  int get seq => sequence;
+
+  factory TopicSourceReply.fromJson(Map<String, dynamic> value) {
+    final id = value['id'];
+    final sequence = value['seq'];
+    final summary = value['summary'];
+    final sender = value['sender'];
+    if (id is! String ||
+        id.isEmpty ||
+        sequence is! num ||
+        !sequence.isFinite ||
+        sequence % 1 != 0 ||
+        summary is! String ||
+        sender is! Map<String, dynamic>) {
+      throw const FormatException('话题来源回复响应格式不正确');
+    }
+    return TopicSourceReply(
+        id: id,
+        sender: TopicSourceSender.fromJson(sender, allowSystem: true),
+        sequence: sequence.toInt(),
+        summary: summary);
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'sender': sender.toJson(),
+        'seq': sequence,
+        'summary': summary,
+      };
+}
+
+class TopicSourceMessage {
+  const TopicSourceMessage(
+      {required this.id,
+      required this.createdAt,
+      required this.sender,
+      required this.sequence,
+      required this.summary,
+      this.body = const {},
+      this.revokedAt,
+      this.replyTo});
+
+  final String id;
+  final String createdAt;
+  final TopicSourceSender sender;
+  final int sequence;
+  final String summary;
+  final Map<String, dynamic> body;
+  final String? revokedAt;
+  final TopicSourceReply? replyTo;
+
+  int get seq => sequence;
+
+  factory TopicSourceMessage.fromJson(Map<String, dynamic> value) {
+    final id = value['id'];
+    final createdAt = value['created_at'];
+    final sequence = value['seq'];
+    final summary = value['summary'];
+    final sender = value['sender'];
+    final revokedAt = value['revoked_at'];
+    final body = value['body'];
+    final replyTo = value['reply_to'];
+    if (id is! String ||
+        id.isEmpty ||
+        createdAt is! String ||
+        createdAt.isEmpty ||
+        sequence is! num ||
+        !sequence.isFinite ||
+        sequence % 1 != 0 ||
+        summary is! String ||
+        sender is! Map<String, dynamic> ||
+        (revokedAt != null && revokedAt is! String) ||
+        (replyTo != null && replyTo is! Map<String, dynamic>) ||
+        (revokedAt == null && body is! Map<String, dynamic>)) {
+      throw const FormatException('话题来源消息响应格式不正确');
+    }
+    return TopicSourceMessage(
+      id: id,
+      createdAt: createdAt,
+      sender: TopicSourceSender.fromJson(sender),
+      sequence: sequence.toInt(),
+      summary: summary,
+      body: revokedAt is String
+          ? const {'type': 'revoked'}
+          : Map<String, dynamic>.from(body as Map),
+      revokedAt: revokedAt as String?,
+      replyTo: replyTo is Map<String, dynamic>
+          ? TopicSourceReply.fromJson(replyTo)
+          : null,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'body': body,
+        'created_at': createdAt,
+        'id': id,
+        'revoked_at': revokedAt,
+        'sender': sender.toJson(),
+        'seq': sequence,
+        'summary': summary,
+        if (replyTo != null) 'reply_to': replyTo!.toJson(),
+      };
+}
+
+class TopicDetail {
+  const TopicDetail(
+      {required this.canArchive,
+      required this.canParticipate,
+      required this.conversation,
+      required this.parentConversation,
+      required this.sourceMessage});
+
+  final bool canArchive;
+  final bool canParticipate;
+  final ChatConversation conversation;
+  final TopicReference parentConversation;
+  final TopicSourceMessage sourceMessage;
+
+  factory TopicDetail.fromJson(Map<String, dynamic> value) {
+    final conversation = value['conversation'];
+    final parent = value['parent_conversation'];
+    final source = value['source_message'];
+    if (conversation is! Map<String, dynamic> ||
+        parent is! Map<String, dynamic> ||
+        source is! Map<String, dynamic>) {
+      throw const FormatException('话题详情响应格式不正确');
+    }
+    return TopicDetail(
+      canArchive: value['can_archive'] == true,
+      canParticipate: value['can_participate'] == true,
+      conversation: ChatConversation.fromJson(conversation),
+      parentConversation: TopicReference.fromJson(parent),
+      sourceMessage: TopicSourceMessage.fromJson(source),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'can_archive': canArchive,
+        'can_participate': canParticipate,
+        'conversation': {
+          'id': conversation.id,
+          'name': conversation.title,
+          'type': conversation.type,
+          'avatar': conversation.avatar,
+          'can_send': conversation.canSend,
+          if (conversation.topic != null) 'topic': conversation.topic!.toJson(),
+        },
+        'parent_conversation': parentConversation.toJson(),
+        'source_message': sourceMessage.toJson(),
+      };
+}
+
+class TopicPage {
+  const TopicPage({required this.topics, this.nextCursor});
+
+  final List<ChatConversation> topics;
+  final String? nextCursor;
+
+  factory TopicPage.fromJson(Map<String, dynamic> value) {
+    final rawTopics = value['topics'];
+    final nextCursor = value['next_cursor'];
+    if (rawTopics is! List ||
+        rawTopics.any((item) => item is! Map<String, dynamic>) ||
+        (nextCursor != null && nextCursor is! String)) {
+      throw const FormatException('话题列表响应格式不正确');
+    }
+    final topics = rawTopics
+        .cast<Map<String, dynamic>>()
+        .map(ChatConversation.fromJson)
+        .toList(growable: false);
+    if (topics.any((topic) => topic.type != 'topic')) {
+      throw const FormatException('话题列表响应格式不正确');
+    }
+    final cursor = (nextCursor as String?)?.trim();
+    return TopicPage(
+        topics: topics,
+        nextCursor: cursor == null || cursor.isEmpty ? null : cursor);
+  }
+
+  Map<String, dynamic> toJson() => {
+        'next_cursor': nextCursor,
+        'topics': topics
+            .map((topic) => {
+                  'id': topic.id,
+                  'name': topic.title,
+                  'type': topic.type,
+                  if (topic.topic != null) 'topic': topic.topic!.toJson(),
+                })
+            .toList(),
+      };
+}
+
+String _topicParentType(Object? value) =>
+    value == 'direct' || value == 'app' ? value as String : 'group';
 
 class ChatMessage {
   const ChatMessage(

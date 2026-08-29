@@ -104,4 +104,69 @@ void main() {
     });
     expect(store.messages['m2']?.text, 'envelope');
   });
+
+  test('投影话题参与和关闭事件并保持来源元数据', () {
+    final store = RealtimeStore();
+    store.conversations['topic-1'] = ChatConversation(
+        id: 'topic-1',
+        title: '话题',
+        type: 'topic',
+        topic: const TopicMetadata(
+            archived: false,
+            parentConversationId: 'parent-1',
+            parentConversationName: '群聊',
+            parentConversationType: 'group',
+            participating: false,
+            sourceMessageId: 'message-1',
+            sourceMessageSeq: 8,
+            sourceSender: TopicSourceSender(id: 'user-1', type: 'user')));
+    store.apply({
+      'event': 'topic.participated',
+      'cursor': 1,
+      'payload': {
+        'conversation_id': 'topic-1',
+        'parent_conversation_id': 'parent-1',
+        'source_message_id': 'message-1',
+      }
+    });
+    expect(store.conversations['topic-1']?.topic?.participating, isTrue);
+    store.apply({
+      'event': 'topic.archived',
+      'cursor': 2,
+      'payload': {
+        'conversation_id': 'topic-1',
+        'parent_conversation_id': 'parent-1',
+        'source_message_id': 'message-1',
+        'archived': true,
+      }
+    });
+    expect(store.conversations['topic-1']?.topic?.archived, isTrue);
+    expect(store.conversations['topic-1']?.canSend, isFalse);
+  });
+
+  test('话题创建事件不把未参与者错误标为已参与', () {
+    final store = RealtimeStore();
+    store.conversations['topic-1'] = ChatConversation(
+        id: 'topic-1',
+        title: '话题',
+        type: 'topic',
+        topic: const TopicMetadata(
+            archived: false,
+            parentConversationId: 'parent-1',
+            parentConversationName: '群聊',
+            parentConversationType: 'group',
+            participating: false,
+            sourceMessageId: 'message-1',
+            sourceMessageSeq: 8,
+            sourceSender: TopicSourceSender(id: 'user-1', type: 'user')));
+    store.apply({
+      'event': 'topic.created',
+      'payload': {
+        'conversation_id': 'topic-1',
+        'parent_conversation_id': 'parent-1',
+        'source_message_id': 'message-1',
+      }
+    });
+    expect(store.conversations['topic-1']?.topic?.participating, isFalse);
+  });
 }

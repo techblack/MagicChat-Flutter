@@ -35,6 +35,10 @@ class RealtimeStore extends ChangeNotifier {
       case 'conversation.pin_updated':
       case 'conversation.mute_updated':
         _patchConversation(payload);
+      case 'topic.created':
+      case 'topic.participated':
+      case 'topic.archived':
+        _patchTopic(payload, event);
       case 'user.presence.updated':
         _patchPresence(payload);
     }
@@ -160,6 +164,50 @@ class RealtimeStore extends ChangeNotifier {
             payload['muted'] is bool ? payload['muted'] as bool : current.muted,
         lastMessageSeq: (payload['last_message_seq'] as num?)?.toInt() ??
             current.lastMessageSeq,
-        members: current.members);
+        members: current.members,
+        canSend: current.canSend,
+        topic: current.topic);
+  }
+
+  void _patchTopic(Map<String, dynamic> payload, String event) {
+    final id = payload['conversation_id'];
+    final parentId = payload['parent_conversation_id'];
+    final sourceId = payload['source_message_id'];
+    if (id is! String ||
+        id.isEmpty ||
+        parentId is! String ||
+        parentId.isEmpty ||
+        sourceId is! String ||
+        sourceId.isEmpty) return;
+    final archived = payload['archived'] == true;
+    final current = conversations[id];
+    final topic = current?.topic;
+    if (current == null || topic == null) return;
+    if (topic.parentConversationId != parentId ||
+        topic.sourceMessageId != sourceId) return;
+    conversations[id] = ChatConversation(
+        id: current.id,
+        title: current.title,
+        preview: current.preview,
+        announcement: current.announcement,
+        isPublic: current.isPublic,
+        avatar: current.avatar,
+        unread: current.unread,
+        pinned: current.pinned,
+        muted: current.muted,
+        lastMessageSeq: current.lastMessageSeq,
+        type: current.type,
+        members: current.members,
+        canSend: current.canSend && !archived,
+        topic: TopicMetadata(
+            archived: archived,
+            parentConversationId: topic.parentConversationId,
+            parentConversationName: topic.parentConversationName,
+            parentConversationType: topic.parentConversationType,
+            participating:
+                event == 'topic.participated' ? true : topic.participating,
+            sourceMessageId: topic.sourceMessageId,
+            sourceMessageSeq: topic.sourceMessageSeq,
+            sourceSender: topic.sourceSender));
   }
 }

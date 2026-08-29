@@ -22,6 +22,7 @@ import 'data/voice_recorder.dart';
 import 'data/avatar_processor.dart';
 import 'features/contacts/contacts_page.dart';
 import 'features/messages/history_attachments_dialog.dart';
+import 'features/messages/topics_dialog.dart';
 import 'features/projects/projects_page.dart';
 import 'features/qr_scanner_page.dart';
 import 'domain/models.dart';
@@ -738,6 +739,7 @@ class MessagesPage extends StatelessWidget {
                 repository: repository,
                 realtimeStore: realtimeStore,
                 conversationId: selectedId,
+                onOpenConversation: onSelect,
               ),
             ),
           ]);
@@ -757,7 +759,8 @@ class MessagesPage extends StatelessWidget {
                   child: ConversationView(
                       repository: repository,
                       realtimeStore: realtimeStore,
-                      conversationId: selectedId))
+                      conversationId: selectedId,
+                      onOpenConversation: onSelect))
           ]),
           Positioned(
               right: 16,
@@ -1213,10 +1216,12 @@ class ConversationView extends StatefulWidget {
       {required this.repository,
       this.realtimeStore,
       required this.conversationId,
+      this.onOpenConversation,
       super.key});
   final MagicChatRepository repository;
   final RealtimeStore? realtimeStore;
   final String? conversationId;
+  final ValueChanged<String>? onOpenConversation;
   @override
   State<ConversationView> createState() => _ConversationViewState();
 }
@@ -1653,6 +1658,18 @@ class _ConversationViewState extends State<ConversationView> {
                               ),
                     ),
                     IconButton(
+                      icon: const Icon(Icons.forum_outlined),
+                      tooltip: '话题列表',
+                      onPressed: widget.onOpenConversation == null
+                          ? null
+                          : () => showConversationTopicsDialog(
+                                context,
+                                repository: widget.repository,
+                                conversationId: conversationId,
+                                onOpenTopic: widget.onOpenConversation,
+                              ),
+                    ),
+                    IconButton(
                       icon: const Icon(Icons.alternate_email),
                       tooltip: '提及成员',
                       onPressed: _sendingFile ? null : _pickMention,
@@ -2001,7 +2018,20 @@ class _ConversationViewState extends State<ConversationView> {
     } else if (action == 'revoke') {
       await _confirmRevoke(conversationId, message);
     } else if (action == 'topic') {
-      await widget.repository.createTopic(conversationId, message.id);
+      try {
+        final topic =
+            await widget.repository.createTopic(conversationId, message.id);
+        if (mounted) {
+          ScaffoldMessenger.maybeOf(context)
+              ?.showSnackBar(const SnackBar(content: Text('话题已创建或已打开')));
+          widget.onOpenConversation?.call(topic.id);
+        }
+      } catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.maybeOf(context)
+              ?.showSnackBar(SnackBar(content: Text('创建话题失败：$error')));
+        }
+      }
     } else if (action == 'forward') {
       final controller = TextEditingController();
       final target = await showDialog<String>(

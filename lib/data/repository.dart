@@ -26,6 +26,11 @@ abstract interface class MagicChatRepository {
   Future<void> removeConversationMember(String conversationId, String memberId,
       {String memberType = 'user'});
   Future<ChatConversation> createTopic(String conversationId, String messageId);
+  Future<TopicPage> topics(String conversationId,
+      {String? cursor, int? limit, String status = 'all'});
+  Future<TopicDetail> topicDetail(String conversationId);
+  Future<ChatConversation> participateTopic(String conversationId);
+  Future<ChatConversation> archiveTopic(String conversationId);
   Future<void> forwardMessage(
       String conversationId, String messageId, String targetConversationId);
   Future<List<ChatMessage>> messages(String conversationId,
@@ -201,10 +206,137 @@ class DemoRepository implements MagicChatRepository {
   Future<void> removeConversationMember(String conversationId, String memberId,
       {String memberType = 'user'}) async {}
 
+  final _demoTopics = <ChatConversation>[];
+
   @override
   Future<ChatConversation> createTopic(
-          String conversationId, String messageId) async =>
-      ChatConversation(id: '$conversationId:$messageId', title: '话题');
+      String conversationId, String messageId) async {
+    final topicId = '$conversationId:$messageId';
+    final existing = _demoTopics.where((item) => item.id == topicId);
+    if (existing.isNotEmpty) return existing.first;
+    final topic = ChatConversation(
+        id: topicId,
+        title: '话题',
+        type: 'topic',
+        topic: TopicMetadata(
+            archived: false,
+            parentConversationId: conversationId,
+            parentConversationName: '演示会话',
+            parentConversationType: 'group',
+            participating: true,
+            sourceMessageId: messageId,
+            sourceMessageSeq: 1,
+            sourceSender: const TopicSourceSender(
+                id: 'demo', type: 'user', name: '演示用户')));
+    _demoTopics.add(topic);
+    return topic;
+  }
+
+  @override
+  Future<TopicPage> topics(String conversationId,
+      {String? cursor, int? limit, String status = 'all'}) async {
+    final values = _demoTopics.where((item) {
+      final metadata = item.topic;
+      if (metadata == null || metadata.parentConversationId != conversationId) {
+        return false;
+      }
+      return status == 'archived'
+          ? metadata.archived
+          : status == 'active'
+              ? !metadata.archived
+              : true;
+    }).toList();
+    final start = cursor == null ? 0 : int.tryParse(cursor) ?? 0;
+    final safeStart = start.clamp(0, values.length);
+    final end = limit == null
+        ? values.length
+        : (safeStart + limit).clamp(0, values.length);
+    return TopicPage(
+        topics: values.sublist(safeStart, end),
+        nextCursor: end < values.length ? '$end' : null);
+  }
+
+  @override
+  Future<TopicDetail> topicDetail(String conversationId) async {
+    final conversation = _demoTopics.firstWhere(
+        (item) => item.id == conversationId,
+        orElse: () => throw StateError('话题不存在'));
+    final metadata = conversation.topic!;
+    return TopicDetail(
+        canArchive: !metadata.archived,
+        canParticipate: !metadata.participating && !metadata.archived,
+        conversation: conversation,
+        parentConversation: TopicReference(
+            id: metadata.parentConversationId,
+            name: metadata.parentConversationName,
+            type: metadata.parentConversationType),
+        sourceMessage: TopicSourceMessage(
+            id: metadata.sourceMessageId,
+            createdAt: '2026-08-29T10:00:00Z',
+            sender: metadata.sourceSender,
+            sequence: metadata.sourceMessageSeq,
+            summary: '演示消息',
+            body: const {'type': 'text', 'content': '演示消息'}));
+  }
+
+  ChatConversation _replaceDemoTopic(
+      String conversationId, TopicMetadata metadata) {
+    final index = _demoTopics.indexWhere((item) => item.id == conversationId);
+    if (index < 0) throw StateError('话题不存在');
+    final current = _demoTopics[index];
+    final updated = ChatConversation(
+        id: current.id,
+        title: current.title,
+        preview: current.preview,
+        announcement: current.announcement,
+        isPublic: current.isPublic,
+        avatar: current.avatar,
+        unread: current.unread,
+        pinned: current.pinned,
+        muted: current.muted,
+        lastMessageSeq: current.lastMessageSeq,
+        type: current.type,
+        members: current.members,
+        canSend: current.canSend && !metadata.archived,
+        topic: metadata);
+    _demoTopics[index] = updated;
+    return updated;
+  }
+
+  @override
+  Future<ChatConversation> participateTopic(String conversationId) async {
+    final detail = await topicDetail(conversationId);
+    final metadata = detail.conversation.topic!;
+    if (metadata.archived) throw StateError('话题已关闭，不能参与');
+    return _replaceDemoTopic(
+        conversationId,
+        TopicMetadata(
+            archived: metadata.archived,
+            parentConversationId: metadata.parentConversationId,
+            parentConversationName: metadata.parentConversationName,
+            parentConversationType: metadata.parentConversationType,
+            participating: true,
+            sourceMessageId: metadata.sourceMessageId,
+            sourceMessageSeq: metadata.sourceMessageSeq,
+            sourceSender: metadata.sourceSender));
+  }
+
+  @override
+  Future<ChatConversation> archiveTopic(String conversationId) async {
+    final detail = await topicDetail(conversationId);
+    final metadata = detail.conversation.topic!;
+    return _replaceDemoTopic(
+        conversationId,
+        TopicMetadata(
+            archived: true,
+            parentConversationId: metadata.parentConversationId,
+            parentConversationName: metadata.parentConversationName,
+            parentConversationType: metadata.parentConversationType,
+            participating: metadata.participating,
+            sourceMessageId: metadata.sourceMessageId,
+            sourceMessageSeq: metadata.sourceMessageSeq,
+            sourceSender: metadata.sourceSender));
+  }
 
   @override
   Future<void> forwardMessage(String conversationId, String messageId,
@@ -737,6 +869,41 @@ class HttpMagicChatRepository implements MagicChatRepository {
   }
 
   @override
+  Future<TopicPage> topics(String conversationId,
+      {String? cursor, int? limit, String status = 'all'}) async {
+    final query = Uri(queryParameters: {
+      if (cursor != null && cursor.trim().isNotEmpty) 'cursor': cursor.trim(),
+      if (limit != null) 'limit': '$limit',
+      if (status.trim().isNotEmpty && status != 'all') 'status': status,
+    }).query;
+    final suffix = query.isEmpty ? '' : '?$query';
+    final data = _data(await _request('GET',
+        '/api/client/conversations/${Uri.encodeComponent(conversationId)}/topics$suffix'));
+    return TopicPage.fromJson(data);
+  }
+
+  @override
+  Future<TopicDetail> topicDetail(String conversationId) async {
+    final data = _data(await _request('GET',
+        '/api/client/conversations/topics/${Uri.encodeComponent(conversationId)}'));
+    return TopicDetail.fromJson(data);
+  }
+
+  @override
+  Future<ChatConversation> participateTopic(String conversationId) async {
+    final data = _data(await _request('POST',
+        '/api/client/conversations/topics/${Uri.encodeComponent(conversationId)}/participate'));
+    return _conversationFromEnvelope(data, '参与话题响应格式不正确');
+  }
+
+  @override
+  Future<ChatConversation> archiveTopic(String conversationId) async {
+    final data = _data(await _request('POST',
+        '/api/client/conversations/topics/${Uri.encodeComponent(conversationId)}/archive'));
+    return _conversationFromEnvelope(data, '关闭话题响应格式不正确');
+  }
+
+  @override
   Future<void> forwardMessage(String conversationId, String messageId,
       String targetConversationId) async {
     await _request('POST',
@@ -754,7 +921,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
           id: '${item['id'] ?? ''}',
           title: '${item['name'] ?? '未命名会话'}',
           type: '${item['type'] ?? 'direct'}',
-          preview: '${item['summary'] ?? ''}',
+          preview: '${item['last_message_summary'] ?? item['summary'] ?? ''}',
           announcement: '${item['announcement'] ?? ''}',
           isPublic: item['visibility'] == 'public' || item['is_public'] == true,
           avatar: '${item['avatar'] ?? ''}',
@@ -762,7 +929,20 @@ class HttpMagicChatRepository implements MagicChatRepository {
           pinned: item['pinned'] == true,
           muted: item['notification_muted'] == true,
           lastMessageSeq: (item['last_message_seq'] as num?)?.toInt() ?? 0,
+          canSend: item['can_send'] != false,
+          topic: item['topic'] is Map<String, dynamic>
+              ? TopicMetadata.fromJson(item['topic'] as Map<String, dynamic>)
+              : null,
           members: _membersFromJson(item['members']));
+
+  ChatConversation _conversationFromEnvelope(
+      Map<String, dynamic> data, String errorMessage) {
+    final value = data['conversation'];
+    if (value is! Map<String, dynamic>) {
+      throw FormatException(errorMessage);
+    }
+    return _conversationFromJson(value);
+  }
 
   List<Contact> _membersFromJson(Object? value) => value is List
       ? value
