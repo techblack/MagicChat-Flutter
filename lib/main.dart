@@ -26,6 +26,7 @@ import 'features/messages/topic_reply_preview.dart';
 import 'features/messages/topics_dialog.dart';
 import 'features/messages/topic_source_banner.dart';
 import 'features/messages/conversation_list.dart';
+import 'features/messages/voice_message_player.dart';
 import 'features/projects/projects_page.dart';
 import 'features/settings/settings_page.dart';
 import 'domain/models.dart';
@@ -1747,6 +1748,7 @@ class _ConversationViewState extends State<ConversationView> {
     if (_recording) {
       try {
         final path = await _voiceRecorder.stop();
+        final durationMs = _voiceRecorder.lastDurationMs;
         if (mounted) setState(() => _recording = false);
         if (path == null) return;
         if (!mounted || !_conversationCanSend(conversationId)) return;
@@ -1754,6 +1756,7 @@ class _ConversationViewState extends State<ConversationView> {
             conversationId,
             AttachmentUpload(
                 path: path, name: 'voice.m4a', mimeType: 'audio/mp4'),
+            durationMs: durationMs,
             replyToMessageId: _replyTo?.id);
         if (mounted) {
           setState(() {
@@ -2184,9 +2187,6 @@ class _ConversationViewState extends State<ConversationView> {
       if (upload.mimeType.startsWith('image/')) {
         await widget.repository
             .sendImage(conversationId, upload, replyToMessageId: _replyTo?.id);
-      } else if (upload.mimeType.startsWith('audio/')) {
-        await widget.repository
-            .sendVoice(conversationId, upload, replyToMessageId: _replyTo?.id);
       } else {
         await widget.repository
             .sendFile(conversationId, upload, replyToMessageId: _replyTo?.id);
@@ -2574,6 +2574,9 @@ class _MessageBubble extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final mine = message.mine;
     final revoked = message.contentType == 'revoked';
+    final hasVoicePlayer = !revoked &&
+        message.contentType == 'voice' &&
+        message.rawBody['file_id'] is String;
     final prefix = switch (message.contentType) {
       'image' => Icons.image_outlined,
       'file' => Icons.attach_file,
@@ -2646,101 +2649,111 @@ class _MessageBubble extends StatelessWidget {
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
                         color: colors.primary, fontWeight: FontWeight.w600));
               }),
-        Row(mainAxisSize: MainAxisSize.min, children: [
-          if (prefix != null) Icon(prefix, size: 18),
-          if (prefix != null) const SizedBox(width: 6),
-          Flexible(
-              child: revoked
-                  ? Text(message.text,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: colors.onSurfaceVariant,
-                          fontStyle: FontStyle.italic))
-                  : message.contentType == 'markdown'
-                      ? MarkdownBody(
-                          data: message.text,
-                          styleSheet: MarkdownStyleSheet.fromTheme(
-                                  Theme.of(context))
-                              .copyWith(
-                                  p: Theme.of(context)
-                                      .textTheme
-                                      .bodyMedium
-                                      ?.copyWith(
-                                          color:
-                                              mine ? colors.onPrimary : null),
-                                  a: Theme.of(context)
-                                      .textTheme
-                                      .bodyMedium
-                                      ?.copyWith(
-                                          color: mine
-                                              ? colors.onPrimary
-                                              : colors.primary,
-                                          decoration:
-                                              TextDecoration.underline)),
-                          onTapLink: (text, href, title) {
-                            final uri =
-                                href == null ? null : Uri.tryParse(href);
-                            if (uri != null) {
-                              launchUrl(uri,
-                                  mode: LaunchMode.externalApplication);
-                            }
-                          })
-                      : message.contentType == 'link' ||
-                              message.contentType == 'card'
-                          ? MessageLinkCard(
-                              title: linkTitle.isNotEmpty
-                                  ? linkTitle
-                                  : message.contentType == 'link' &&
-                                          linkUrl.isNotEmpty
-                                      ? linkUrl
-                                      : message.contentType == 'card'
-                                          ? '卡片'
-                                          : '链接',
-                              description: linkDescription,
-                              url: linkUrl,
-                              icon: message.contentType == 'card'
-                                  ? Icons.open_in_new
-                                  : Icons.link_outlined,
-                              textColor:
-                                  mine ? colors.onPrimary : colors.onSurface,
-                              accentColor:
-                                  mine ? colors.onPrimary : colors.primary,
-                              backgroundColor: mine
-                                  ? colors.onPrimary.withValues(alpha: .1)
-                                  : colors.surfaceContainerLow,
-                              allowInternalPath: message.contentType == 'card',
-                              semanticLabel:
-                                  '${message.contentType == 'card' ? '卡片' : '链接'}：${linkTitle.isNotEmpty ? linkTitle : linkUrl}',
-                              onOpen: (uri) {
-                                unawaited(launchUrl(uri,
-                                    mode: LaunchMode.externalApplication));
-                              },
-                              onOpenInternal: onOpenInternalLink,
-                            )
-                          : message.contentType == 'forward_bundle'
-                              ? _ForwardBundlePreview(
-                                  body: message.rawBody,
-                                  summary: message.text,
-                                  textColor: mine ? colors.onPrimary : null)
-                              : FutureBuilder<List<Contact>>(
-                                  future: contactsFuture,
-                                  builder: (context, snapshot) {
-                                    final contacts =
-                                        snapshot.data ?? const <Contact>[];
-                                    return Text(
-                                        formatMentionText(
-                                            message.text,
-                                            contacts.map((c) =>
-                                                (id: c.id, name: c.name))),
-                                        style: TextStyle(
+        if (!hasVoicePlayer)
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            if (prefix != null) Icon(prefix, size: 18),
+            if (prefix != null) const SizedBox(width: 6),
+            Flexible(
+                child: revoked
+                    ? Text(message.text,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: colors.onSurfaceVariant,
+                            fontStyle: FontStyle.italic))
+                    : message.contentType == 'markdown'
+                        ? MarkdownBody(
+                            data: message.text,
+                            styleSheet: MarkdownStyleSheet.fromTheme(
+                                    Theme.of(context))
+                                .copyWith(
+                                    p: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                            color:
+                                                mine ? colors.onPrimary : null),
+                                    a: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
                                             color: mine
                                                 ? colors.onPrimary
-                                                : null));
-                                  })),
-        ]),
+                                                : colors.primary,
+                                            decoration:
+                                                TextDecoration.underline)),
+                            onTapLink: (text, href, title) {
+                              final uri =
+                                  href == null ? null : Uri.tryParse(href);
+                              if (uri != null) {
+                                launchUrl(uri,
+                                    mode: LaunchMode.externalApplication);
+                              }
+                            })
+                        : message.contentType == 'link' ||
+                                message.contentType == 'card'
+                            ? MessageLinkCard(
+                                title: linkTitle.isNotEmpty
+                                    ? linkTitle
+                                    : message.contentType == 'link' &&
+                                            linkUrl.isNotEmpty
+                                        ? linkUrl
+                                        : message.contentType == 'card'
+                                            ? '卡片'
+                                            : '链接',
+                                description: linkDescription,
+                                url: linkUrl,
+                                icon: message.contentType == 'card'
+                                    ? Icons.open_in_new
+                                    : Icons.link_outlined,
+                                textColor:
+                                    mine ? colors.onPrimary : colors.onSurface,
+                                accentColor:
+                                    mine ? colors.onPrimary : colors.primary,
+                                backgroundColor: mine
+                                    ? colors.onPrimary.withValues(alpha: .1)
+                                    : colors.surfaceContainerLow,
+                                allowInternalPath:
+                                    message.contentType == 'card',
+                                semanticLabel:
+                                    '${message.contentType == 'card' ? '卡片' : '链接'}：${linkTitle.isNotEmpty ? linkTitle : linkUrl}',
+                                onOpen: (uri) {
+                                  unawaited(launchUrl(uri,
+                                      mode: LaunchMode.externalApplication));
+                                },
+                                onOpenInternal: onOpenInternalLink,
+                              )
+                            : message.contentType == 'forward_bundle'
+                                ? _ForwardBundlePreview(
+                                    body: message.rawBody,
+                                    summary: message.text,
+                                    textColor: mine ? colors.onPrimary : null)
+                                : FutureBuilder<List<Contact>>(
+                                    future: contactsFuture,
+                                    builder: (context, snapshot) {
+                                      final contacts =
+                                          snapshot.data ?? const <Contact>[];
+                                      return Text(
+                                          formatMentionText(
+                                              message.text,
+                                              contacts.map((c) =>
+                                                  (id: c.id, name: c.name))),
+                                          style: TextStyle(
+                                              color: mine
+                                                  ? colors.onPrimary
+                                                  : null));
+                                    })),
+          ]),
+        if (hasVoicePlayer)
+          VoiceMessagePlayer(
+            fileId: message.rawBody['file_id'] as String,
+            durationMs: parseVoiceDuration(message.rawBody['duration_ms']),
+            transcript: message.rawBody['transcript'] is String
+                ? message.rawBody['transcript'] as String
+                : '',
+            foregroundColor: mine ? colors.onPrimary : colors.onSurface,
+            resolveUrl: repository.attachmentUrl,
+          ),
         if (!revoked &&
-            (message.contentType == 'image' ||
-                message.contentType == 'voice' ||
-                message.contentType == 'file') &&
+            (message.contentType == 'image' || message.contentType == 'file') &&
             message.rawBody['file_id'] is String)
           FutureBuilder<Uri?>(
             future:
@@ -2771,11 +2784,8 @@ class _MessageBubble extends StatelessWidget {
               return TextButton.icon(
                   onPressed: () =>
                       launchUrl(uri, mode: LaunchMode.externalApplication),
-                  icon: Icon(message.contentType == 'voice'
-                      ? Icons.play_circle_outline
-                      : Icons.download_outlined),
-                  label:
-                      Text(message.contentType == 'voice' ? '播放语音' : '打开附件'));
+                  icon: const Icon(Icons.download_outlined),
+                  label: const Text('打开附件'));
             },
           ),
         if (!revoked && message.contentType == 'choice')

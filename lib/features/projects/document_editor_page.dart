@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/repository.dart';
 import '../../data/document_collaboration.dart';
 import '../../domain/models.dart';
+import 'markdown_editor_toolbar.dart';
 import 'rich_document_view.dart';
 
 class DocumentEditorPage extends StatefulWidget {
@@ -152,25 +153,33 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                 Expanded(
                     child: RichDocumentView(body: widget.collaboration!.body)),
               ])
-            : _preview
-                ? Markdown(
-                    data: _body.text.isEmpty ? '暂无内容' : _body.text,
-                    padding: EdgeInsets.zero)
-                : TextField(
+            : Column(children: [
+                MarkdownEditorToolbar(
                     controller: _body,
-                    expands: true,
-                    maxLines: null,
-                    minLines: null,
-                    textAlignVertical: TextAlignVertical.top,
-                    decoration: const InputDecoration(
-                        hintText: '输入 Markdown 或文档内容…',
-                        border: OutlineInputBorder()),
-                    readOnly: widget.collaboration?.status ==
-                        DocumentCollaborationStatus.connecting,
-                    onChanged: (value) {
-                      widget.collaboration?.replaceText(value);
-                      setState(() {});
-                    }),
+                    enabled: !_preview &&
+                        widget.collaboration?.status !=
+                            DocumentCollaborationStatus.connecting,
+                    onChanged: _onBodyChanged),
+                const SizedBox(height: 8),
+                Expanded(
+                    child: _preview
+                        ? Markdown(
+                            data: _body.text.isEmpty ? '暂无内容' : _body.text,
+                            padding: EdgeInsets.zero)
+                        : TextField(
+                            key: const ValueKey('markdown-body-editor'),
+                            controller: _body,
+                            expands: true,
+                            maxLines: null,
+                            minLines: null,
+                            textAlignVertical: TextAlignVertical.top,
+                            decoration: const InputDecoration(
+                                hintText: '输入 Markdown 或文档内容…',
+                                border: OutlineInputBorder()),
+                            readOnly: widget.collaboration?.status ==
+                                DocumentCollaborationStatus.connecting,
+                            onChanged: _onBodyChanged)),
+              ]),
       ),
       bottomNavigationBar: SafeArea(
           child: Padding(
@@ -182,6 +191,11 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                         : '${widget.collaboration!.text.length} 字 · $_collaborationLabel',
                     style: Theme.of(context).textTheme.bodySmall)
               ]))));
+
+  void _onBodyChanged(String value) {
+    widget.collaboration?.replaceText(value);
+    setState(() {});
+  }
 
   Future<void> _appendBlock() async {
     final session = widget.collaboration;

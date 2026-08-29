@@ -17,8 +17,8 @@ Flutter 工程与现有客户端并行演进，页面层通过 `MagicChatReposit
 | 推送授权与通知路由 | `PushService`、`PushTokenProvider`、设置页、`AppShell` | 私有 Server grant 注册/撤销、启动路由解析、通知总开关持久化、开启通知时系统权限请求、Android/iOS 通知权限声明及原生令牌桥接契约已接入；APNs/JPush 厂商 SDK 实现待补 |
 | 二维码 | `QrScannerPage` | Android/iOS/macOS/Web 相机扫码、HTTP(S) 链接打开、文本结果展示及桌面粘贴兜底已接入 |
 | 项目、任务视图 | `features/projects` | 个人/团队项目摘要、项目创建/编辑/删除、项目关键词过滤与游标分页、列表/看板/月历/甘特、任务创建、编辑（描述/项目成员负责人/状态/优先级/日期/标签/一次性与周期提醒）、状态更新、删除、任务详情、完整活动流与 Markdown 评论、成员列表、群组授权管理已接入；目标仍与原版一致为待完善占位 |
-| 文档协作 | `features/projects`、`DocumentRealtime`、`DocumentCollaborationSession`、`RichDocumentView` | 文档目录树、富文本/Markdown 类型、创建/重命名/移动/删除、Markdown 编辑预览、Hocuspocus v4 认证与 Yjs `Y.Text("markdown")` 状态同步、富文档 `Y.XmlFragment("body")` 正文状态同步、远端更新灌入编辑器、本地更新回传、Awareness 在线协作者计数及协作标题接口已接入；Flutter 支持富文档 XML block/列表/任务/表格/代码/引用/图片/marks 的只读渲染，并可安全追加标准段落/标题/列表/任务/引用/代码块，完整格式化工具栏仍待迁移 |
-| 图片、文件、语音、选择、对象卡片、图表、回应、系统事件 | `_MessageBubble`、`flutter_markdown_plus`、文件选择器、`VoiceRecorder`、`_ChartPreview` | 文件选择与 multipart 发送、Markdown 渲染及链接、图片/音频按 MIME 分流、图片交互预览、附件打开/语音播放入口、历史附件分页列表、麦克风录制发送、类型摘要、折线/柱状/饼图/雷达图专用预览、对象展开、图标、choice 选项响应、choice 状态/响应人数及实时更新、reaction 胶囊及长按参与者列表、系统事件摘要和居中展示已接入；撤回消息在历史与实时路径统一显示占位并禁用消息操作；文本和附件回复引用、输入表情选择已接入 |
+| 文档协作 | `features/projects`、`DocumentRealtime`、`DocumentCollaborationSession`、`RichDocumentView` | 文档目录树、富文本/Markdown 类型、创建/重命名/移动/删除、Markdown 编辑预览与格式工具栏（粗体/斜体/删除线、列表/任务、链接/图片、分割线/表格）、Hocuspocus v4 认证与 Yjs `Y.Text("markdown")` 状态同步、富文档 `Y.XmlFragment("body")` 正文状态同步、远端更新灌入编辑器、本地更新回传、Awareness 在线协作者计数及协作标题接口已接入；Flutter 支持富文档 XML block/列表/任务/表格/代码/引用/图片/marks 的只读渲染，并可安全追加标准段落/标题/列表/任务/引用/代码块，富文档完整格式化工具栏仍待迁移 |
+| 图片、文件、语音、选择、对象卡片、图表、回应、系统事件 | `_MessageBubble`、`VoiceMessagePlayer`、`flutter_markdown_plus`、文件选择器、`VoiceRecorder`、`_ChartPreview` | 文件选择与 multipart 发送、Markdown 渲染及链接、图片交互预览、附件打开、应用内语音播放/暂停/串音频/转录展开、录音时长上传、历史附件分页列表、麦克风录制发送、类型摘要、折线/柱状/饼图/雷达图专用预览、对象展开、图标、choice 选项响应、choice 状态/响应人数及实时更新、reaction 胶囊及长按参与者列表、系统事件摘要和居中展示已接入；普通音频文件按文件类型发送；撤回消息在历史与实时路径统一显示占位并禁用消息操作；文本和附件回复引用、输入表情选择已接入 |
 | 推送、系统通知、平台文件能力 | Flutter platform channels | 待按平台接入 |
 
 ## 迁移顺序

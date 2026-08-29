@@ -5,8 +5,11 @@ import 'package:record/record.dart';
 class VoiceRecorder {
   final AudioRecorder _recorder = AudioRecorder();
   String? _path;
+  DateTime? _startedAt;
+  int _lastDurationMs = 0;
 
   bool get isRecording => _path != null;
+  int get lastDurationMs => _lastDurationMs;
 
   Future<void> start() async {
     if (_path != null) return;
@@ -21,18 +24,27 @@ class VoiceRecorder {
       path: path,
     );
     _path = path;
+    _startedAt = DateTime.now();
+    _lastDurationMs = 0;
   }
 
   Future<String?> stop() async {
     final path = _path;
     if (path == null) return null;
+    final startedAt = _startedAt;
+    _lastDurationMs = startedAt == null
+        ? 0
+        : DateTime.now().difference(startedAt).inMilliseconds.clamp(1, 60000);
     _path = null;
+    _startedAt = null;
     return await _recorder.stop() ?? path;
   }
 
   Future<void> dispose() async {
     if (_path != null) await _recorder.stop();
     _path = null;
+    _startedAt = null;
+    _lastDurationMs = 0;
     await _recorder.dispose();
   }
 }
