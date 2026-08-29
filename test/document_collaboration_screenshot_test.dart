@@ -67,8 +67,22 @@ void main() {
     await tester.pump();
     await tester.pump();
 
+    final remoteAwarenessDocument = yjs.Doc(yjs.DocOpts(guid: 'remote'));
+    final remoteAwareness = yjs.Awareness(remoteAwarenessDocument);
+    remoteAwareness.setLocalState({
+      'user': {'name': '远端用户'}
+    });
+    final awarenessFrame = yjs.createEncoder();
+    yjs.writeVarString(awarenessFrame, 'document-3');
+    yjs.writeVarUint(awarenessFrame, HocuspocusMessageType.awareness);
+    yjs.writeVarUint8Array(awarenessFrame,
+        yjs.encodeAwarenessUpdate(remoteAwareness, [remoteAwareness.clientID]));
+    channel.emit(yjs.toUint8Array(awarenessFrame));
+    await tester.pump();
+    remoteAwarenessDocument.destroy();
+
     expect(session.status, DocumentCollaborationStatus.synced);
-    expect(find.textContaining('字 · 已同步'), findsOneWidget);
+    expect(find.textContaining('字 · 已同步 · 1 人在线'), findsOneWidget);
     await expectLater(
         find.byKey(const ValueKey('document-collaboration-golden')),
         matchesGoldenFile('evidence/document_collaboration.png'));

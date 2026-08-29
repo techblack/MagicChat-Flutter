@@ -153,10 +153,16 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                     style: Theme.of(context).textTheme.bodySmall)
               ]))));
 
-  String get _collaborationLabel => switch (widget.collaboration!.status) {
-        DocumentCollaborationStatus.disconnected => '未连接',
-        DocumentCollaborationStatus.connecting => '连接中',
-        DocumentCollaborationStatus.synced => '已同步',
-        DocumentCollaborationStatus.error => '连接失败',
-      };
+  String get _collaborationLabel {
+    final session = widget.collaboration!;
+    final status = switch (session.status) {
+      DocumentCollaborationStatus.disconnected => '未连接',
+      DocumentCollaborationStatus.connecting => '连接中',
+      DocumentCollaborationStatus.synced => '已同步',
+      DocumentCollaborationStatus.error => '连接失败',
+    };
+    return session.collaboratorCount > 0
+        ? '$status · ${session.collaboratorCount} 人在线'
+        : status;
+  }
 }

@@ -3,7 +3,7 @@
 ## 范围
 
 - 使用 Docker Compose 的 Postgres、Go Server、Document Server 和 Caddy 作为本地测试环境。
-- Flutter Markdown 文档绑定服务端 `Y.Text("markdown")`，覆盖认证后同步、远端正文灌入、本地更新回传、连接状态和失败清理。
+- Flutter Markdown 文档绑定服务端 `Y.Text("markdown")`，覆盖认证后同步、远端正文灌入、本地更新回传、Awareness 在线协作者状态、连接状态和失败清理。
 - 富文本 `Y.XmlFragment("body")` 尚未在 Flutter 原生编辑器中实现，本阶段不把富文本伪装成 Markdown。
 
 ## 本地服务
@@ -31,4 +31,4 @@
 
 ![Markdown 协作编辑器](document_collaboration.png)
 
-截图由 Flutter Widget golden 流程生成，分辨率为 1042x662，使用无凭据的模拟 WebSocket 会话灌入远端 Markdown 正文，并显示“已同步”状态。真实账号登录、跨设备并发和 Android/iOS/Windows/macOS/Linux 真机矩阵仍需在对应环境执行。
+截图由 Flutter Widget golden 流程生成，分辨率为 1042x662，使用无凭据的模拟 WebSocket 会话灌入远端 Markdown 正文和在线协作者状态，并显示“已同步”状态。真实账号登录、跨设备并发和 Android/iOS/Windows/macOS/Linux 真机矩阵仍需在对应环境执行。

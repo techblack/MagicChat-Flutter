@@ -132,7 +132,9 @@ class DocumentRealtime {
 /// Hocuspocus v4 的消息类型。
 abstract final class HocuspocusMessageType {
   static const sync = 0;
+  static const awareness = 1;
   static const auth = 2;
+  static const queryAwareness = 3;
 }
 
 /// 编码 Hocuspocus AuthenticationMessage。

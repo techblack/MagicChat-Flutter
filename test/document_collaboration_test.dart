@@ -23,12 +23,15 @@ void main() {
     expect(session.status, DocumentCollaborationStatus.connecting);
     expect(channel.sent, hasLength(1));
     session.replaceText('连接前不写入');
+    session.setPresence({
+      'user': {'name': '本地用户'}
+    });
     expect(session.text, isEmpty);
     expect(channel.sent, hasLength(1));
 
     channel.emit(encodeHocuspocusAuthenticatedFrame(documentName: 'doc-1'));
     await Future<void>.delayed(Duration.zero);
-    expect(channel.sent, hasLength(2));
+    expect(channel.sent, hasLength(3));
 
     final serverDocument = yjs.Doc(yjs.DocOpts(guid: 'doc-1'));
     serverDocument.getText('markdown')!.insert(0, '# 远端正文');
@@ -42,6 +45,27 @@ void main() {
     expect(session.status, DocumentCollaborationStatus.synced);
     expect(session.text, '# 远端正文');
     final syncedNotifications = notifications;
+
+    final remoteAwarenessDocument = yjs.Doc(yjs.DocOpts(guid: 'remote'));
+    final remoteAwareness = yjs.Awareness(remoteAwarenessDocument);
+    remoteAwareness.setLocalState({
+      'user': {'name': '远端用户'}
+    });
+    final awarenessFrame = yjs.createEncoder();
+    yjs.writeVarString(awarenessFrame, 'doc-1');
+    yjs.writeVarUint(awarenessFrame, HocuspocusMessageType.awareness);
+    yjs.writeVarUint8Array(awarenessFrame,
+        yjs.encodeAwarenessUpdate(remoteAwareness, [remoteAwareness.clientID]));
+    channel.emit(yjs.toUint8Array(awarenessFrame));
+    await Future<void>.delayed(Duration.zero);
+
+    expect(session.collaboratorCount, 1);
+    expect(
+        session.awarenessStates.values
+            .where((state) => (state['user'] as Map?)?['name'] == '远端用户')
+            .single['user'],
+        {'name': '远端用户'});
+    remoteAwarenessDocument.destroy();
 
     Uint8List? remoteUpdate;
     serverDocument.on('update', (update, [_, __, ___]) {
@@ -60,7 +84,7 @@ void main() {
 
     session.replaceText('# 本地正文');
     expect(session.text, '# 本地正文');
-    expect(channel.sent, hasLength(3));
+    expect(channel.sent, hasLength(4));
     final updateDecoder = yjs.createDecoder(channel.sent.last as Uint8List);
     expect(yjs.readVarString(updateDecoder), 'doc-1');
     expect(yjs.readVarUint(updateDecoder), 0);
@@ -70,7 +94,7 @@ void main() {
 
     session.replaceText('# 本地正文（已更新）');
     expect(session.text, '# 本地正文（已更新）');
-    expect(channel.sent, hasLength(4));
+    expect(channel.sent, hasLength(5));
     final secondUpdate = yjs.createDecoder(channel.sent.last as Uint8List);
     yjs.readVarString(secondUpdate);
     yjs.readVarUint(secondUpdate);
