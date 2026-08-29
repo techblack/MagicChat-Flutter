@@ -42,13 +42,20 @@ class MessageContent {
       case 'revoked':
         return '消息已撤回';
       case 'image':
-        return '[图片]';
+        final caption = _stringField(body, 'caption');
+        return caption.isEmpty ? '[图片]' : '[图片] $caption';
       case 'file':
         return '[文件] ${body['name'] ?? ''}'.trim();
       case 'voice':
-        return '[语音]';
+        final duration = body['duration_ms'];
+        final transcript = _stringField(body, 'transcript');
+        final durationText = duration is num && duration > 0
+            ? ' ${_formatDuration(duration.toInt())}'
+            : '';
+        return '[语音]$durationText${transcript.isEmpty ? '' : ' - $transcript'}';
       case 'choice':
-        return '${body['title'] ?? '[选择题]'}';
+        final content = _stringField(body, 'content');
+        return content.isEmpty ? '[选择题]' : '[选择题] $content';
       case 'link':
         final title = _stringField(body, 'title');
         final url = _stringField(body, 'url');
@@ -59,11 +66,14 @@ class MessageContent {
       case 'object':
         return '[对象]';
       case 'chart':
-        return '[图表]';
+        final title = _stringField(body, 'title');
+        return title.isEmpty ? '[图表]' : '[图表] $title';
       case 'forward_bundle':
         return '[聊天记录] ${body['item_count'] ?? 0} 条';
       case 'system_event':
         return _systemEventSummary(body);
+      case 'unsupported':
+        return '暂不支持查看该消息';
       default:
         return '[消息]';
     }
@@ -134,6 +144,13 @@ class MessageContent {
     final value = body[key];
     return value is String ? value.trim() : '';
   }
+
+  static String _formatDuration(int milliseconds) {
+    final seconds = (milliseconds / 1000).ceil();
+    final minutes = seconds ~/ 60;
+    final remainder = seconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${remainder.toString().padLeft(2, '0')}';
+  }
 }
 
 /// 仅允许消息卡片打开 HTTP(S) 外链。
@@ -151,6 +168,14 @@ Uri? parseExternalWebUri(String value) {
   if (uri == null || uri.host.isEmpty) return null;
   final scheme = uri.scheme.toLowerCase();
   return scheme == 'http' || scheme == 'https' ? uri : null;
+}
+
+/// 解析 Markdown 渲染器提供的链接值。
+///
+/// Markdown 的 `href` 可以为空（例如引用定义缺失）或不是字符串；统一
+/// 走 [parseExternalWebUri]，避免渲染器回调绕过外链协议校验。
+Uri? parseMarkdownLink(Object? href) {
+  return href is String ? parseExternalWebUri(href) : null;
 }
 
 /// 解析应用内卡片可使用的绝对路径；协议相对地址和反斜杠路径不允许进入路由。

@@ -37,6 +37,29 @@ void main() {
     expect(link.text, '[链接] https://example.com/fallback');
   });
 
+  test('消息摘要覆盖图片说明、语音时长和未知类型', () {
+    expect(
+      MessageContent.parse({
+        'type': 'image',
+        'file_id': 'f1',
+        'caption': '现场照片',
+      }).text,
+      '[图片] 现场照片',
+    );
+    expect(
+      MessageContent.parse({
+        'type': 'voice',
+        'duration_ms': 42800,
+        'transcript': '会议开始',
+      }).text,
+      '[语音] 00:43 - 会议开始',
+    );
+    expect(
+      MessageContent.parse({'type': 'unsupported'}).text,
+      '暂不支持查看该消息',
+    );
+  });
+
   test('外链解析仅接受带主机的 HTTP(S) 地址', () {
     expect(parseExternalWebUri('https://example.com/path')?.scheme, 'https');
     expect(parseExternalWebUri('HTTP://example.com/path')?.scheme, 'http');
@@ -50,6 +73,12 @@ void main() {
     ]) {
       expect(parseExternalWebUri(value), isNull, reason: value);
     }
+  });
+
+  test('Markdown 链接复用外链协议校验', () {
+    expect(parseMarkdownLink('https://example.com/docs')?.host, 'example.com');
+    expect(parseMarkdownLink('javascript:alert(1)'), isNull);
+    expect(parseMarkdownLink(null), isNull);
   });
 
   test('应用内卡片仅接受单斜杠绝对路径', () {

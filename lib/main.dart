@@ -2659,18 +2659,18 @@ class _MessageBubble extends StatelessWidget {
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: colors.onSurfaceVariant,
                             fontStyle: FontStyle.italic))
-                    : message.contentType == 'markdown'
-                        ? MarkdownBody(
-                            data: message.text,
-                            styleSheet: MarkdownStyleSheet.fromTheme(
-                                    Theme.of(context))
-                                .copyWith(
-                                    p: Theme.of(context)
-                                        .textTheme
-                                        .bodyMedium
-                                        ?.copyWith(
-                                            color:
-                                                mine ? colors.onPrimary : null),
+                    : message.contentType == 'unsupported'
+                        ? Text('暂不支持查看该消息',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(color: colors.onSurfaceVariant))
+                        : message.contentType == 'markdown'
+                            ? MarkdownBody(
+                                data: message.text,
+                                styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                                    p: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                        color: mine ? colors.onPrimary : null),
                                     a: Theme.of(context)
                                         .textTheme
                                         .bodyMedium
@@ -2680,67 +2680,71 @@ class _MessageBubble extends StatelessWidget {
                                                 : colors.primary,
                                             decoration:
                                                 TextDecoration.underline)),
-                            onTapLink: (text, href, title) {
-                              final uri =
-                                  href == null ? null : Uri.tryParse(href);
-                              if (uri != null) {
-                                launchUrl(uri,
-                                    mode: LaunchMode.externalApplication);
-                              }
-                            })
-                        : message.contentType == 'link' ||
-                                message.contentType == 'card'
-                            ? MessageLinkCard(
-                                title: linkTitle.isNotEmpty
-                                    ? linkTitle
-                                    : message.contentType == 'link' &&
-                                            linkUrl.isNotEmpty
-                                        ? linkUrl
-                                        : message.contentType == 'card'
-                                            ? '卡片'
-                                            : '链接',
-                                description: linkDescription,
-                                url: linkUrl,
-                                icon: message.contentType == 'card'
-                                    ? Icons.open_in_new
-                                    : Icons.link_outlined,
-                                textColor:
-                                    mine ? colors.onPrimary : colors.onSurface,
-                                accentColor:
-                                    mine ? colors.onPrimary : colors.primary,
-                                backgroundColor: mine
-                                    ? colors.onPrimary.withValues(alpha: .1)
-                                    : colors.surfaceContainerLow,
-                                allowInternalPath:
-                                    message.contentType == 'card',
-                                semanticLabel:
-                                    '${message.contentType == 'card' ? '卡片' : '链接'}：${linkTitle.isNotEmpty ? linkTitle : linkUrl}',
-                                onOpen: (uri) {
-                                  unawaited(launchUrl(uri,
-                                      mode: LaunchMode.externalApplication));
-                                },
-                                onOpenInternal: onOpenInternalLink,
-                              )
-                            : message.contentType == 'forward_bundle'
-                                ? _ForwardBundlePreview(
-                                    body: message.rawBody,
-                                    summary: message.text,
-                                    textColor: mine ? colors.onPrimary : null)
-                                : FutureBuilder<List<Contact>>(
-                                    future: contactsFuture,
-                                    builder: (context, snapshot) {
-                                      final contacts =
-                                          snapshot.data ?? const <Contact>[];
-                                      return Text(
-                                          formatMentionText(
-                                              message.text,
-                                              contacts.map((c) =>
-                                                  (id: c.id, name: c.name))),
-                                          style: TextStyle(
-                                              color: mine
-                                                  ? colors.onPrimary
-                                                  : null));
-                                    })),
+                                onTapLink: (text, href, title) {
+                                  final uri = parseMarkdownLink(href);
+                                  if (uri != null) {
+                                    unawaited(launchUrl(uri,
+                                        mode: LaunchMode.externalApplication));
+                                  }
+                                })
+                            : message.contentType == 'link' ||
+                                    message.contentType == 'card'
+                                ? MessageLinkCard(
+                                    title: linkTitle.isNotEmpty
+                                        ? linkTitle
+                                        : message.contentType == 'link' &&
+                                                linkUrl.isNotEmpty
+                                            ? linkUrl
+                                            : message.contentType == 'card'
+                                                ? '卡片'
+                                                : '链接',
+                                    description: linkDescription,
+                                    url: linkUrl,
+                                    icon: message.contentType == 'card'
+                                        ? Icons.open_in_new
+                                        : Icons.link_outlined,
+                                    textColor: mine
+                                        ? colors.onPrimary
+                                        : colors.onSurface,
+                                    accentColor: mine
+                                        ? colors.onPrimary
+                                        : colors.primary,
+                                    backgroundColor: mine
+                                        ? colors.onPrimary.withValues(alpha: .1)
+                                        : colors.surfaceContainerLow,
+                                    allowInternalPath:
+                                        message.contentType == 'card',
+                                    semanticLabel:
+                                        '${message.contentType == 'card' ? '卡片' : '链接'}：${linkTitle.isNotEmpty ? linkTitle : linkUrl}',
+                                    onOpen: (uri) {
+                                      unawaited(launchUrl(uri,
+                                          mode:
+                                              LaunchMode.externalApplication));
+                                    },
+                                    onOpenInternal: onOpenInternalLink,
+                                  )
+                                : message.contentType == 'forward_bundle'
+                                    ? _ForwardBundlePreview(
+                                        body: message.rawBody,
+                                        summary: message.text,
+                                        textColor: mine ? colors.onPrimary : null)
+                                    : FutureBuilder<List<Contact>>(
+                                        future: contactsFuture,
+                                        builder: (context, snapshot) {
+                                          final contacts = snapshot.data ??
+                                              const <Contact>[];
+                                          return Text(
+                                              formatMentionText(
+                                                  message.text,
+                                                  contacts.map((c) => (
+                                                        id: c.id,
+                                                        name: c.name
+                                                      ))),
+                                              style: TextStyle(
+                                                  color: mine
+                                                      ? colors.onPrimary
+                                                      : null));
+                                        })),
           ]),
         if (hasVoicePlayer)
           VoiceMessagePlayer(
@@ -2755,38 +2759,88 @@ class _MessageBubble extends StatelessWidget {
         if (!revoked &&
             (message.contentType == 'image' || message.contentType == 'file') &&
             message.rawBody['file_id'] is String)
-          FutureBuilder<Uri?>(
-            future:
-                repository.attachmentUrl(message.rawBody['file_id'] as String),
-            builder: (context, snapshot) {
-              final uri = snapshot.data;
-              if (uri == null) return const SizedBox.shrink();
-              if (message.contentType == 'image') {
-                return Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: GestureDetector(
-                    onTap: () => showDialog<void>(
-                      context: context,
-                      builder: (context) => Dialog(
-                        child: InteractiveViewer(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              FutureBuilder<Uri?>(
+                future: repository
+                    .attachmentUrl(message.rawBody['file_id'] as String),
+                builder: (context, snapshot) {
+                  final uri = snapshot.data;
+                  if (uri == null) return const SizedBox.shrink();
+                  if (message.contentType == 'image') {
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: GestureDetector(
+                        onTap: () => showDialog<void>(
+                          context: context,
+                          builder: (context) => Dialog(
+                            child: InteractiveViewer(
+                                child: Image.network(uri.toString(),
+                                    fit: BoxFit.contain)),
+                          ),
+                        ),
+                        child: ConstrainedBox(
+                            constraints: const BoxConstraints(
+                                maxWidth: 320, maxHeight: 240),
                             child: Image.network(uri.toString(),
                                 fit: BoxFit.contain)),
                       ),
-                    ),
-                    child: ConstrainedBox(
-                        constraints:
-                            const BoxConstraints(maxWidth: 320, maxHeight: 240),
-                        child:
-                            Image.network(uri.toString(), fit: BoxFit.contain)),
-                  ),
-                );
-              }
-              return TextButton.icon(
-                  onPressed: () =>
-                      launchUrl(uri, mode: LaunchMode.externalApplication),
-                  icon: const Icon(Icons.download_outlined),
-                  label: const Text('打开附件'));
-            },
+                    );
+                  }
+                  final name = message.rawBody['name'];
+                  final size = message.rawBody['size_bytes'];
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (name is String && name.trim().isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(name.trim(),
+                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ),
+                      TextButton.icon(
+                          onPressed: () => launchUrl(uri,
+                              mode: LaunchMode.externalApplication),
+                          icon: const Icon(Icons.download_outlined),
+                          label: Text(size is num
+                              ? '打开附件 · ${_formatAttachmentSize(size)}'
+                              : '打开附件')),
+                    ],
+                  );
+                },
+              ),
+              if (message.contentType == 'image' &&
+                  message.rawBody['caption'] is String &&
+                  (message.rawBody['caption'] as String).trim().isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: message.rawBody['caption_type'] == 'markdown'
+                      ? MarkdownBody(
+                          data: (message.rawBody['caption'] as String).trim(),
+                          styleSheet:
+                              MarkdownStyleSheet.fromTheme(Theme.of(context)),
+                          onTapLink: (text, href, title) {
+                            final uri = parseMarkdownLink(href);
+                            if (uri != null) {
+                              unawaited(launchUrl(uri,
+                                  mode: LaunchMode.externalApplication));
+                            }
+                          })
+                      : FutureBuilder<List<Contact>>(
+                          future: contactsFuture,
+                          builder: (context, snapshot) => Text(
+                              formatMentionText(
+                                  (message.rawBody['caption'] as String).trim(),
+                                  (snapshot.data ?? const <Contact>[]).map(
+                                      (contact) => (
+                                            id: contact.id,
+                                            name: contact.name
+                                          ))),
+                              style: TextStyle(
+                                  color: mine ? colors.onPrimary : null))),
+                ),
+            ],
           ),
         if (!revoked && message.contentType == 'choice')
           _ChoiceOptions(
@@ -2799,7 +2853,7 @@ class _MessageBubble extends StatelessWidget {
               onSubmit: (optionIds) => repository.submitChoice(
                   conversationId, message.id, optionIds)),
         if (!revoked && message.contentType == 'chart')
-          _ChartPreview(body: message.rawBody),
+          ChartPreview(body: message.rawBody),
         if (!revoked &&
             (message.contentType == 'object' || message.contentType == 'chart'))
           ExpansionTile(
@@ -3064,22 +3118,49 @@ class _ForwardBundlePreview extends StatelessWidget {
   }
 }
 
-class _ChartPreview extends StatelessWidget {
-  const _ChartPreview({required this.body});
+/// 结构化图表消息的轻量级跨平台预览。
+class ChartPreview extends StatelessWidget {
+  const ChartPreview({required this.body, super.key});
   final Map<String, dynamic> body;
 
   @override
   Widget build(BuildContext context) {
     final data = body['data'];
     if (data is! Map<String, dynamic>) return const SizedBox.shrink();
-    if (body['chart_type'] == 'line') return _ChartLine(data: data);
-    if (body['chart_type'] == 'radar') return _ChartRadar(data: data);
+    final chart = switch (body['chart_type']) {
+      'line' => _ChartLine(data: data),
+      'radar' => _ChartRadar(data: data),
+      'pie' => _ChartPie(data: data),
+      _ => _cartesianChart(data),
+    };
+    final title = body['title'];
+    final description = body['description'];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (title is String && title.trim().isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(title.trim(),
+                style: Theme.of(context).textTheme.titleSmall),
+          ),
+        chart,
+        if (description is String && description.trim().isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(description.trim(),
+                style: Theme.of(context).textTheme.bodySmall),
+          ),
+      ],
+    );
+  }
+
+  Widget _cartesianChart(Map<String, dynamic> data) {
     final labels = data['labels'];
     final series = data['series'];
     if (labels is! List || series is! List || labels.isEmpty) {
       final items = data['items'];
-      if (items is! List) return const SizedBox.shrink();
-      return _ChartBars(items: items);
+      return items is List ? _ChartBars(items: items) : const SizedBox.shrink();
     }
     final typedSeries = series.whereType<Map<String, dynamic>>().toList();
     final first = typedSeries.isEmpty ? null : typedSeries.first;
@@ -3090,6 +3171,114 @@ class _ChartPreview extends StatelessWidget {
         {'name': '${labels[i]}', 'value': values[i]}
     ]);
   }
+}
+
+class _ChartPie extends StatelessWidget {
+  const _ChartPie({required this.data});
+  final Map<String, dynamic> data;
+
+  @override
+  Widget build(BuildContext context) {
+    final rawItems = data['items'];
+    if (rawItems is! List) return const SizedBox.shrink();
+    final items = rawItems
+        .whereType<Map<String, dynamic>>()
+        .map((item) => (
+              name: '${item['name'] ?? item['label'] ?? ''}',
+              value: (item['value'] as num?)?.toDouble() ?? 0,
+            ))
+        .where((item) => item.name.trim().isNotEmpty && item.value > 0)
+        .toList(growable: false);
+    final total = items.fold<double>(0, (sum, item) => sum + item.value);
+    if (items.length < 2 || total <= 0) return const SizedBox.shrink();
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        SizedBox(
+            width: 160,
+            height: 160,
+            child: CustomPaint(
+                painter: _PieChartPainter(
+                    items.map((item) => item.value).toList()))),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (var i = 0; i < items.length; i++)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(children: [
+                    Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: _PieChartPainter
+                                .palette[i % _PieChartPainter.palette.length])),
+                    const SizedBox(width: 6),
+                    Expanded(
+                        child: Text(items[i].name,
+                            maxLines: 1, overflow: TextOverflow.ellipsis)),
+                    Text(_formatChartNumber(items[i].value)),
+                  ]),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PieChartPainter extends CustomPainter {
+  _PieChartPainter(this.values);
+  final List<double> values;
+  static const palette = [
+    Colors.blue,
+    Colors.orange,
+    Colors.green,
+    Colors.purple,
+    Colors.red,
+  ];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final total = values.fold<double>(0, (sum, value) => sum + value);
+    if (total <= 0) return;
+    final diameter = min(size.width, size.height) - 8;
+    final rect = Rect.fromCenter(
+        center: Offset(size.width / 2, size.height / 2),
+        width: diameter,
+        height: diameter);
+    var start = -pi / 2;
+    for (var i = 0; i < values.length; i++) {
+      final sweep = values[i] / total * 2 * pi;
+      canvas.drawArc(rect, start, sweep, true,
+          Paint()..color = palette[i % palette.length]);
+      start += sweep;
+    }
+    canvas.drawCircle(Offset(size.width / 2, size.height / 2), diameter * .22,
+        Paint()..color = Colors.white);
+  }
+
+  @override
+  bool shouldRepaint(covariant _PieChartPainter oldDelegate) =>
+      oldDelegate.values != values;
+}
+
+String _formatChartNumber(double value) => value == value.roundToDouble()
+    ? value.toInt().toString()
+    : value.toStringAsFixed(2);
+
+String _formatAttachmentSize(num value) {
+  final bytes = value < 0 ? 0 : value.toDouble();
+  if (bytes < 1024) return '${bytes.toInt()} B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  if (bytes < 1024 * 1024 * 1024) {
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+  return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
 }
 
 class _ChartLine extends StatelessWidget {
