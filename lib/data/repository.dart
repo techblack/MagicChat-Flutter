@@ -886,7 +886,44 @@ class HttpMagicChatRepository implements MagicChatRepository {
   Future<TopicDetail> topicDetail(String conversationId) async {
     final data = _data(await _request('GET',
         '/api/client/conversations/topics/${Uri.encodeComponent(conversationId)}'));
-    return TopicDetail.fromJson(data);
+    final detail = TopicDetail.fromJson(data);
+    final source = detail.sourceMessage;
+    if (source.replyTo != null || source.revokedAt != null) return detail;
+
+    final query = Uri(queryParameters: {
+      'before_seq': '${source.sequence + 1}',
+      'limit': '1',
+    }).query;
+    final sourceData = _data(await _request('GET',
+        '/api/client/conversations/${Uri.encodeComponent(detail.parentConversation.id)}/messages?$query'));
+    final values = sourceData['messages'];
+    if (values is! List) throw const FormatException('消息列表响应格式不正确');
+    TopicSourceReply? replyTo;
+    for (final item in values) {
+      if (item is! Map<String, dynamic> || item['id'] != source.id) continue;
+      final reply = item['reply_to'];
+      if (reply is Map<String, dynamic>) {
+        replyTo = TopicSourceReply.fromJson(reply);
+      }
+      break;
+    }
+    if (replyTo == null) return detail;
+    return TopicDetail(
+      canArchive: detail.canArchive,
+      canParticipate: detail.canParticipate,
+      conversation: detail.conversation,
+      parentConversation: detail.parentConversation,
+      sourceMessage: TopicSourceMessage(
+        id: source.id,
+        createdAt: source.createdAt,
+        sender: source.sender,
+        sequence: source.sequence,
+        summary: source.summary,
+        body: source.body,
+        revokedAt: source.revokedAt,
+        replyTo: replyTo,
+      ),
+    );
   }
 
   @override
@@ -1080,6 +1117,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
               rawBody: content.raw,
               text: content.text,
               replyTo: _replyFromJson(item['reply_to']),
+              topic: _topicFromJson(item['topic']),
               mine: senderId is String && senderId == _currentUserId,
               reactions: _reactionsFromJson(item['reactions']));
         })
@@ -1124,6 +1162,14 @@ class HttpMagicChatRepository implements MagicChatRepository {
         id: value['id'] as String,
         author: name,
         text: summary is String && summary.isNotEmpty ? summary : '[消息]');
+  }
+
+  MessageTopic? _topicFromJson(Object? value) {
+    if (value == null) return null;
+    if (value is! Map<String, dynamic>) {
+      throw const FormatException('消息话题信息响应格式不正确');
+    }
+    return MessageTopic.fromJson(value);
   }
 
   @override

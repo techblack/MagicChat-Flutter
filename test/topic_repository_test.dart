@@ -21,6 +21,22 @@ void main() {
     expect(detail.sourceMessage.body['content'], '讨论发布计划');
     expect(detail.sourceMessage.sender.avatar, '/avatars/alice.webp');
 
+    final messageTopic = MessageTopic.fromJson({
+      'archived': false,
+      'conversation_id': 'topic-1',
+      'recent_replies': [
+        {
+          'created_at': '2026-07-20T04:01:00Z',
+          'id': 'message-2',
+          'sender': {'id': 'user-2', 'type': 'user'},
+          'summary': '后续消息',
+        },
+      ],
+    });
+    expect(messageTopic.recentReplies.single.summary, '后续消息');
+    expect(
+        MessageTopic.fromJson(messageTopic.toJson()).conversationId, 'topic-1');
+
     final systemReply = TopicSourceMessage.fromJson({
       'id': 'message-2',
       'created_at': '2026-07-20T04:01:00Z',
@@ -113,6 +129,53 @@ void main() {
         isTrue);
   });
 
+  test('HTTP 话题详情缺少 reply_to 时回退父会话消息', () async {
+    final requests = <http.BaseRequest>[];
+    final repository = HttpMagicChatRepository(
+      serverUrl: 'https://chat.example.com',
+      sessionToken: 'test-token',
+      client: MockClient((request) async {
+        requests.add(request);
+        if (request.url.path.endsWith('/messages')) {
+          return _jsonResponse({
+            'data': {
+              'messages': [
+                {
+                  'id': 'message-1',
+                  'reply_to': {
+                    'id': 'quoted-message',
+                    'seq': 7,
+                    'summary': '旧服务端的引用消息',
+                    'sender': {
+                      'id': 'user-2',
+                      'name': 'Bob',
+                      'type': 'user',
+                    },
+                  },
+                },
+              ],
+            },
+          });
+        }
+        return _jsonResponse({'data': _detailJson(includeReply: false)});
+      }),
+    );
+
+    final detail = await repository.topicDetail('topic-1');
+
+    expect(detail.sourceMessage.replyTo?.id, 'quoted-message');
+    expect(detail.sourceMessage.replyTo?.sequence, 7);
+    expect(detail.sourceMessage.replyTo?.summary, '旧服务端的引用消息');
+    expect(requests.map((request) => '${request.method} ${request.url.path}'), [
+      'GET /api/client/conversations/topics/topic-1',
+      'GET /api/client/conversations/parent-1/messages',
+    ]);
+    expect(requests[1].url.queryParameters, {
+      'before_seq': '9',
+      'limit': '1',
+    });
+  });
+
   test('DemoRepository 维护话题参与和关闭状态', () async {
     final repository = DemoRepository();
     final topic = await repository.createTopic('parent-1', 'message-1');
@@ -150,7 +213,7 @@ Map<String, dynamic> _conversationJson() => {
       },
     };
 
-Map<String, dynamic> _detailJson() => {
+Map<String, dynamic> _detailJson({bool includeReply = true}) => {
       'can_archive': true,
       'can_participate': false,
       'conversation': _conversationJson(),
@@ -172,6 +235,17 @@ Map<String, dynamic> _detailJson() => {
         },
         'seq': 8,
         'summary': '讨论发布计划',
+        if (includeReply)
+          'reply_to': {
+            'id': 'quoted-message',
+            'seq': 7,
+            'summary': '引用的消息',
+            'sender': {
+              'id': 'user-2',
+              'name': 'Bob',
+              'type': 'user',
+            },
+          },
       },
     };
 

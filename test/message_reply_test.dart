@@ -46,6 +46,18 @@ void main() {
                     'seq': 1,
                     'summary': 'original summary',
                   },
+                  'topic': {
+                    'archived': false,
+                    'conversation_id': 'topic-1',
+                    'recent_replies': [
+                      {
+                        'created_at': '2026-07-20T04:02:00Z',
+                        'id': 'message-3',
+                        'sender': {'id': 'user-3', 'type': 'user'},
+                        'summary': 'topic reply',
+                      }
+                    ],
+                  },
                 }
               ]
             }
@@ -57,5 +69,7 @@ void main() {
     expect(message.replyTo?.id, 'message-1');
     expect(message.replyTo?.author, '用户');
     expect(message.replyTo?.text, 'original summary');
+    expect(message.topic?.conversationId, 'topic-1');
+    expect(message.topic?.recentReplies.single.summary, 'topic reply');
   });
 }

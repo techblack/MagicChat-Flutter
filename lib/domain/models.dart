@@ -418,7 +418,8 @@ class ChatMessage {
       this.rawBody = const {},
       this.mine = false,
       this.reactions = const [],
-      this.replyTo});
+      this.replyTo,
+      this.topic});
   final String id;
   final String? conversationId;
   final int? sequence;
@@ -430,6 +431,7 @@ class ChatMessage {
   final bool mine;
   final List<MessageReaction> reactions;
   final MessageReply? replyTo;
+  final MessageTopic? topic;
 }
 
 class MessageReply {
@@ -439,6 +441,88 @@ class MessageReply {
   final String id;
   final String author;
   final String text;
+}
+
+/// 消息对应的话题摘要，附加在父会话中的来源消息上。
+class MessageTopic {
+  const MessageTopic(
+      {required this.archived,
+      required this.conversationId,
+      this.recentReplies = const []});
+
+  final bool archived;
+  final String conversationId;
+  final List<MessageTopicReply> recentReplies;
+
+  factory MessageTopic.fromJson(Map<String, dynamic> value) {
+    final conversationId = value['conversation_id'];
+    final rawReplies = value['recent_replies'];
+    if (conversationId is! String ||
+        conversationId.isEmpty ||
+        (rawReplies != null && rawReplies is! List)) {
+      throw const FormatException('消息话题信息响应格式不正确');
+    }
+    if (rawReplies is List &&
+        rawReplies.any((item) => item is! Map<String, dynamic>)) {
+      throw const FormatException('话题回复摘要响应格式不正确');
+    }
+    final replies = rawReplies is List
+        ? rawReplies
+            .cast<Map<String, dynamic>>()
+            .map(MessageTopicReply.fromJson)
+            .toList(growable: false)
+        : const <MessageTopicReply>[];
+    return MessageTopic(
+        archived: value['archived'] == true,
+        conversationId: conversationId,
+        recentReplies: replies);
+  }
+
+  Map<String, dynamic> toJson() => {
+        'archived': archived,
+        'conversation_id': conversationId,
+        'recent_replies': recentReplies.map((reply) => reply.toJson()).toList(),
+      };
+}
+
+class MessageTopicReply {
+  const MessageTopicReply(
+      {required this.createdAt,
+      required this.id,
+      required this.sender,
+      required this.summary});
+
+  final String createdAt;
+  final String id;
+  final TopicSourceSender sender;
+  final String summary;
+
+  factory MessageTopicReply.fromJson(Map<String, dynamic> value) {
+    final createdAt = value['created_at'];
+    final id = value['id'];
+    final summary = value['summary'];
+    final sender = value['sender'];
+    if (createdAt is! String ||
+        createdAt.isEmpty ||
+        id is! String ||
+        id.isEmpty ||
+        summary is! String ||
+        sender is! Map<String, dynamic>) {
+      throw const FormatException('话题回复摘要响应格式不正确');
+    }
+    return MessageTopicReply(
+        createdAt: createdAt,
+        id: id,
+        sender: TopicSourceSender.fromJson(sender),
+        summary: summary);
+  }
+
+  Map<String, dynamic> toJson() => {
+        'created_at': createdAt,
+        'id': id,
+        'sender': sender.toJson(),
+        'summary': summary,
+      };
 }
 
 class MessageSearchResult {

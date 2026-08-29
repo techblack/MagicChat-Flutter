@@ -105,6 +105,45 @@ void main() {
     expect(store.messages['m2']?.text, 'envelope');
   });
 
+  test('投影消息话题摘要并在回应更新时保留话题', () {
+    final store = RealtimeStore();
+    store.apply({
+      'event': 'message.created',
+      'cursor': 1,
+      'payload': {
+        'id': 'source-1',
+        'conversation_id': 'parent-1',
+        'sender': {'id': 'u1', 'type': 'user', 'name': 'Alice'},
+        'body': {'type': 'text', 'content': '来源消息'},
+        'topic': {
+          'archived': false,
+          'conversation_id': 'topic-1',
+          'recent_replies': [
+            {
+              'created_at': '2026-07-20T04:01:00Z',
+              'id': 'reply-1',
+              'sender': {'id': 'u2', 'type': 'user'},
+              'summary': '话题回复',
+            }
+          ],
+        },
+      }
+    });
+    expect(store.messages['source-1']?.topic?.conversationId, 'topic-1');
+    store.apply({
+      'event': 'message.reactions_updated',
+      'cursor': 2,
+      'payload': {
+        'message_id': 'source-1',
+        'reactions': [
+          {'text': '👍', 'count': 1}
+        ],
+      }
+    });
+    expect(
+        store.messages['source-1']?.topic?.recentReplies.single.id, 'reply-1');
+  });
+
   test('投影话题参与和关闭事件并保持来源元数据', () {
     final store = RealtimeStore();
     store.conversations['topic-1'] = ChatConversation(

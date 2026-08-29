@@ -22,7 +22,9 @@ import 'data/voice_recorder.dart';
 import 'data/avatar_processor.dart';
 import 'features/contacts/contacts_page.dart';
 import 'features/messages/history_attachments_dialog.dart';
+import 'features/messages/topic_reply_preview.dart';
 import 'features/messages/topics_dialog.dart';
+import 'features/messages/topic_source_banner.dart';
 import 'features/projects/projects_page.dart';
 import 'features/qr_scanner_page.dart';
 import 'domain/models.dart';
@@ -1240,6 +1242,33 @@ class _ConversationViewState extends State<ConversationView> {
   final _selectedMessageIds = <String>{};
   List<ChatMessage> _visibleMessages = const [];
   MessageReply? _replyTo;
+  ChatConversation? _conversation;
+  TopicDetail? _topicDetail;
+  bool _canSend = true;
+
+  bool get _topicArchived =>
+      _conversation?.topic?.archived == true ||
+      (_conversation == null &&
+          _topicDetail?.conversation.topic?.archived == true);
+
+  bool _conversationCanSend(String conversationId) {
+    if (widget.conversationId != conversationId || _topicArchived) return false;
+    final current = widget.realtimeStore?.conversations[conversationId];
+    return _canSend &&
+        current?.canSend != false &&
+        current?.topic?.archived != true;
+  }
+
+  bool _topicIsOpen(String conversationId) {
+    if (widget.conversationId != conversationId) return false;
+    return !_topicArchived &&
+        widget.realtimeStore?.conversations[conversationId]?.topic?.archived !=
+            true;
+  }
+
+  bool get _isTopicConversation =>
+      _conversation?.type == 'topic' ||
+      _topicDetail?.conversation.type == 'topic';
 
   @override
   void initState() {
@@ -1291,16 +1320,48 @@ class _ConversationViewState extends State<ConversationView> {
     };
     final id = widget.conversationId;
     if (id != null) {
+      ChatConversation? selected;
       for (final conversation in results[1] as List<ChatConversation>) {
         if (conversation.id == id) {
+          selected = conversation;
           for (final member in conversation.members) {
             contacts[member.id] = member;
           }
           break;
         }
       }
+      if (selected != null) {
+        _applyConversation(selected);
+      }
+      if (selected == null || selected.type == 'topic') {
+        unawaited(_loadTopicDetail(id));
+      }
     }
     return contacts.values.toList();
+  }
+
+  void _applyConversation(ChatConversation conversation) {
+    if (!mounted || widget.conversationId != conversation.id) return;
+    widget.realtimeStore?.conversations[conversation.id] = conversation;
+    setState(() {
+      _conversation = conversation;
+      _canSend = conversation.canSend;
+    });
+  }
+
+  Future<void> _loadTopicDetail(String id) async {
+    try {
+      final detail = await widget.repository.topicDetail(id);
+      if (!mounted || widget.conversationId != id) return;
+      widget.realtimeStore?.conversations[id] = detail.conversation;
+      setState(() {
+        _topicDetail = detail;
+        _conversation = detail.conversation;
+        _canSend = detail.conversation.canSend;
+      });
+    } catch (_) {
+      // 普通会话没有话题详情，忽略该请求；消息本身仍可正常加载。
+    }
   }
 
   String _messageCacheKey(String id) => 'magicchat.messages.$id';
@@ -1309,6 +1370,7 @@ class _ConversationViewState extends State<ConversationView> {
     if (value is! Map<String, dynamic> || value['id'] is! String) return null;
     final reactions = value['reactions'];
     final reply = value['reply_to'];
+    final rawTopic = value['topic'];
     return ChatMessage(
       id: value['id'] as String,
       author: '${value['author'] ?? '用户'}',
@@ -1327,6 +1389,9 @@ class _ConversationViewState extends State<ConversationView> {
               id: reply['id'] as String,
               author: '${reply['author'] ?? '用户'}',
               text: '${reply['text'] ?? '[消息]'}')
+          : null,
+      topic: rawTopic is Map<String, dynamic>
+          ? MessageTopic.fromJson(rawTopic)
           : null,
       reactions: reactions is List
           ? reactions
@@ -1362,6 +1427,7 @@ class _ConversationViewState extends State<ConversationView> {
                           'author': message.replyTo!.author,
                           'text': message.replyTo!.text,
                         },
+                  if (message.topic != null) 'topic': message.topic!.toJson(),
                   'reactions': message.reactions
                       .map((reaction) => {
                             'text': reaction.text,
@@ -1409,7 +1475,17 @@ class _ConversationViewState extends State<ConversationView> {
   }
 
   void _onRealtimeChanged() {
-    if (mounted) setState(() {});
+    final id = widget.conversationId;
+    final current = id == null ? null : widget.realtimeStore?.conversations[id];
+    if (!mounted || current == null) return;
+    final canSend = current.canSend && current.topic?.archived != true;
+    final cancelRecording = _recording && !canSend;
+    setState(() {
+      _conversation = current;
+      _canSend = current.canSend;
+      if (!canSend) _replyTo = null;
+    });
+    if (cancelRecording) unawaited(_cancelRecording());
   }
 
   void _markLatestRead(List<ChatMessage> messages, String conversationId) {
@@ -1468,9 +1544,13 @@ class _ConversationViewState extends State<ConversationView> {
       widget.realtimeStore?.addListener(_onRealtimeChanged);
     }
     if (oldWidget.conversationId != widget.conversationId) {
+      if (_recording) unawaited(_cancelRecording());
       _olderMessages.clear();
       _lastReadSequence = 0;
       _replyTo = null;
+      _conversation = null;
+      _topicDetail = null;
+      _canSend = true;
       _messagesFuture = _loadMessages();
       _contactsFuture = _loadConversationContacts();
       _controller.clear();
@@ -1490,11 +1570,13 @@ class _ConversationViewState extends State<ConversationView> {
   }
 
   Future<void> _toggleVoice(String conversationId) async {
+    if (!_conversationCanSend(conversationId)) return;
     if (_recording) {
       try {
         final path = await _voiceRecorder.stop();
         if (mounted) setState(() => _recording = false);
         if (path == null) return;
+        if (!mounted || !_conversationCanSend(conversationId)) return;
         await widget.repository.sendVoice(
             conversationId,
             AttachmentUpload(
@@ -1526,12 +1608,20 @@ class _ConversationViewState extends State<ConversationView> {
     }
   }
 
+  Future<void> _cancelRecording() async {
+    if (!_recording && !_voiceRecorder.isRecording) return;
+    await _voiceRecorder.stop();
+    if (mounted) setState(() => _recording = false);
+  }
+
   @override
   Widget build(BuildContext context) {
     final conversationId = widget.conversationId;
     if (conversationId == null) return const Center(child: Text('选择一个会话开始聊天'));
+    final canSend = _conversationCanSend(conversationId);
     return Column(
       children: [
+        if (_topicDetail != null) TopicSourceBanner(detail: _topicDetail!),
         if (_selectedMessageIds.isNotEmpty)
           Material(
             color: Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -1548,7 +1638,9 @@ class _ConversationViewState extends State<ConversationView> {
               IconButton(
                   tooltip: '撤回所选',
                   icon: const Icon(Icons.undo),
-                  onPressed: () => _revokeSelected(conversationId)),
+                  onPressed: !_topicIsOpen(conversationId)
+                      ? null
+                      : () => _revokeSelected(conversationId)),
             ]),
           ),
         Expanded(
@@ -1604,6 +1696,9 @@ class _ConversationViewState extends State<ConversationView> {
                                 message: message,
                                 repository: widget.repository,
                                 conversationId: conversationId,
+                                canReact: _topicIsOpen(conversationId),
+                                canRespond: canSend,
+                                onOpenTopic: widget.onOpenConversation,
                                 contactsFuture: _contactsFuture),
                           ),
                         ))
@@ -1672,12 +1767,12 @@ class _ConversationViewState extends State<ConversationView> {
                     IconButton(
                       icon: const Icon(Icons.alternate_email),
                       tooltip: '提及成员',
-                      onPressed: _sendingFile ? null : _pickMention,
+                      onPressed: !canSend || _sendingFile ? null : _pickMention,
                     ),
                     IconButton(
                       icon: const Icon(Icons.attach_file),
                       tooltip: '发送文件',
-                      onPressed: _sendingFile
+                      onPressed: !canSend || _sendingFile
                           ? null
                           : () => _pickAndSendFile(conversationId),
                     ),
@@ -1687,22 +1782,23 @@ class _ConversationViewState extends State<ConversationView> {
                       color: _recording
                           ? Theme.of(context).colorScheme.error
                           : null,
-                      onPressed: _sendingFile
+                      onPressed: !canSend || _sendingFile
                           ? null
                           : () => _toggleVoice(conversationId),
                     ),
                     Expanded(
                         child: TextField(
                             controller: _controller,
+                            readOnly: !canSend,
                             minLines: 1,
                             maxLines: 5,
                             textInputAction: TextInputAction.newline,
                             decoration: InputDecoration(
-                                hintText: '输入消息…',
+                                hintText: canSend ? '输入消息…' : '话题已关闭',
                                 prefixIcon: IconButton(
                                   tooltip: '选择表情',
                                   icon: Icon(Icons.emoji_emotions_outlined),
-                                  onPressed: _showEmojiPicker,
+                                  onPressed: canSend ? _showEmojiPicker : null,
                                 ),
                                 isDense: true))),
                     const SizedBox(width: 6),
@@ -1712,28 +1808,31 @@ class _ConversationViewState extends State<ConversationView> {
                           minimumSize: const Size(46, 46),
                           shape: const CircleBorder()),
                       tooltip: '发送',
-                      onPressed: () async {
-                        final text = _controller.text.trim();
-                        if (text.isEmpty) return;
-                        try {
-                          await widget.repository.sendMessage(
-                              conversationId, text,
-                              replyToMessageId: _replyTo?.id);
-                          _controller.clear();
-                          if (mounted) setState(() => _replyTo = null);
-                          final key = _draftKey;
-                          if (key != null) {
-                            final prefs = await SharedPreferences.getInstance();
-                            await prefs.remove(key);
-                          }
-                          if (mounted) setState(() {});
-                        } catch (error) {
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('发送消息失败：$error')));
-                          }
-                        }
-                      },
+                      onPressed: !canSend
+                          ? null
+                          : () async {
+                              final text = _controller.text.trim();
+                              if (text.isEmpty) return;
+                              try {
+                                await widget.repository.sendMessage(
+                                    conversationId, text,
+                                    replyToMessageId: _replyTo?.id);
+                                _controller.clear();
+                                if (mounted) setState(() => _replyTo = null);
+                                final key = _draftKey;
+                                if (key != null) {
+                                  final prefs =
+                                      await SharedPreferences.getInstance();
+                                  await prefs.remove(key);
+                                }
+                                if (mounted) setState(() {});
+                              } catch (error) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('发送消息失败：$error')));
+                                }
+                              }
+                            },
                     ),
                   ],
                 ),
@@ -1813,6 +1912,7 @@ class _ConversationViewState extends State<ConversationView> {
   }
 
   Future<void> _revokeSelected(String conversationId) async {
+    if (!_topicIsOpen(conversationId)) return;
     final selected = _visibleMessages
         .where((message) =>
             _selectedMessageIds.contains(message.id) && message.mine)
@@ -1944,6 +2044,7 @@ class _ConversationViewState extends State<ConversationView> {
 
   Future<void> _confirmRevoke(
       String conversationId, ChatMessage message) async {
+    if (!_topicIsOpen(conversationId)) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -1966,40 +2067,45 @@ class _ConversationViewState extends State<ConversationView> {
 
   Future<void> _showMessageActions(
       String conversationId, ChatMessage message) async {
+    final topicArchived = _topicArchived;
     final action = await showModalBottomSheet<String>(
       context: context,
       builder: (context) => SafeArea(
         child: Wrap(children: [
-          const ListTile(title: Text('表情回应')),
-          Wrap(
-            children: ['👍', '❤️', '😂', '🎉', '🤔', '👏']
-                .map((emoji) => IconButton(
-                      icon: Text(emoji, style: const TextStyle(fontSize: 24)),
-                      tooltip: emoji,
-                      onPressed: () =>
-                          Navigator.pop(context, 'reaction:$emoji'),
-                    ))
-                .toList(),
-          ),
-          if (message.mine)
+          if (!topicArchived) ...[
+            const ListTile(title: Text('表情回应')),
+            Wrap(
+              children: ['👍', '❤️', '😂', '🎉', '🤔', '👏']
+                  .map((emoji) => IconButton(
+                        icon: Text(emoji, style: const TextStyle(fontSize: 24)),
+                        tooltip: emoji,
+                        onPressed: () =>
+                            Navigator.pop(context, 'reaction:$emoji'),
+                      ))
+                  .toList(),
+            ),
+          ],
+          if (!topicArchived && message.mine)
             ListTile(
               leading: const Icon(Icons.undo),
               title: const Text('撤回消息'),
               onTap: () => Navigator.pop(context, 'revoke'),
             ),
-          ListTile(
-            leading: const Icon(Icons.reply),
-            title: const Text('回复'),
-            onTap: () => Navigator.pop(context, 'reply'),
-          ),
+          if (!topicArchived && !_isTopicConversation && message.topic == null)
+            ListTile(
+              leading: const Icon(Icons.reply),
+              title: const Text('回复'),
+              onTap: () => Navigator.pop(context, 'reply'),
+            ),
           ListTile(
               leading: const Icon(Icons.checklist),
               title: const Text('多选'),
               onTap: () => Navigator.pop(context, 'select')),
-          ListTile(
-              leading: const Icon(Icons.forum_outlined),
-              title: const Text('创建话题'),
-              onTap: () => Navigator.pop(context, 'topic')),
+          if (!topicArchived)
+            ListTile(
+                leading: const Icon(Icons.forum_outlined),
+                title: const Text('创建话题'),
+                onTap: () => Navigator.pop(context, 'topic')),
           ListTile(
               leading: const Icon(Icons.forward_outlined),
               title: const Text('转发消息'),
@@ -2010,14 +2116,17 @@ class _ConversationViewState extends State<ConversationView> {
     if (!mounted || action == null) return;
     if (action == 'select') {
       if (mounted) setState(() => _selectedMessageIds.add(message.id));
-    } else if (action == 'reply') {
+    } else if (action == 'reply' && _topicIsOpen(conversationId)) {
       if (mounted) {
         setState(() => _replyTo = MessageReply(
             id: message.id, author: message.author, text: message.text));
       }
-    } else if (action == 'revoke') {
+    } else if (action == 'revoke' && _topicIsOpen(conversationId)) {
       await _confirmRevoke(conversationId, message);
-    } else if (action == 'topic') {
+    } else if (action == 'topic' &&
+        !_isTopicConversation &&
+        message.topic == null &&
+        _topicIsOpen(conversationId)) {
       try {
         final topic =
             await widget.repository.createTopic(conversationId, message.id);
@@ -2056,7 +2165,7 @@ class _ConversationViewState extends State<ConversationView> {
         await widget.repository
             .forwardMessage(conversationId, message.id, target);
       }
-    } else if (action.startsWith('reaction:')) {
+    } else if (action.startsWith('reaction:') && _topicIsOpen(conversationId)) {
       await widget.repository.setReaction(conversationId, message.id,
           text: action.substring('reaction:'.length), reacted: true);
     }
@@ -2068,10 +2177,16 @@ class _MessageBubble extends StatelessWidget {
       {required this.message,
       required this.repository,
       required this.conversationId,
+      this.canReact = true,
+      this.canRespond = true,
+      this.onOpenTopic,
       this.contactsFuture});
   final ChatMessage message;
   final MagicChatRepository repository;
   final String conversationId;
+  final bool canReact;
+  final bool canRespond;
+  final ValueChanged<String>? onOpenTopic;
   final Future<List<Contact>>? contactsFuture;
 
   @override
@@ -2225,8 +2340,10 @@ class _MessageBubble extends StatelessWidget {
             final label = option['label'] ?? option['text'];
             return id is String && label is String
                 ? TextButton(
-                    onPressed: () => repository
-                        .submitChoice(conversationId, message.id, [id]),
+                    onPressed: canRespond
+                        ? () => repository
+                            .submitChoice(conversationId, message.id, [id])
+                        : null,
                     child: Align(
                         alignment: Alignment.centerLeft, child: Text(label)),
                   )
@@ -2246,6 +2363,11 @@ class _MessageBubble extends StatelessWidget {
                             .convert(message.rawBody),
                         style: Theme.of(context).textTheme.bodySmall))
               ]),
+        if (message.topic != null)
+          TopicReplyPreview(
+              topic: message.topic!,
+              contactsFuture: contactsFuture,
+              onOpen: onOpenTopic),
         if (message.reactions.isNotEmpty)
           Padding(
               padding: const EdgeInsets.only(top: 6),
@@ -2259,10 +2381,12 @@ class _MessageBubble extends StatelessWidget {
                           backgroundColor: reaction.reactedByMe
                               ? colors.primaryContainer
                               : null,
-                          onPressed: () => repository.setReaction(
-                              conversationId, message.id,
-                              text: reaction.text,
-                              reacted: !reaction.reactedByMe)))
+                          onPressed: canReact
+                              ? () => repository.setReaction(
+                                  conversationId, message.id,
+                                  text: reaction.text,
+                                  reacted: !reaction.reactedByMe)
+                              : null))
                       .toList()))
       ]),
     );
