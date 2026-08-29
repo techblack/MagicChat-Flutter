@@ -21,6 +21,7 @@ import 'data/voice_recorder.dart';
 import 'data/avatar_processor.dart';
 import 'features/contacts/contacts_page.dart';
 import 'features/messages/history_attachments_dialog.dart';
+import 'features/messages/message_link_card.dart';
 import 'features/messages/topic_reply_preview.dart';
 import 'features/messages/topics_dialog.dart';
 import 'features/messages/topic_source_banner.dart';
@@ -583,14 +584,16 @@ class _AppShellState extends State<AppShell> {
     final httpRepository = widget.repository;
     final documentCollaborationFactory =
         httpRepository is HttpMagicChatRepository && widget.serverUrl != null
-            ? (ProjectDocument document) => document.documentType == 'markdown'
-                ? DocumentCollaborationSession(
-                    serverUrl: widget.serverUrl!,
-                    token: httpRepository.sessionToken,
-                    documentId: document.id,
-                    documentType: document.documentType ?? 'document',
-                    connector: connectWithAuthorization)
-                : null
+            ? (ProjectDocument document) =>
+                document.documentType == 'markdown' ||
+                        document.documentType == 'document'
+                    ? DocumentCollaborationSession(
+                        serverUrl: widget.serverUrl!,
+                        token: httpRepository.sessionToken,
+                        documentId: document.id,
+                        documentType: document.documentType!,
+                        connector: connectWithAuthorization)
+                    : null
             : null;
     final pages = <Widget>[
       MessagesPage(
@@ -599,7 +602,8 @@ class _AppShellState extends State<AppShell> {
           realtimeStore: widget.realtimeStore,
           selectedId: _selectedConversation,
           onSelect: (id) =>
-              setState(() => _selectedConversation = id.isEmpty ? null : id)),
+              setState(() => _selectedConversation = id.isEmpty ? null : id),
+          onOpenInternalLink: _openInternalMessageLink),
       ContactsPage(
           repository: _repository,
           realtimeStore: widget.realtimeStore,
@@ -677,6 +681,16 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
+  void _openInternalMessageLink(String path) {
+    final target = parseInternalMessagePath(path);
+    if (target == null) return;
+    final uri = Uri.tryParse(target);
+    if (uri == null) return;
+    if (uri.path == '/projects' || uri.path.startsWith('/projects/')) {
+      setState(() => _index = 2);
+    }
+  }
+
   Future<void> _showSearch(BuildContext context) async {
     final controller = TextEditingController();
     await showDialog<void>(
@@ -749,12 +763,14 @@ class MessagesPage extends StatelessWidget {
       this.realtimeStore,
       required this.selectedId,
       required this.onSelect,
+      this.onOpenInternalLink,
       super.key});
   final MagicChatRepository repository;
   final String? serverUrl;
   final RealtimeStore? realtimeStore;
   final String? selectedId;
   final ValueChanged<String> onSelect;
+  final ValueChanged<String>? onOpenInternalLink;
   @override
   Widget build(BuildContext context) =>
       LayoutBuilder(builder: (context, constraints) {
@@ -783,6 +799,7 @@ class MessagesPage extends StatelessWidget {
                 realtimeStore: realtimeStore,
                 conversationId: selectedId,
                 onOpenConversation: onSelect,
+                onOpenInternalLink: onOpenInternalLink,
               ),
             ),
           ]);
@@ -803,7 +820,8 @@ class MessagesPage extends StatelessWidget {
                       repository: repository,
                       realtimeStore: realtimeStore,
                       conversationId: selectedId,
-                      onOpenConversation: onSelect))
+                      onOpenConversation: onSelect,
+                      onOpenInternalLink: onOpenInternalLink))
           ]),
           Positioned(
               right: 16,
@@ -1303,11 +1321,13 @@ class ConversationView extends StatefulWidget {
       this.realtimeStore,
       required this.conversationId,
       this.onOpenConversation,
+      this.onOpenInternalLink,
       super.key});
   final MagicChatRepository repository;
   final RealtimeStore? realtimeStore;
   final String? conversationId;
   final ValueChanged<String>? onOpenConversation;
+  final ValueChanged<String>? onOpenInternalLink;
   @override
   State<ConversationView> createState() => _ConversationViewState();
 }
@@ -1820,6 +1840,7 @@ class _ConversationViewState extends State<ConversationView> {
                                 canReact: _topicIsOpen(conversationId),
                                 canRespond: canSend,
                                 onOpenTopic: widget.onOpenConversation,
+                                onOpenInternalLink: widget.onOpenInternalLink,
                                 contactsFuture: _contactsFuture),
                           ),
                         ))
@@ -2474,6 +2495,7 @@ class _MessageBubble extends StatelessWidget {
       this.canReact = true,
       this.canRespond = true,
       this.onOpenTopic,
+      this.onOpenInternalLink,
       this.contactsFuture});
   final ChatMessage message;
   final MagicChatRepository repository;
@@ -2481,6 +2503,7 @@ class _MessageBubble extends StatelessWidget {
   final bool canReact;
   final bool canRespond;
   final ValueChanged<String>? onOpenTopic;
+  final ValueChanged<String>? onOpenInternalLink;
   final Future<List<Contact>>? contactsFuture;
 
   @override
@@ -2499,6 +2522,16 @@ class _MessageBubble extends StatelessWidget {
       _ => null,
     };
     final options = message.rawBody['options'];
+    final bodyTitle = message.rawBody['title'];
+    final bodyDescription = message.rawBody['description'];
+    final bodyUrl = message.rawBody['url'];
+    final linkTitle = bodyTitle is String ? bodyTitle.trim() : '';
+    final linkDescription = bodyDescription is String
+        ? bodyDescription.trim()
+        : message.contentType == 'link' && bodyUrl is String
+            ? bodyUrl.trim()
+            : '';
+    final linkUrl = bodyUrl is String ? bodyUrl.trim() : '';
     return Container(
       margin: EdgeInsets.only(
           left: mine ? 56 : 12, right: mine ? 12 : 56, bottom: 6),
@@ -2588,24 +2621,58 @@ class _MessageBubble extends StatelessWidget {
                                   mode: LaunchMode.externalApplication);
                             }
                           })
-                      : message.contentType == 'forward_bundle'
-                          ? _ForwardBundlePreview(
-                              body: message.rawBody,
-                              summary: message.text,
-                              textColor: mine ? colors.onPrimary : null)
-                          : FutureBuilder<List<Contact>>(
-                              future: contactsFuture,
-                              builder: (context, snapshot) {
-                                final contacts =
-                                    snapshot.data ?? const <Contact>[];
-                                return Text(
-                                    formatMentionText(
-                                        message.text,
-                                        contacts.map(
-                                            (c) => (id: c.id, name: c.name))),
-                                    style: TextStyle(
-                                        color: mine ? colors.onPrimary : null));
-                              })),
+                      : message.contentType == 'link' ||
+                              message.contentType == 'card'
+                          ? MessageLinkCard(
+                              title: linkTitle.isNotEmpty
+                                  ? linkTitle
+                                  : message.contentType == 'link' &&
+                                          linkUrl.isNotEmpty
+                                      ? linkUrl
+                                      : message.contentType == 'card'
+                                          ? '卡片'
+                                          : '链接',
+                              description: linkDescription,
+                              url: linkUrl,
+                              icon: message.contentType == 'card'
+                                  ? Icons.open_in_new
+                                  : Icons.link_outlined,
+                              textColor:
+                                  mine ? colors.onPrimary : colors.onSurface,
+                              accentColor:
+                                  mine ? colors.onPrimary : colors.primary,
+                              backgroundColor: mine
+                                  ? colors.onPrimary.withValues(alpha: .1)
+                                  : colors.surfaceContainerLow,
+                              allowInternalPath: message.contentType == 'card',
+                              semanticLabel:
+                                  '${message.contentType == 'card' ? '卡片' : '链接'}：${linkTitle.isNotEmpty ? linkTitle : linkUrl}',
+                              onOpen: (uri) {
+                                unawaited(launchUrl(uri,
+                                    mode: LaunchMode.externalApplication));
+                              },
+                              onOpenInternal: onOpenInternalLink,
+                            )
+                          : message.contentType == 'forward_bundle'
+                              ? _ForwardBundlePreview(
+                                  body: message.rawBody,
+                                  summary: message.text,
+                                  textColor: mine ? colors.onPrimary : null)
+                              : FutureBuilder<List<Contact>>(
+                                  future: contactsFuture,
+                                  builder: (context, snapshot) {
+                                    final contacts =
+                                        snapshot.data ?? const <Contact>[];
+                                    return Text(
+                                        formatMentionText(
+                                            message.text,
+                                            contacts.map((c) =>
+                                                (id: c.id, name: c.name))),
+                                        style: TextStyle(
+                                            color: mine
+                                                ? colors.onPrimary
+                                                : null));
+                                  })),
         ]),
         if (!revoked &&
             (message.contentType == 'image' ||

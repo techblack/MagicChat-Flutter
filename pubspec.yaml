@@ -25,5 +25,9 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+
+dependency_overrides:
+  yjs_dart:
+    path: ../packages/yjs_dart
 flutter:
   uses-material-design: true

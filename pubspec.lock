@@ -816,11 +816,10 @@ packages:
   yjs_dart:
     dependency: "direct main"
     description:
-      name: yjs_dart
-      sha256: "0f231a61b0e920f09f97ca62a61b42a27bf0f21f408aef5fd4541ca52c41183c"
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.1.15"
+      path: "../packages/yjs_dart"
+      relative: true
+    source: path
+    version: "1.1.15+magicchat.1"
 sdks:
   dart: ">=3.12.0 <4.0.0"
   flutter: ">=3.44.0"

@@ -87,6 +87,81 @@ void main() {
         find.byKey(const ValueKey('document-collaboration-golden')),
         matchesGoldenFile('evidence/document_collaboration.png'));
   });
+
+  testWidgets('富文档 XmlFragment 协作编辑器流程截图', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1042, 662));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final channel = _FakeChannel();
+    final session = DocumentCollaborationSession(
+        serverUrl: 'https://chat.example.com',
+        token: 'screenshot-session',
+        documentId: 'document-rich-3',
+        documentType: 'document',
+        connector: (_, __) => channel);
+    addTearDown(session.close);
+
+    await tester.pumpWidget(
+      RepaintBoundary(
+        key: const ValueKey('document-rich-collaboration-golden'),
+        child: SizedBox(
+          width: 1042,
+          height: 662,
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: ThemeData(
+                colorScheme:
+                    ColorScheme.fromSeed(seedColor: const Color(0xFF6750A4)),
+                useMaterial3: true),
+            home: DocumentEditorPage(
+              repository: DemoRepository(),
+              document: const ProjectDocument(
+                  id: 'document-rich-3',
+                  projectId: 'project-1',
+                  title: '富文档协作说明',
+                  documentType: 'document'),
+              collaboration: session,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    channel.emit(
+        encodeHocuspocusAuthenticatedFrame(documentName: 'document-rich-3'));
+    await tester.pump();
+
+    final serverDocument = yjs.Doc(yjs.DocOpts(guid: 'document-rich-3'));
+    final body =
+        serverDocument.get<yjs.YXmlFragment>('body', yjs.YXmlFragment.new)!;
+    _insertParagraphs(body, '团队规范\n\n富文档正文已通过 body 协作同步');
+    final incoming = yjs.createEncoder();
+    yjs.writeVarString(incoming, 'document-rich-3');
+    yjs.writeVarUint(incoming, HocuspocusMessageType.sync);
+    yjs.writeSyncStep2(incoming, serverDocument);
+    channel.emit(yjs.toUint8Array(incoming));
+    await tester.pump();
+    await tester.pump();
+
+    expect(session.status, DocumentCollaborationStatus.synced);
+    expect(find.textContaining('字 · 已同步'), findsOneWidget);
+    await expectLater(
+        find.byKey(const ValueKey('document-rich-collaboration-golden')),
+        matchesGoldenFile('evidence/document_collaboration_rich.png'));
+    serverDocument.destroy();
+  });
+}
+
+void _insertParagraphs(yjs.YXmlFragment body, String value) {
+  for (final line in value.split('\n')) {
+    final paragraph = yjs.YXmlElement('paragraph');
+    body.insert(body.length, [paragraph]);
+    if (line.isEmpty) continue;
+    final content = yjs.YXmlText();
+    paragraph.insert(0, [content]);
+    content.insert(0, line);
+  }
 }
 
 class _FakeChannel implements WebSocketChannel {

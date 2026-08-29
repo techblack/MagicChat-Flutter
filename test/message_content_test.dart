@@ -10,6 +10,55 @@ void main() {
     expect(MessageContent.parse({'type': 'chart'}).text, '[图表]');
   });
 
+  test('链接和卡片使用类型摘要并保留完整 raw body', () {
+    final link = MessageContent.parse({
+      'type': 'link',
+      'title': 'Example Docs',
+      'url': 'https://example.com/docs',
+      'content': '不应覆盖链接摘要',
+    });
+    final card = MessageContent.parse({
+      'type': 'card',
+      'title': '任务动态',
+      'description': '状态：待办',
+      'url': '/projects/one',
+    });
+
+    expect(link.text, '[链接] Example Docs');
+    expect(link.raw['url'], 'https://example.com/docs');
+    expect(link.raw['content'], '不应覆盖链接摘要');
+    expect(card.text, '[卡片] 任务动态');
+    expect(card.raw['description'], '状态：待办');
+  });
+
+  test('链接摘要在标题缺失时回退到 URL', () {
+    final link = MessageContent.parse(
+        {'type': 'link', 'url': 'https://example.com/fallback'});
+    expect(link.text, '[链接] https://example.com/fallback');
+  });
+
+  test('外链解析仅接受带主机的 HTTP(S) 地址', () {
+    expect(parseExternalWebUri('https://example.com/path')?.scheme, 'https');
+    expect(parseExternalWebUri('HTTP://example.com/path')?.scheme, 'http');
+    for (final value in [
+      'javascript:alert(1)',
+      'data:text/html,test',
+      'https:example.com/path',
+      '//example.com/path',
+      'https://example.com/a b',
+      r'https://example.com/a\b',
+    ]) {
+      expect(parseExternalWebUri(value), isNull, reason: value);
+    }
+  });
+
+  test('应用内卡片仅接受单斜杠绝对路径', () {
+    expect(parseInternalMessagePath(' /projects/one?taskId=task-1 '),
+        '/projects/one?taskId=task-1');
+    expect(parseInternalMessagePath('//evil.example/path'), isNull);
+    expect(parseInternalMessagePath(r'/projects/one\task'), isNull);
+  });
+
   test('撤回消息正文缺失时使用稳定占位文案', () {
     final content =
         MessageContent.fromEnvelope(null, revokedAt: '2026-08-29T12:00:00Z');

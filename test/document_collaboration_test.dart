@@ -104,7 +104,75 @@ void main() {
 
     await session.close();
   });
+
+  test('富文档会话绑定 Y.XmlFragment("body") 并同步持久化正文', () async {
+    final channel = _FakeChannel();
+    final session = DocumentCollaborationSession(
+        serverUrl: 'https://chat.example.com',
+        token: 'session-token',
+        documentId: 'doc-rich-1',
+        documentType: 'document',
+        connector: (_, __) => channel);
+
+    expect(session.body, isA<yjs.YXmlFragment>());
+    expect(session.text, isEmpty);
+    await session.connect();
+    expect(session.status, DocumentCollaborationStatus.connecting);
+    expect(channel.sent, hasLength(1));
+
+    channel
+        .emit(encodeHocuspocusAuthenticatedFrame(documentName: 'doc-rich-1'));
+    await Future<void>.delayed(Duration.zero);
+
+    final serverDocument = yjs.Doc(yjs.DocOpts(guid: 'doc-rich-1'));
+    final serverBody =
+        serverDocument.get<yjs.YXmlFragment>('body', yjs.YXmlFragment.new)!;
+    _insertParagraphs(serverBody, '富文档正文\n第二段');
+    final incoming = yjs.createEncoder();
+    yjs.writeVarString(incoming, 'doc-rich-1');
+    yjs.writeVarUint(incoming, HocuspocusMessageType.sync);
+    yjs.writeSyncStep2(incoming, serverDocument);
+    channel.emit(yjs.toUint8Array(incoming));
+    await Future<void>.delayed(Duration.zero);
+
+    expect(session.status, DocumentCollaborationStatus.synced);
+    expect(session.text, '富文档正文\n第二段');
+
+    session.replaceText('本地富文档正文');
+    expect(session.text, '本地富文档正文');
+    expect(channel.sent, hasLength(4));
+    final update = yjs.createDecoder(channel.sent.last as Uint8List);
+    expect(yjs.readVarString(update), 'doc-rich-1');
+    expect(yjs.readVarUint(update), HocuspocusMessageType.sync);
+    yjs.readSyncMessage(update, yjs.createEncoder(), serverDocument, 'server');
+    expect(_xmlText(serverBody), '本地富文档正文');
+
+    await session.close();
+    serverDocument.destroy();
+  });
 }
+
+void _insertParagraphs(yjs.YXmlFragment body, String value) {
+  for (final line in value.split('\n')) {
+    final paragraph = yjs.YXmlElement('paragraph');
+    body.insert(body.length, [paragraph]);
+    if (line.isEmpty) continue;
+    final content = yjs.YXmlText();
+    paragraph.insert(0, [content]);
+    content.insert(0, line);
+  }
+}
+
+String _xmlText(yjs.YXmlFragment body) => body.toArray().map((node) {
+      if (node is yjs.YXmlFragment) {
+        return node
+            .toArray()
+            .whereType<yjs.YText>()
+            .map((text) => text.toString())
+            .join();
+      }
+      return '';
+    }).join('\n');
 
 class _FakeChannel implements WebSocketChannel {
   final sent = <Object?>[];

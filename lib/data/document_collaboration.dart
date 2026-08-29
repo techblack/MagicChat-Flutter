@@ -7,8 +7,11 @@ import 'document_realtime.dart';
 
 enum DocumentCollaborationStatus { disconnected, connecting, synced, error }
 
-/// 将 Markdown 文档绑定到服务端 Y.Text，并通过 Hocuspocus sync 帧交换更新。
-/// 富文本文档需独立绑定 Y.XmlFragment("body")，不在此类中降级为 Markdown。
+/// 将协作文档绑定到服务端 Yjs 类型，并通过 Hocuspocus sync 帧交换更新。
+///
+/// Markdown 使用服务端约定的 `Y.Text("markdown")`。富文档使用服务端约定的
+/// `Y.XmlFragment("body")`，正文使用标准的 XML Element/Text 子节点写入，
+/// 与 Tiptap Collaboration 的 block tree 共用同一持久化状态。
 class DocumentCollaborationSession extends ChangeNotifier {
   DocumentCollaborationSession({
     required String serverUrl,
@@ -25,6 +28,7 @@ class DocumentCollaborationSession extends ChangeNotifier {
         _document = yjs.Doc(yjs.DocOpts(guid: documentId)) {
     _awareness = yjs.Awareness(_document);
     _markdown = _document.getText('markdown')!;
+    _body = _document.get<yjs.YXmlFragment>('body', yjs.YXmlFragment.new)!;
   }
 
   final String documentId;
@@ -33,12 +37,17 @@ class DocumentCollaborationSession extends ChangeNotifier {
   final yjs.Doc _document;
   late final yjs.Awareness _awareness;
   late final yjs.YText _markdown;
+  late final yjs.YXmlFragment _body;
   StreamSubscription<Uint8List>? _subscription;
   DocumentCollaborationStatus status = DocumentCollaborationStatus.disconnected;
   bool _closed = false;
   bool _authenticated = false;
 
-  String get text => _markdown.toString();
+  /// 当前文档的共享富文档根节点，便于后续接入 XML block 编辑器。
+  yjs.YXmlFragment get body => _body;
+
+  String get text =>
+      documentType == 'markdown' ? _markdown.toString() : _readBodyText();
 
   /// 当前连接中除本机外的在线协作者数量。
   int get collaboratorCount => _awareness.states.keys
@@ -50,12 +59,11 @@ class DocumentCollaborationSession extends ChangeNotifier {
       Map.unmodifiable(_awareness.states);
 
   void setPresence(Map<String, Object?> state) {
-    if (_closed || documentType != 'markdown') return;
+    if (_closed) return;
     _awareness.setLocalState(state);
   }
 
   Future<void> connect() async {
-    if (documentType != 'markdown') return;
     _closed = false;
     _authenticated = false;
     status = DocumentCollaborationStatus.connecting;
@@ -75,19 +83,93 @@ class DocumentCollaborationSession extends ChangeNotifier {
   }
 
   void replaceText(String value) {
-    if (documentType != 'markdown' ||
-        status != DocumentCollaborationStatus.synced ||
-        value == text) {
+    if (status != DocumentCollaborationStatus.synced || value == text) {
       return;
     }
     final oldText = text;
-    // Remote Y.Text content may span several items in the Dart binding.
-    // Replacing the complete value avoids partial-split index issues while
-    // still emitting one Yjs transaction on the wire.
     _document.transact((_) {
-      if (oldText.isNotEmpty) _markdown.delete(0, oldText.length);
-      if (value.isNotEmpty) _markdown.insert(0, value);
+      if (documentType == 'markdown') {
+        // Remote Y.Text content may span several items in the Dart binding.
+        // Replacing the complete value avoids partial-split index issues while
+        // still emitting one Yjs transaction on the wire.
+        if (oldText.isNotEmpty) _markdown.delete(0, oldText.length);
+        if (value.isNotEmpty) _markdown.insert(0, value);
+      } else {
+        _replaceBodyText(value);
+      }
     });
+  }
+
+  /// 将轻量编辑器中的纯文本转换为标准 Tiptap XML block tree。
+  ///
+  /// 每行对应一个 `paragraph`，后续富文本工具栏可直接在 [body] 上插入
+  /// heading、list 等 `YXmlElement`，无需改变协作协议或持久化字段。
+  void _replaceBodyText(String value) {
+    final lines = value.split('\n');
+    final textNodes = <yjs.YXmlText>[];
+    _collectXmlTextNodes(_body, textNodes);
+    // Update existing text leaves in place so images, tables, lists and
+    // formatting attributes from a Web/Desktop document are not discarded by
+    // a plain-text edit in Flutter.
+    for (var i = 0; i < textNodes.length; i++) {
+      final node = textNodes[i];
+      final next = i < lines.length ? lines[i] : '';
+      if (node.toString() == next) continue;
+      if (node.length > 0) node.delete(0, node.length);
+      if (next.isNotEmpty) node.insert(0, next);
+      if (i >= lines.length && node.parent is yjs.YXmlElement) {
+        final paragraph = node.parent!;
+        if (paragraph.name == 'paragraph' && paragraph.length == 1) {
+          final owner = paragraph.parent;
+          if (owner is yjs.YXmlFragment) {
+            final index = owner.toArray().indexOf(paragraph);
+            if (index >= 0) owner.delete(index);
+          }
+        }
+      }
+    }
+    if (lines.length <= textNodes.length) return;
+    for (final line in lines.skip(textNodes.length)) {
+      final paragraph = yjs.YXmlElement('paragraph');
+      _body.insert(_body.length, [paragraph]);
+      final content = yjs.YXmlText();
+      paragraph.insert(0, [content]);
+      if (line.isNotEmpty) content.insert(0, line);
+    }
+  }
+
+  void _collectXmlTextNodes(yjs.YXmlFragment node, List<yjs.YXmlText> result) {
+    for (final child in node.toArray()) {
+      if (child is yjs.YXmlText) {
+        result.add(child);
+      } else if (child is yjs.YXmlFragment) {
+        _collectXmlTextNodes(child, result);
+      }
+    }
+  }
+
+  String _readBodyText() {
+    final blocks = _body.toArray().map(_xmlNodeText).toList();
+    return blocks.join('\n');
+  }
+
+  String _xmlNodeText(Object? value) {
+    if (value is yjs.YXmlText || value is yjs.YText) return value.toString();
+    if (value is! yjs.YXmlFragment) return value is String ? value : '';
+    final children = value.toArray().map(_xmlNodeText).toList();
+    final name = value.name;
+    if (name == 'bulletList' ||
+        name == 'orderedList' ||
+        name == 'taskList' ||
+        name == 'listItem' ||
+        name == 'taskItem' ||
+        name == 'tableRow') {
+      return children.join('\n');
+    }
+    if (name == 'tableCell' || name == 'tableHeader') {
+      return children.join(' ');
+    }
+    return children.join();
   }
 
   void _onDocumentUpdate(dynamic update,
