@@ -60,6 +60,9 @@ abstract interface class MagicChatRepository {
   Future<List<MessageReaction>> setReaction(
       String conversationId, String messageId,
       {required String text, required bool reacted});
+  Future<List<MessageReactionUser>> listReactionUsers(
+      String conversationId, String messageId,
+      {required String text});
   Future<void> submitChoice(
       String conversationId, String messageId, List<String> optionIds);
   Future<ContactDirectory> contactDirectory({String keyword = ''});
@@ -457,6 +460,13 @@ class DemoRepository implements MagicChatRepository {
           String conversationId, String messageId,
           {required String text, required bool reacted}) async =>
       const [];
+
+  @override
+  Future<List<MessageReactionUser>> listReactionUsers(
+          String conversationId, String messageId,
+          {required String text}) async =>
+      const [];
+
   @override
   Future<void> submitChoice(
       String conversationId, String messageId, List<String> optionIds) async {}
@@ -1298,10 +1308,23 @@ class HttpMagicChatRepository implements MagicChatRepository {
           .map((item) => MessageReaction(
               text: item['text'] as String,
               count: (item['count'] as num?)?.toInt() ?? 0,
-              reactedByMe: item['reacted_by_me'] == true))
+              reactedByMe: item['reacted_by_me'] == true,
+              users: _reactionUsersFromJson(item['users'])))
           .where((reaction) => reaction.count > 0)
           .toList()
       : const [];
+
+  List<MessageReactionUser> _reactionUsersFromJson(Object? value) =>
+      value is List
+          ? value
+              .whereType<Map<String, dynamic>>()
+              .where((item) =>
+                  item['id'] is String && (item['id'] as String).isNotEmpty)
+              .map((item) => MessageReactionUser(
+                  id: item['id'] as String,
+                  name: item['name'] is String ? item['name'] as String : ''))
+              .toList(growable: false)
+          : const [];
 
   MessageReply? _replyFromJson(Object? value) {
     if (value is! Map<String, dynamic> || value['id'] is! String) return null;
@@ -1489,8 +1512,35 @@ class HttpMagicChatRepository implements MagicChatRepository {
         .map((item) => MessageReaction(
             text: '${item['text'] ?? ''}',
             count: (item['count'] as num?)?.toInt() ?? 0,
-            reactedByMe: item['reacted_by_me'] == true))
+            reactedByMe: item['reacted_by_me'] == true,
+            users: _reactionUsersFromJson(item['users'])))
         .toList();
+  }
+
+  @override
+  Future<List<MessageReactionUser>> listReactionUsers(
+      String conversationId, String messageId,
+      {required String text}) async {
+    final query = Uri(queryParameters: {'text': text}).query;
+    final data = _data(await _request('GET',
+        '/api/client/conversations/${Uri.encodeComponent(conversationId)}/messages/${Uri.encodeComponent(messageId)}/reactions/users?$query'));
+    if (data['conversation_id'] != conversationId ||
+        data['message_id'] != messageId ||
+        data['text'] != text ||
+        data['users'] is! List) {
+      throw const FormatException('表情参与者响应格式不正确');
+    }
+    final users = (data['users'] as List).map((value) {
+      if (value is! Map<String, dynamic> ||
+          value['id'] is! String ||
+          (value['id'] as String).isEmpty) {
+        throw const FormatException('表情参与者响应格式不正确');
+      }
+      return MessageReactionUser(
+          id: value['id'] as String,
+          name: value['name'] is String ? value['name'] as String : '');
+    }).toList(growable: false);
+    return users;
   }
 
   @override

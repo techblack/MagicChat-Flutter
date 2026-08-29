@@ -8,6 +8,57 @@ import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
 
 void main() {
+  test('HTTP 仓库按表情文本查询参与者并解析用户列表', () async {
+    late http.Request request;
+    final repository = HttpMagicChatRepository(
+      serverUrl: 'https://chat.example.com/base',
+      sessionToken: 'test-token',
+      client: MockClient((value) async {
+        request = value;
+        return _jsonResponse({
+          'data': {
+            'conversation_id': 'conversation/1',
+            'message_id': 'message/1',
+            'text': '👍 &',
+            'users': [
+              {'id': 'u1', 'name': 'Alice'},
+              {'id': 'u2'},
+            ],
+          }
+        });
+      }),
+    );
+
+    final users = await repository
+        .listReactionUsers('conversation/1', 'message/1', text: '👍 &');
+    expect(request.method, 'GET');
+    expect(request.url.path,
+        '/base/api/client/conversations/conversation%2F1/messages/message%2F1/reactions/users');
+    expect(request.url.queryParameters['text'], '👍 &');
+    expect(request.headers['authorization'], 'Bearer test-token');
+    expect(users.map((user) => user.id), ['u1', 'u2']);
+    expect(users.last.name, isEmpty);
+  });
+
+  test('HTTP 仓库拒绝不匹配的表情参与者响应', () async {
+    final repository = HttpMagicChatRepository(
+      serverUrl: 'https://chat.example.com',
+      sessionToken: 'token',
+      client: MockClient((_) async => _jsonResponse({
+            'data': {
+              'conversation_id': 'wrong',
+              'message_id': 'message-1',
+              'text': '👍',
+              'users': [],
+            }
+          })),
+    );
+
+    await expectLater(
+        repository.listReactionUsers('conversation-1', 'message-1', text: '👍'),
+        throwsA(isA<FormatException>()));
+  });
+
   test('OwnedApp 和 AppCredentials 使用服务端 snake_case 字段往返', () {
     final app = OwnedApp.fromJson(_appJson());
     expect(app.id, 'app-1');

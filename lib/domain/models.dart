@@ -731,10 +731,21 @@ class AttachmentPage {
 
 class MessageReaction {
   const MessageReaction(
-      {required this.text, required this.count, required this.reactedByMe});
+      {required this.text,
+      required this.count,
+      required this.reactedByMe,
+      this.users = const []});
   final String text;
   final int count;
   final bool reactedByMe;
+  final List<MessageReactionUser> users;
+}
+
+class MessageReactionUser {
+  const MessageReactionUser({required this.id, this.name = ''});
+
+  final String id;
+  final String name;
 }
 
 class Contact {

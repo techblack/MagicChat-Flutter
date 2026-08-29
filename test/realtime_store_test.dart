@@ -97,6 +97,34 @@ void main() {
     expect(store.messages['m1']?.reactions.single.reactedByMe, isTrue);
   });
 
+  test('实时回应更新保留表情参与者', () {
+    final store = RealtimeStore();
+    store.messages['m1'] =
+        const ChatMessage(id: 'm1', author: 'Alice', text: 'hi');
+    store.apply({
+      'event': 'message.reactions_updated',
+      'cursor': 1,
+      'payload': {
+        'message_id': 'm1',
+        'reactions': [
+          {
+            'text': '👍',
+            'count': 2,
+            'users': [
+              {'id': 'u1', 'name': 'Alice'},
+              {'id': 'u2'},
+              {'id': 4, 'name': 'invalid'},
+            ],
+          }
+        ],
+      }
+    });
+    final reaction = store.messages['m1']!.reactions.single;
+    expect(reaction.count, 2);
+    expect(reaction.users.map((user) => user.id), ['u1', 'u2']);
+    expect(reaction.users.last.name, isEmpty);
+  });
+
   test('撤回消息忽略迟到的回应更新', () {
     final store = RealtimeStore();
     store.messages['m1'] = const ChatMessage(

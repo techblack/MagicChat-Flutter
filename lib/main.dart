@@ -1523,7 +1523,20 @@ class _ConversationViewState extends State<ConversationView> {
               .map((item) => MessageReaction(
                   text: '${item['text'] ?? ''}',
                   count: (item['count'] as num?)?.toInt() ?? 0,
-                  reactedByMe: item['reacted_by_me'] == true))
+                  reactedByMe: item['reacted_by_me'] == true,
+                  users: item['users'] is List
+                      ? (item['users'] as List)
+                          .whereType<Map<String, dynamic>>()
+                          .where((user) =>
+                              user['id'] is String &&
+                              (user['id'] as String).trim().isNotEmpty)
+                          .map((user) => MessageReactionUser(
+                              id: user['id'] as String,
+                              name: user['name'] is String
+                                  ? user['name'] as String
+                                  : ''))
+                          .toList(growable: false)
+                      : const []))
               .toList()
           : const [],
     );
@@ -1557,6 +1570,13 @@ class _ConversationViewState extends State<ConversationView> {
                             'text': reaction.text,
                             'count': reaction.count,
                             'reacted_by_me': reaction.reactedByMe,
+                            'users': reaction.users
+                                .map((user) => {
+                                      'id': user.id,
+                                      if (user.name.isNotEmpty)
+                                        'name': user.name,
+                                    })
+                                .toList(),
                           })
                       .toList(),
                 })
@@ -2757,21 +2777,76 @@ class _MessageBubble extends StatelessWidget {
                   spacing: 4,
                   runSpacing: 4,
                   children: message.reactions
-                      .map((reaction) => ActionChip(
-                          label: Text('${reaction.text} ${reaction.count}'),
-                          visualDensity: VisualDensity.compact,
-                          backgroundColor: reaction.reactedByMe
-                              ? colors.primaryContainer
-                              : null,
-                          onPressed: canReact
-                              ? () => repository.setReaction(
-                                  conversationId, message.id,
-                                  text: reaction.text,
-                                  reacted: !reaction.reactedByMe)
-                              : null))
+                      .map((reaction) => GestureDetector(
+                          onLongPress: () =>
+                              _showReactionUsers(context, reaction),
+                          child: ActionChip(
+                              label: Text('${reaction.text} ${reaction.count}'),
+                              visualDensity: VisualDensity.compact,
+                              backgroundColor: reaction.reactedByMe
+                                  ? colors.primaryContainer
+                                  : null,
+                              onPressed: canReact
+                                  ? () => repository.setReaction(
+                                      conversationId, message.id,
+                                      text: reaction.text,
+                                      reacted: !reaction.reactedByMe)
+                                  : null)))
                       .toList()))
       ]),
     );
+  }
+
+  Future<void> _showReactionUsers(
+      BuildContext context, MessageReaction reaction) async {
+    try {
+      final users = await repository
+          .listReactionUsers(conversationId, message.id, text: reaction.text);
+      if (!context.mounted) return;
+      final contacts =
+          contactsFuture == null ? const <Contact>[] : await contactsFuture!;
+      if (!context.mounted) return;
+      final names = {
+        for (final contact in contacts) contact.id: contact.displayName
+      };
+      await showModalBottomSheet<void>(
+          context: context,
+          showDragHandle: true,
+          builder: (context) => SafeArea(
+                child: users.isEmpty
+                    ? const Padding(
+                        padding: EdgeInsets.all(28),
+                        child: Center(child: Text('暂无参与者')))
+                    : ListView(
+                        shrinkWrap: true,
+                        children: [
+                          Padding(
+                              padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                              child: Text('${reaction.text} 参与者',
+                                  style:
+                                      Theme.of(context).textTheme.titleMedium)),
+                          ...users.map((user) {
+                            final name = user.name.isNotEmpty
+                                ? user.name
+                                : names[user.id]?.isNotEmpty == true
+                                    ? names[user.id]!
+                                    : user.id;
+                            return ListTile(
+                                leading: CircleAvatar(
+                                    child: Text(name.isEmpty
+                                        ? '?'
+                                        : name.substring(0, 1))),
+                                title: Text(name));
+                          }),
+                        ],
+                      ),
+              ));
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('加载表情参与者失败：$error')));
+      }
+    }
   }
 }
 

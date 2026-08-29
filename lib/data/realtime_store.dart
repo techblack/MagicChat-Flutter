@@ -97,7 +97,8 @@ class RealtimeStore extends ChangeNotifier {
                 count: (item['count'] as num?)?.toInt() ?? 0,
                 reactedByMe: actorUserId == currentUserId &&
                     actorReacted &&
-                    actorText == item['text']))
+                    actorText == item['text'],
+                users: _reactionUsers(item['users'])))
             .where((reaction) => reaction.count > 0)
             .toList());
   }
@@ -169,9 +170,21 @@ class RealtimeStore extends ChangeNotifier {
           .map((item) => MessageReaction(
               text: item['text'] as String,
               count: (item['count'] as num?)?.toInt() ?? 0,
-              reactedByMe: item['reacted_by_me'] == true))
+              reactedByMe: item['reacted_by_me'] == true,
+              users: _reactionUsers(item['users'])))
           .where((reaction) => reaction.count > 0)
           .toList()
+      : const [];
+
+  List<MessageReactionUser> _reactionUsers(Object? value) => value is List
+      ? value
+          .whereType<Map<String, dynamic>>()
+          .where((item) =>
+              item['id'] is String && (item['id'] as String).trim().isNotEmpty)
+          .map((item) => MessageReactionUser(
+              id: item['id'] as String,
+              name: item['name'] is String ? item['name'] as String : ''))
+          .toList(growable: false)
       : const [];
 
   void _patchConversation(Map<String, dynamic> payload) {
