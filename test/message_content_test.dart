@@ -73,6 +73,45 @@ void main() {
     expect(content.text, '消息已撤回');
   });
 
+  test('系统事件生成与其他客户端一致的操作摘要', () {
+    expect(
+      MessageContent.parse({
+        'type': 'system_event',
+        'event': 'group_member_removed',
+        'actor': {'id': 'u1', 'display_name': 'Alice'},
+        'target': {'id': 'u2', 'display_name': 'Bob'},
+      }).text,
+      'Alice 已将 Bob 移出群聊',
+    );
+    expect(
+      MessageContent.parse({
+        'type': 'system_event',
+        'event': 'group_members_invited',
+        'inviter': {'id': 'u1', 'display_name': 'Alice'},
+        'invitees': [
+          {'id': 'u2', 'display_name': 'Bob'},
+          {'id': 'u3', 'display_name': 'Carol'},
+        ],
+      }).text,
+      'Alice 邀请 Bob, Carol 加入群聊',
+    );
+    expect(
+      MessageContent.parse({
+        'type': 'system_event',
+        'event': 'friendship_created',
+      }).text,
+      '你们已成为好友，现在可以开始聊天了',
+    );
+  });
+
+  test('未知系统事件保留稳定占位摘要', () {
+    expect(
+      MessageContent.parse({'type': 'system_event', 'event': 'future_event'})
+          .text,
+      '[系统消息]',
+    );
+  });
+
   test('提及 token 按联系人名称渲染', () {
     expect(
       formatMentionText(

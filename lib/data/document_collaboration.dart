@@ -7,6 +7,22 @@ import 'document_realtime.dart';
 
 enum DocumentCollaborationStatus { disconnected, connecting, synced, error }
 
+/// Flutter 富文档目前开放的安全 block 追加操作。
+///
+/// 这些操作只会在 `body` 末尾插入新节点，不重写已有 XML tree，因此不会
+/// 破坏来自 Web/Desktop 的图片、表格或文字 marks。
+enum RichDocumentBlockType {
+  paragraph,
+  heading1,
+  heading2,
+  heading3,
+  bulletList,
+  orderedList,
+  taskList,
+  blockquote,
+  codeBlock,
+}
+
 /// 将协作文档绑定到服务端 Yjs 类型，并通过 Hocuspocus sync 帧交换更新。
 ///
 /// Markdown 使用服务端约定的 `Y.Text("markdown")`。富文档使用服务端约定的
@@ -99,6 +115,75 @@ class DocumentCollaborationSession extends ChangeNotifier {
       }
     });
   }
+
+  /// 在富文档末尾追加一个标准 Tiptap XML block。
+  ///
+  /// 返回 `false` 表示当前不是已同步的富文档或正文为空；此时调用方可
+  /// 保留输入内容而不产生任何 Yjs 更新。
+  bool appendTextBlock(String value,
+      {RichDocumentBlockType type = RichDocumentBlockType.paragraph}) {
+    if (documentType != 'document' ||
+        status != DocumentCollaborationStatus.synced ||
+        value.trim().isEmpty) {
+      return false;
+    }
+    final text = value.trim();
+    _document.transact((_) {
+      if (type == RichDocumentBlockType.bulletList ||
+          type == RichDocumentBlockType.orderedList ||
+          type == RichDocumentBlockType.taskList) {
+        final list = yjs.YXmlElement(_blockName(type));
+        final item = yjs.YXmlElement(
+            type == RichDocumentBlockType.taskList ? 'taskItem' : 'listItem');
+        if (type == RichDocumentBlockType.taskList) {
+          item.setAttribute('checked', false);
+        }
+        final paragraph = yjs.YXmlElement('paragraph');
+        paragraph.insert(0, [yjs.YXmlText()..insert(0, text)]);
+        item.insert(0, [paragraph]);
+        list.insert(0, [item]);
+        _body.insert(_body.length, [list]);
+      } else if (type == RichDocumentBlockType.blockquote) {
+        // Tiptap 的 blockquote 内容是 block+，不能直接挂 Y.XmlText；
+        // 使用 paragraph 子节点保持与 Web/Desktop schema 一致。
+        final block = yjs.YXmlElement('blockquote');
+        final paragraph = yjs.YXmlElement('paragraph');
+        paragraph.insert(0, [yjs.YXmlText()..insert(0, text)]);
+        block.insert(0, [paragraph]);
+        _body.insert(_body.length, [block]);
+      } else {
+        final block = yjs.YXmlElement(_blockName(type));
+        if (type == RichDocumentBlockType.heading1 ||
+            type == RichDocumentBlockType.heading2 ||
+            type == RichDocumentBlockType.heading3) {
+          block.setAttribute(
+              'level',
+              type == RichDocumentBlockType.heading1
+                  ? 1
+                  : type == RichDocumentBlockType.heading2
+                      ? 2
+                      : 3);
+        }
+        block.insert(0, [yjs.YXmlText()..insert(0, text)]);
+        _body.insert(_body.length, [block]);
+      }
+    });
+    notifyListeners();
+    return true;
+  }
+
+  String _blockName(RichDocumentBlockType type) => switch (type) {
+        RichDocumentBlockType.paragraph => 'paragraph',
+        RichDocumentBlockType.heading1 ||
+        RichDocumentBlockType.heading2 ||
+        RichDocumentBlockType.heading3 =>
+          'heading',
+        RichDocumentBlockType.bulletList => 'bulletList',
+        RichDocumentBlockType.orderedList => 'orderedList',
+        RichDocumentBlockType.taskList => 'taskList',
+        RichDocumentBlockType.blockquote => 'blockquote',
+        RichDocumentBlockType.codeBlock => 'codeBlock',
+      };
 
   /// 将轻量编辑器中的纯文本转换为标准 Tiptap XML block tree。
   ///

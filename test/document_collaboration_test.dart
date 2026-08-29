@@ -150,6 +150,78 @@ void main() {
     await session.close();
     serverDocument.destroy();
   });
+
+  test('富文档只追加 XML block，不改写已有 marks', () async {
+    final channel = _FakeChannel();
+    final session = DocumentCollaborationSession(
+        serverUrl: 'https://chat.example.com',
+        token: 'session-token',
+        documentId: 'doc-rich-append',
+        documentType: 'document',
+        connector: (_, __) => channel);
+    await session.connect();
+    channel.emit(
+        encodeHocuspocusAuthenticatedFrame(documentName: 'doc-rich-append'));
+    await Future<void>.delayed(Duration.zero);
+
+    final serverDocument = yjs.Doc(yjs.DocOpts(guid: 'doc-rich-append'));
+    final serverBody =
+        serverDocument.get<yjs.YXmlFragment>('body', yjs.YXmlFragment.new)!;
+    final original = yjs.YXmlElement('paragraph');
+    final originalText = yjs.YXmlText()..insert(0, '保留加粗', {'bold': true});
+    original.insert(0, [originalText]);
+    serverBody.insert(0, [original]);
+    final incoming = yjs.createEncoder();
+    yjs.writeVarString(incoming, 'doc-rich-append');
+    yjs.writeVarUint(incoming, HocuspocusMessageType.sync);
+    yjs.writeSyncStep2(incoming, serverDocument);
+    channel.emit(yjs.toUint8Array(incoming));
+    await Future<void>.delayed(Duration.zero);
+    expect(session.status, DocumentCollaborationStatus.synced);
+
+    final sentBeforeAppend = channel.sent.length;
+    expect(
+        session.appendTextBlock('新增二级标题', type: RichDocumentBlockType.heading2),
+        isTrue);
+    expect(channel.sent, hasLength(sentBeforeAppend + 1));
+    final update = yjs.createDecoder(channel.sent.last as Uint8List);
+    expect(yjs.readVarString(update), 'doc-rich-append');
+    expect(yjs.readVarUint(update), HocuspocusMessageType.sync);
+    yjs.readSyncMessage(update, yjs.createEncoder(), serverDocument, 'server');
+
+    final blocks = serverBody.toArray().whereType<yjs.YXmlElement>().toList();
+    expect(blocks, hasLength(2));
+    expect(blocks.first.name, 'paragraph');
+    expect(blocks.last.name, 'heading');
+    expect(blocks.last.getAttribute('level'), 2);
+    expect(blocks.last.toArray().whereType<yjs.YXmlText>().single.toString(),
+        '新增二级标题');
+    final attributes = blocks.first
+        .toArray()
+        .whereType<yjs.YXmlText>()
+        .single
+        .toDelta()
+        .single['attributes'];
+    expect(attributes, containsPair('bold', true));
+
+    expect(
+        session.appendTextBlock('引用内容', type: RichDocumentBlockType.blockquote),
+        isTrue);
+    final blockquoteUpdate = yjs.createDecoder(channel.sent.last as Uint8List);
+    expect(yjs.readVarString(blockquoteUpdate), 'doc-rich-append');
+    expect(yjs.readVarUint(blockquoteUpdate), HocuspocusMessageType.sync);
+    yjs.readSyncMessage(
+        blockquoteUpdate, yjs.createEncoder(), serverDocument, 'server');
+    final blockquote = serverBody.toArray().whereType<yjs.YXmlElement>().last;
+    expect(blockquote.name, 'blockquote');
+    final quoteParagraph =
+        blockquote.toArray().whereType<yjs.YXmlElement>().single;
+    expect(quoteParagraph.name, 'paragraph');
+    expect(quoteParagraph.toArray().whereType<yjs.YXmlText>().single.toString(),
+        '引用内容');
+    await session.close();
+    serverDocument.destroy();
+  });
 }
 
 void _insertParagraphs(yjs.YXmlFragment body, String value) {

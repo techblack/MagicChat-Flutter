@@ -62,9 +62,72 @@ class MessageContent {
         return '[图表]';
       case 'forward_bundle':
         return '[聊天记录] ${body['item_count'] ?? 0} 条';
+      case 'system_event':
+        return _systemEventSummary(body);
       default:
         return '[消息]';
     }
+  }
+
+  /// 系统事件不携带普通消息的 `content`，但各端仍需在会话中显示可读的
+  /// 操作摘要。服务端事件字段保持原样存入 [raw]，这里只做展示层映射，
+  /// 对未知事件回退到稳定占位，避免历史消息解析失败。
+  static String _systemEventSummary(Map<String, dynamic> body) {
+    final event = body['event'];
+    final actor = _systemUserName(body['actor']);
+    switch (event) {
+      case 'friendship_created':
+        return '你们已成为好友，现在可以开始聊天了';
+      case 'message_revoked':
+        return '$actor 撤回了一条消息';
+      case 'topic_closed':
+        return '$actor 已将话题关闭';
+      case 'group_avatar_updated':
+        return '$actor 修改了群头像';
+      case 'group_visibility_changed':
+        return body['visibility'] == 'public'
+            ? '$actor 将当前群设置为公开群'
+            : '$actor 将当前群设为私有群';
+      case 'group_member_joined':
+        return '$actor 加入群聊';
+      case 'group_member_left':
+        return '$actor 已退出群聊';
+      case 'group_member_removed':
+        final target = _systemUserName(body['target']);
+        return '$actor 已将 $target 移出群聊';
+      case 'group_name_updated':
+        return '$actor 修改群聊名称为 ${_stringField(body, 'name')}';
+      case 'group_announcement_updated':
+        return _stringField(body, 'announcement').isNotEmpty
+            ? '$actor 更新了群公告'
+            : '$actor 清空了群公告';
+      case 'group_members_invited':
+        final invitees = body['invitees'];
+        if (invitees is List) {
+          final names = invitees
+              .map(_systemUserName)
+              .where((name) => name.isNotEmpty)
+              .join(', ');
+          if (names.isNotEmpty) {
+            return '${_systemUserName(body['inviter'])} 邀请 $names 加入群聊';
+          }
+        }
+        return '${_systemUserName(body['inviter'])} 邀请成员加入群聊';
+      default:
+        return '[系统消息]';
+    }
+  }
+
+  static String _systemUserName(Object? value) {
+    if (value is Map<String, dynamic>) {
+      final displayName = value['display_name'];
+      if (displayName is String && displayName.trim().isNotEmpty) {
+        return displayName.trim();
+      }
+      final name = value['name'];
+      if (name is String && name.trim().isNotEmpty) return name.trim();
+    }
+    return '用户';
   }
 
   static String _stringField(Map<String, dynamic> body, String key) {

@@ -1392,7 +1392,9 @@ class _ConversationViewState extends State<ConversationView> {
       _forwardableMessageTypes.contains(message.contentType);
 
   bool _hasMessageActions(ChatMessage message) =>
-      message.contentType != 'revoked' && message.contentType != 'unsupported';
+      message.contentType != 'revoked' &&
+      message.contentType != 'unsupported' &&
+      message.contentType != 'system_event';
 
   @override
   void initState() {
@@ -1827,9 +1829,11 @@ class _ConversationViewState extends State<ConversationView> {
                 padding: const EdgeInsets.fromLTRB(8, 16, 8, 12),
                 children: allMessages
                     .map((message) => Align(
-                          alignment: message.mine
-                              ? Alignment.centerRight
-                              : Alignment.centerLeft,
+                          alignment: message.contentType == 'system_event'
+                              ? Alignment.center
+                              : message.mine
+                                  ? Alignment.centerRight
+                                  : Alignment.centerLeft,
                           child: GestureDetector(
                             onTap: _selectedMessageIds.isEmpty ||
                                     !_canForwardOrSelect(message)
@@ -2528,6 +2532,18 @@ class _MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (message.contentType == 'system_event') {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+        child: Text(
+          message.text,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+        ),
+      );
+    }
     final colors = Theme.of(context).colorScheme;
     final mine = message.mine;
     final revoked = message.contentType == 'revoked';

@@ -116,6 +116,15 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                 onPressed: () => setState(() => _preview = !_preview),
                 icon: Icon(
                     _preview ? Icons.edit_outlined : Icons.preview_outlined)),
+          if (widget.document.documentType == 'document' &&
+              widget.collaboration != null)
+            IconButton(
+                tooltip: '追加内容块',
+                onPressed: widget.collaboration!.status ==
+                        DocumentCollaborationStatus.synced
+                    ? _appendBlock
+                    : null,
+                icon: const Icon(Icons.add_box_outlined)),
           IconButton(
               tooltip: '保存标题',
               onPressed: _saving ? null : _save,
@@ -137,7 +146,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                     child: const Row(children: [
                       Icon(Icons.visibility_outlined, size: 18),
                       SizedBox(width: 8),
-                      Expanded(child: Text('富文档只读预览 · 编辑器工具栏正在迁移')),
+                      Expanded(child: Text('富文档安全编辑 · 现有内容只读，可追加标准内容块')),
                     ])),
                 const SizedBox(height: 8),
                 Expanded(
@@ -174,6 +183,60 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                     style: Theme.of(context).textTheme.bodySmall)
               ]))));
 
+  Future<void> _appendBlock() async {
+    final session = widget.collaboration;
+    if (session == null ||
+        session.status != DocumentCollaborationStatus.synced) {
+      return;
+    }
+    final controller = TextEditingController();
+    var type = RichDocumentBlockType.paragraph;
+    final result = await showDialog<
+            ({String text, RichDocumentBlockType type})>(
+        context: context,
+        builder: (context) => StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+                    title: const Text('追加内容块'),
+                    content: Column(mainAxisSize: MainAxisSize.min, children: [
+                      DropdownButtonFormField<RichDocumentBlockType>(
+                          initialValue: type,
+                          decoration: const InputDecoration(labelText: '块类型'),
+                          items: RichDocumentBlockType.values
+                              .map((value) => DropdownMenuItem(
+                                  value: value,
+                                  child: Text(_richBlockLabel(value))))
+                              .toList(),
+                          onChanged: (value) {
+                            if (value != null) {
+                              setDialogState(() => type = value);
+                            }
+                          }),
+                      const SizedBox(height: 8),
+                      TextField(
+                          controller: controller,
+                          autofocus: true,
+                          minLines: 2,
+                          maxLines: 5,
+                          decoration: const InputDecoration(
+                              labelText: '正文', border: OutlineInputBorder()))
+                    ]),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('取消')),
+                      FilledButton(
+                          onPressed: () => Navigator.pop(
+                              context, (text: controller.text, type: type)),
+                          child: const Text('追加'))
+                    ])));
+    controller.dispose();
+    if (!mounted || result == null) return;
+    if (!session.appendTextBlock(result.text, type: result.type)) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('正文尚未同步，无法追加内容块')));
+    }
+  }
+
   String get _collaborationLabel {
     final session = widget.collaboration!;
     final status = switch (session.status) {
@@ -187,3 +250,15 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
         : status;
   }
 }
+
+String _richBlockLabel(RichDocumentBlockType type) => switch (type) {
+      RichDocumentBlockType.paragraph => '段落',
+      RichDocumentBlockType.heading1 => '一级标题',
+      RichDocumentBlockType.heading2 => '二级标题',
+      RichDocumentBlockType.heading3 => '三级标题',
+      RichDocumentBlockType.bulletList => '无序列表',
+      RichDocumentBlockType.orderedList => '有序列表',
+      RichDocumentBlockType.taskList => '任务列表',
+      RichDocumentBlockType.blockquote => '引用',
+      RichDocumentBlockType.codeBlock => '代码块',
+    };

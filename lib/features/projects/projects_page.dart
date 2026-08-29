@@ -6,6 +6,7 @@ import '../../data/repository.dart';
 import '../../data/document_collaboration.dart';
 import '../../domain/models.dart';
 import 'document_editor_page.dart';
+import 'project_task_calendar_view.dart';
 import 'project_task_details_page.dart';
 
 typedef DocumentCollaborationFactory = DocumentCollaborationSession? Function(
@@ -390,7 +391,15 @@ class _ProjectsPageState extends State<ProjectsPage> {
                             .map((task) => _taskTile(context, project, task))
                             .toList()),
                     _taskBoard(context, project, snapshot.data!),
-                    _taskCalendar(context, project, snapshot.data!),
+                    ProjectTaskCalendarView(
+                        tasks: snapshot.data!,
+                        onOpenTask: (task) => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => ProjectTaskDetailsPage(
+                                    repository: repository,
+                                    project: project,
+                                    task: task)))),
                     _taskGantt(context, project, snapshot.data!),
                     _documentsView(context, project),
                     _goalsView(context),
@@ -1003,25 +1012,6 @@ class _ProjectsPageState extends State<ProjectsPage> {
                                   (task) => _taskTile(context, project, task)),
                             ]))));
           }).toList()),
-    );
-  }
-
-  Widget _taskCalendar(
-      BuildContext context, Project project, List<ProjectTask> tasks) {
-    final dated = [...tasks]..sort((a, b) =>
-        (a.dueDate ?? a.startDate ?? '9999')
-            .compareTo(b.dueDate ?? b.startDate ?? '9999'));
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: dated
-          .map((task) => ListTile(
-                leading: const Icon(Icons.event_outlined),
-                title: Text(task.title),
-                subtitle: Text(
-                    '开始：${task.startDate ?? '未设置'} · 截止：${task.dueDate ?? '未设置'}'),
-                onTap: () => _cycleTaskStatus(context, project, task),
-              ))
-          .toList(),
     );
   }
 
