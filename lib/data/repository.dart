@@ -63,8 +63,12 @@ abstract interface class MagicChatRepository {
   Future<List<MessageReactionUser>> listReactionUsers(
       String conversationId, String messageId,
       {required String text});
+  Future<List<MessageReactionSnapshot>> listReactionSnapshots(
+      String conversationId, List<String> messageIds);
   Future<void> submitChoice(
       String conversationId, String messageId, List<String> optionIds);
+  Future<List<MessageChoiceSnapshot>> listChoiceSnapshots(
+      String conversationId, List<String> messageIds);
   Future<ContactDirectory> contactDirectory({String keyword = ''});
   Future<List<Contact>> contacts({String keyword = ''});
   Future<List<Contact>> resolveUsers(List<String> userIds);
@@ -102,6 +106,12 @@ abstract interface class MagicChatRepository {
   Future<void> bindProjectGroup(String projectId, String groupId);
   Future<void> unbindProjectGroup(String projectId, String groupId);
   Future<List<ProjectMember>> projectMembers(String projectId);
+  Future<ProjectTaskPage> projectTaskPage(String projectId,
+      {String? cursor,
+      int limit = 100,
+      String keyword = '',
+      List<String> statuses = const [],
+      List<int> priorities = const []});
   Future<List<ProjectTask>> tasks(String projectId);
   Future<List<ProjectTaskActivity>> taskActivities(
       String projectId, String taskId);
@@ -468,8 +478,20 @@ class DemoRepository implements MagicChatRepository {
       const [];
 
   @override
+  Future<List<MessageReactionSnapshot>> listReactionSnapshots(
+          String conversationId, List<String> messageIds) async =>
+      // 演示数据没有独立的快照服务；返回空结果可保留消息本身携带的状态。
+      const [];
+
+  @override
   Future<void> submitChoice(
       String conversationId, String messageId, List<String> optionIds) async {}
+
+  @override
+  Future<List<MessageChoiceSnapshot>> listChoiceSnapshots(
+          String conversationId, List<String> messageIds) async =>
+      // 演示数据没有独立的快照服务；返回空结果可保留消息本身携带的状态。
+      const [];
 
   @override
   Future<List<Contact>> contacts({String keyword = ''}) async => const [
@@ -688,6 +710,17 @@ class DemoRepository implements MagicChatRepository {
             email: 'alice@example.com',
             displayNameOverride: 'Alice'),
       ];
+
+  @override
+  Future<ProjectTaskPage> projectTaskPage(String projectId,
+      {String? cursor,
+      int limit = 100,
+      String keyword = '',
+      List<String> statuses = const [],
+      List<int> priorities = const []}) async {
+    final values = await tasks(projectId);
+    return ProjectTaskPage(tasks: values, nextCursor: null);
+  }
 
   @override
   Future<List<ProjectTask>> tasks(String projectId) async => const [
@@ -1327,6 +1360,84 @@ class HttpMagicChatRepository implements MagicChatRepository {
               .toList(growable: false)
           : const [];
 
+  List<String> _snapshotMessageIds(List<String> messageIds) {
+    if (messageIds.isEmpty || messageIds.length > 100) {
+      throw const FormatException('消息快照请求格式不正确');
+    }
+    final ids = <String>[];
+    final seen = <String>{};
+    for (final rawId in messageIds) {
+      final id = rawId.trim();
+      if (id.isNotEmpty && seen.add(id)) ids.add(id);
+    }
+    if (ids.isEmpty) {
+      throw const FormatException('消息快照请求格式不正确');
+    }
+    return ids;
+  }
+
+  @override
+  Future<List<MessageReactionSnapshot>> listReactionSnapshots(
+      String conversationId, List<String> messageIds) async {
+    final ids = _snapshotMessageIds(messageIds);
+    final data = _data(await _request('POST',
+        '/api/client/conversations/${Uri.encodeComponent(conversationId)}/messages/reactions/query',
+        body: {'message_ids': ids}));
+    if (data['conversation_id'] != conversationId ||
+        data['snapshots'] is! List) {
+      throw const FormatException('消息表情快照响应格式不正确');
+    }
+    final rawSnapshots = data['snapshots'] as List;
+    if (rawSnapshots.length != ids.length) {
+      throw const FormatException('消息表情快照响应格式不正确');
+    }
+    final snapshots = <MessageReactionSnapshot>[];
+    for (var index = 0; index < rawSnapshots.length; index++) {
+      final value = rawSnapshots[index];
+      if (value is! Map<String, dynamic>) {
+        throw const FormatException('消息表情快照响应格式不正确');
+      }
+      final snapshot = MessageReactionSnapshot.fromJson(value,
+          conversationId: conversationId);
+      if (snapshot.messageId != ids[index]) {
+        throw const FormatException('消息表情快照响应格式不正确');
+      }
+      snapshots.add(snapshot);
+    }
+    return snapshots;
+  }
+
+  @override
+  Future<List<MessageChoiceSnapshot>> listChoiceSnapshots(
+      String conversationId, List<String> messageIds) async {
+    final ids = _snapshotMessageIds(messageIds);
+    final data = _data(await _request('POST',
+        '/api/client/conversations/${Uri.encodeComponent(conversationId)}/messages/choices/query',
+        body: {'message_ids': ids}));
+    if (data['conversation_id'] != conversationId ||
+        data['snapshots'] is! List) {
+      throw const FormatException('选择状态快照响应格式不正确');
+    }
+    final rawSnapshots = data['snapshots'] as List;
+    if (rawSnapshots.length != ids.length) {
+      throw const FormatException('选择状态快照响应格式不正确');
+    }
+    final snapshots = <MessageChoiceSnapshot>[];
+    for (var index = 0; index < rawSnapshots.length; index++) {
+      final value = rawSnapshots[index];
+      if (value is! Map<String, dynamic>) {
+        throw const FormatException('选择状态快照响应格式不正确');
+      }
+      final snapshot =
+          MessageChoiceSnapshot.fromJson(value, conversationId: conversationId);
+      if (snapshot.messageId != ids[index]) {
+        throw const FormatException('选择状态快照响应格式不正确');
+      }
+      snapshots.add(snapshot);
+    }
+    return snapshots;
+  }
+
   MessageReply? _replyFromJson(Object? value) {
     if (value is! Map<String, dynamic> || value['id'] is! String) return null;
     final sender = value['sender'];
@@ -1936,30 +2047,48 @@ class HttpMagicChatRepository implements MagicChatRepository {
 
   @override
   Future<List<ProjectTask>> tasks(String projectId) async {
+    return (await projectTaskPage(projectId)).tasks;
+  }
+
+  @override
+  Future<ProjectTaskPage> projectTaskPage(String projectId,
+      {String? cursor,
+      int limit = 100,
+      String keyword = '',
+      List<String> statuses = const [],
+      List<int> priorities = const []}) async {
+    final normalizedStatuses = statuses
+        .map((status) => status.trim())
+        .where((status) => status.isNotEmpty)
+        .join(',');
+    final normalizedPriorities =
+        priorities.map((priority) => '$priority').join(',');
+    final query = Uri(queryParameters: {
+      'limit': '$limit',
+      if (cursor != null && cursor.trim().isNotEmpty) 'cursor': cursor.trim(),
+      if (keyword.trim().isNotEmpty) 'keyword': keyword.trim(),
+      if (normalizedStatuses.isNotEmpty) 'status': normalizedStatuses,
+      if (normalizedPriorities.isNotEmpty) 'priority': normalizedPriorities,
+    }).query;
     final data = _data(await _request('GET',
-        '/api/client/projects/${Uri.encodeComponent(projectId)}/tasks?limit=100'));
+        '/api/client/projects/${Uri.encodeComponent(projectId)}/tasks?$query'));
     final values = data['tasks'];
     if (values is! List) throw const FormatException('任务列表响应格式不正确');
-    return values
+    final parsed = values
         .whereType<Map<String, dynamic>>()
-        .map((item) => ProjectTask(
-            id: '${item['id'] ?? ''}',
-            projectId: '${item['project_id'] ?? projectId}',
-            title: '${item['title'] ?? ''}',
-            status: '${item['status'] ?? 'todo'}',
-            description: '${item['description'] ?? ''}',
-            priority: (item['priority'] as num?)?.toInt() ?? 2,
-            startDate: item['start_date'] as String?,
-            dueDate: item['due_date'] as String?,
-            labels: _labels(item['labels']),
-            assignee: item['assignee'] is Map<String, dynamic>
-                ? _projectUserFromJson(item['assignee'] as Map<String, dynamic>)
-                : null,
-            reminder: item['reminder'] is Map<String, dynamic>
-                ? item['reminder'] as Map<String, dynamic>
-                : null))
+        .map((item) => _taskFromJson(item, defaultProjectId: projectId))
         .where((task) => task.id.isNotEmpty && task.title.isNotEmpty)
         .toList();
+    final nextCursor = data['next_cursor'];
+    if (nextCursor != null && nextCursor is! String) {
+      throw const FormatException('任务游标响应格式不正确');
+    }
+    final normalizedCursor = (nextCursor as String?)?.trim();
+    return ProjectTaskPage(
+        tasks: parsed,
+        nextCursor: normalizedCursor == null || normalizedCursor.isEmpty
+            ? null
+            : normalizedCursor);
   }
 
   @override
@@ -2116,22 +2245,24 @@ class HttpMagicChatRepository implements MagicChatRepository {
     return _taskActivityFromJson(data);
   }
 
-  ProjectTask _taskFromJson(Map<String, dynamic> item) => ProjectTask(
-      id: '${item['id'] ?? ''}',
-      projectId: '${item['project_id'] ?? ''}',
-      title: '${item['title'] ?? ''}',
-      status: '${item['status'] ?? 'todo'}',
-      description: '${item['description'] ?? ''}',
-      priority: (item['priority'] as num?)?.toInt() ?? 2,
-      startDate: item['start_date'] as String?,
-      dueDate: item['due_date'] as String?,
-      labels: _labels(item['labels']),
-      assignee: item['assignee'] is Map<String, dynamic>
-          ? _projectUserFromJson(item['assignee'] as Map<String, dynamic>)
-          : null,
-      reminder: item['reminder'] is Map<String, dynamic>
-          ? item['reminder'] as Map<String, dynamic>
-          : null);
+  ProjectTask _taskFromJson(Map<String, dynamic> item,
+          {String? defaultProjectId}) =>
+      ProjectTask(
+          id: '${item['id'] ?? ''}',
+          projectId: '${item['project_id'] ?? defaultProjectId ?? ''}',
+          title: '${item['title'] ?? ''}',
+          status: '${item['status'] ?? 'todo'}',
+          description: '${item['description'] ?? ''}',
+          priority: (item['priority'] as num?)?.toInt() ?? 2,
+          startDate: item['start_date'] as String?,
+          dueDate: item['due_date'] as String?,
+          labels: _labels(item['labels']),
+          assignee: item['assignee'] is Map<String, dynamic>
+              ? _projectUserFromJson(item['assignee'] as Map<String, dynamic>)
+              : null,
+          reminder: item['reminder'] is Map<String, dynamic>
+              ? item['reminder'] as Map<String, dynamic>
+              : null);
 
   List<String> _labels(Object? value) => value is List
       ? value

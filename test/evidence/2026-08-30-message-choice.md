@@ -21,6 +21,7 @@
 
 截图由 `message_choice_test.dart` 生成，分辨率为 900x800，展示多选消息的选项和提交入口。
 
-## 未覆盖项
+## 补充
 
-断线恢复时批量查询选择快照（`messages/choices/query`）及真实账号权限错误仍需在登录环境补齐；当前提交响应通过实时事件回流更新状态。
+断线恢复时批量查询选择快照（`messages/choices/query`）已在
+`message_snapshot_repository_test.dart` 覆盖；真实账号权限错误仍需在登录环境补齐。

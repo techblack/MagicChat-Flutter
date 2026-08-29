@@ -1631,6 +1631,9 @@ class _ConversationViewState extends State<ConversationView> {
     if (cached.isNotEmpty) return cached;
     final fresh = await widget.repository.messages(id);
     unawaited(_cacheMessages(id, fresh));
+    // 消息接口返回的 choice/reaction 可能来自旧缓存或断线前的视图；
+    // 快照查询是尽力而为的后台修正，失败时不影响消息首屏加载。
+    unawaited(_refreshMessageSnapshots(id, fresh));
     return fresh;
   }
 
@@ -1645,6 +1648,91 @@ class _ConversationViewState extends State<ConversationView> {
     if (!mounted || widget.conversationId != id) return;
     setState(() {
       _messagesFuture = Future.value(merged);
+    });
+    unawaited(_refreshMessageSnapshots(id, merged));
+  }
+
+  Future<List<ChatMessage>> _applyMessageSnapshots(
+      String conversationId, List<ChatMessage> messages) async {
+    if (messages.isEmpty) return messages;
+    final choiceIds = messages
+        .where((message) => message.contentType == 'choice')
+        .map((message) => message.id)
+        .where((id) => id.isNotEmpty)
+        .toList(growable: false);
+    final reactionIds = messages
+        .map((message) => message.id)
+        .where((id) => id.isNotEmpty)
+        .toList(growable: false);
+
+    Future<List<T>> queryChunks<T>(
+        List<String> ids, Future<List<T>> Function(List<String>) query) async {
+      if (ids.isEmpty) return <T>[];
+      final chunks = <List<String>>[];
+      for (var index = 0; index < ids.length; index += 100) {
+        chunks.add(ids.sublist(index, min(index + 100, ids.length)));
+      }
+      final results = await Future.wait(chunks.map((chunk) async {
+        try {
+          return await query(chunk);
+        } catch (_) {
+          // 快照接口不可用时保留消息接口已有状态。
+          return <T>[];
+        }
+      }));
+      return results.expand((items) => items).toList(growable: false);
+    }
+
+    final snapshots = await Future.wait([
+      queryChunks<MessageChoiceSnapshot>(choiceIds,
+          (ids) => widget.repository.listChoiceSnapshots(conversationId, ids)),
+      queryChunks<MessageReactionSnapshot>(
+          reactionIds,
+          (ids) =>
+              widget.repository.listReactionSnapshots(conversationId, ids)),
+    ]);
+    final choices = <String, MessageChoiceSnapshot>{
+      for (final snapshot in snapshots[0] as List<MessageChoiceSnapshot>)
+        snapshot.messageId: snapshot,
+    };
+    final reactions = <String, MessageReactionSnapshot>{
+      for (final snapshot in snapshots[1] as List<MessageReactionSnapshot>)
+        snapshot.messageId: snapshot,
+    };
+    return messages.map((message) {
+      final choice = choices[message.id];
+      final reaction = reactions[message.id];
+      if (choice == null && reaction == null) return message;
+      return ChatMessage(
+        id: message.id,
+        text: message.text,
+        author: message.author,
+        authorId: message.authorId,
+        conversationId: message.conversationId,
+        sequence: message.sequence,
+        contentType: message.contentType,
+        rawBody: message.rawBody,
+        mine: message.mine,
+        choice: choice == null
+            ? message.choice
+            : choice.status == 'active'
+                ? choice.choice
+                : null,
+        replyTo: message.replyTo,
+        topic: message.topic,
+        reactions: reaction?.reactions ?? message.reactions,
+      );
+    }).toList(growable: false);
+  }
+
+  Future<void> _refreshMessageSnapshots(
+      String conversationId, List<ChatMessage> messages) async {
+    final updated = await _applyMessageSnapshots(conversationId, messages);
+    if (!mounted || widget.conversationId != conversationId) return;
+    await _cacheMessages(conversationId, updated);
+    if (!mounted || widget.conversationId != conversationId) return;
+    setState(() {
+      _messagesFuture = Future.value(updated);
     });
   }
 
@@ -1700,14 +1788,40 @@ class _ConversationViewState extends State<ConversationView> {
       if (mounted) {
         final existing =
             {..._olderMessages, ...snapshot}.map((item) => item.id).toSet();
-        _olderMessages.insertAll(
-            0, older.where((item) => !existing.contains(item.id)));
+        final added =
+            older.where((item) => !existing.contains(item.id)).toList();
+        _olderMessages.insertAll(0, added);
         unawaited(_cacheMessages(id, [..._olderMessages, ...snapshot]));
         setState(() {});
+        if (added.isNotEmpty)
+          unawaited(_refreshOlderMessageSnapshots(id, added));
       }
     } finally {
       if (mounted) setState(() => _loadingOlder = false);
     }
+  }
+
+  Future<void> _refreshOlderMessageSnapshots(
+      String conversationId, List<ChatMessage> messages) async {
+    final updated = await _applyMessageSnapshots(conversationId, messages);
+    if (!mounted || widget.conversationId != conversationId) return;
+    final byId = {for (final message in updated) message.id: message};
+    var changed = false;
+    setState(() {
+      for (var index = 0; index < _olderMessages.length; index++) {
+        final replacement = byId[_olderMessages[index].id];
+        if (replacement != null) {
+          _olderMessages[index] = replacement;
+          changed = true;
+        }
+      }
+    });
+    if (!changed) return;
+    final cached = await _readCachedMessages(conversationId);
+    if (cached.isEmpty) return;
+    final cachedById = {for (final message in updated) message.id: message};
+    await _cacheMessages(conversationId,
+        cached.map((message) => cachedById[message.id] ?? message).toList());
   }
 
   @override

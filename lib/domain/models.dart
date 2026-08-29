@@ -466,6 +466,69 @@ class MessageChoiceState {
   bool selected(String optionId) => myOptionIds.contains(optionId);
 }
 
+/// 当前用户视角下的一条 choice 消息快照。
+///
+/// `status` 与服务端批量查询接口保持一致：`active`、`deleted` 或
+/// `revoked`。已删除/撤回消息不会返回 choice 状态。
+class MessageChoiceSnapshot {
+  const MessageChoiceSnapshot({
+    required this.conversationId,
+    required this.messageId,
+    required this.status,
+    this.choice,
+  });
+
+  final String conversationId;
+  final String messageId;
+  final String status;
+  final MessageChoiceState? choice;
+
+  factory MessageChoiceSnapshot.fromJson(
+    Map<String, dynamic> value, {
+    required String conversationId,
+  }) {
+    final messageId = value['message_id'];
+    final status = value['status'];
+    final responseConversationId = value['conversation_id'];
+    if ((responseConversationId != null &&
+            responseConversationId != conversationId) ||
+        messageId is! String ||
+        messageId.isEmpty ||
+        status is! String ||
+        (status != 'active' && status != 'deleted' && status != 'revoked')) {
+      throw const FormatException('选择状态快照响应格式不正确');
+    }
+    final rawChoice = value['choice'];
+    final choice =
+        status == 'active' ? parseMessageChoiceState(rawChoice) : null;
+    if (status == 'active' && choice == null) {
+      throw const FormatException('选择状态快照响应格式不正确');
+    }
+    return MessageChoiceSnapshot(
+        conversationId: conversationId,
+        messageId: messageId,
+        status: status,
+        choice: choice);
+  }
+
+  Map<String, dynamic> toJson() => {
+        'conversation_id': conversationId,
+        'message_id': messageId,
+        'status': status,
+        if (choice != null)
+          'choice': {
+            'my_option_ids': choice!.myOptionIds,
+            'response_count': choice!.responseCount,
+            'options': choice!.options
+                .map((option) => {
+                      'id': option.id,
+                      'response_count': option.responseCount,
+                    })
+                .toList(),
+          },
+      };
+}
+
 MessageChoiceState? parseMessageChoiceState(Object? value) {
   if (value is! Map<String, dynamic>) return null;
   final rawMyOptionIds = value['my_option_ids'];
@@ -798,10 +861,56 @@ class MessageReaction {
       required this.count,
       required this.reactedByMe,
       this.users = const []});
+
+  factory MessageReaction.fromJson(Map<String, dynamic> value) {
+    final text = value['text'];
+    final count = value['count'];
+    final reactedByMe = value['reacted_by_me'];
+    final users = value['users'];
+    if (text is! String ||
+        text.isEmpty ||
+        count is! num ||
+        !count.isFinite ||
+        count <= 0 ||
+        count % 1 != 0 ||
+        (reactedByMe != null && reactedByMe is! bool) ||
+        (users != null && users is! List)) {
+      throw const FormatException('消息表情快照响应格式不正确');
+    }
+    final parsedUsers = <MessageReactionUser>[];
+    if (users is List) {
+      for (final item in users) {
+        if (item is! Map<String, dynamic>) {
+          throw const FormatException('消息表情参与者响应格式不正确');
+        }
+        final id = item['id'];
+        if (id is! String || id.isEmpty) {
+          throw const FormatException('消息表情参与者响应格式不正确');
+        }
+        parsedUsers.add(MessageReactionUser(
+            id: id,
+            name: item['name'] is String ? item['name'] as String : ''));
+      }
+    }
+    return MessageReaction(
+        text: text,
+        count: count.toInt(),
+        reactedByMe: reactedByMe == true,
+        users: parsedUsers);
+  }
+
   final String text;
   final int count;
   final bool reactedByMe;
   final List<MessageReactionUser> users;
+
+  Map<String, dynamic> toJson() => {
+        'text': text,
+        'count': count,
+        'reacted_by_me': reactedByMe,
+        'users':
+            users.map((user) => {'id': user.id, 'name': user.name}).toList(),
+      };
 }
 
 class MessageReactionUser {
@@ -809,6 +918,61 @@ class MessageReactionUser {
 
   final String id;
   final String name;
+}
+
+/// 当前用户视角下的一条消息表情快照。
+class MessageReactionSnapshot {
+  const MessageReactionSnapshot({
+    required this.conversationId,
+    required this.messageId,
+    required this.reactionVersion,
+    required this.reactions,
+  });
+
+  final String conversationId;
+  final String messageId;
+  final int reactionVersion;
+  final List<MessageReaction> reactions;
+
+  factory MessageReactionSnapshot.fromJson(
+    Map<String, dynamic> value, {
+    required String conversationId,
+  }) {
+    final messageId = value['message_id'];
+    final version = value['reaction_version'];
+    final reactions = value['reactions'];
+    final responseConversationId = value['conversation_id'];
+    if ((responseConversationId != null &&
+            responseConversationId != conversationId) ||
+        messageId is! String ||
+        messageId.isEmpty ||
+        version is! num ||
+        !version.isFinite ||
+        version < 0 ||
+        version % 1 != 0 ||
+        reactions is! List) {
+      throw const FormatException('消息表情快照响应格式不正确');
+    }
+    final parsed = <MessageReaction>[];
+    for (final item in reactions) {
+      if (item is! Map<String, dynamic>) {
+        throw const FormatException('消息表情快照响应格式不正确');
+      }
+      parsed.add(MessageReaction.fromJson(item));
+    }
+    return MessageReactionSnapshot(
+        conversationId: conversationId,
+        messageId: messageId,
+        reactionVersion: version.toInt(),
+        reactions: parsed);
+  }
+
+  Map<String, dynamic> toJson() => {
+        'conversation_id': conversationId,
+        'message_id': messageId,
+        'reaction_version': reactionVersion,
+        'reactions': reactions.map((reaction) => reaction.toJson()).toList(),
+      };
 }
 
 class Contact {
@@ -926,6 +1090,13 @@ class ProjectTask {
   final ProjectUser? assignee;
   final Map<String, dynamic>? reminder;
   String? get assigneeUserId => assignee?.id;
+}
+
+class ProjectTaskPage {
+  const ProjectTaskPage({required this.tasks, this.nextCursor});
+
+  final List<ProjectTask> tasks;
+  final String? nextCursor;
 }
 
 class ProjectUser {

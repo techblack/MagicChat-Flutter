@@ -208,6 +208,50 @@ void main() {
     });
   });
 
+  test('任务分页按筛选条件请求并解析游标', () async {
+    late http.Request request;
+    final repository = HttpMagicChatRepository(
+        serverUrl: 'https://chat.example.com',
+        sessionToken: 'test-token',
+        client: MockClient((value) async {
+          request = value;
+          return _jsonResponse({
+            'data': {
+              'tasks': [
+                {
+                  'id': 'task-1',
+                  'project_id': 'project-1',
+                  'title': '发布检查',
+                  'status': 'in_progress',
+                  'priority': 1,
+                  'labels': ['release'],
+                }
+              ],
+              'next_cursor': ' next-2 ',
+            }
+          });
+        }));
+
+    final page = await repository.projectTaskPage('project-1',
+        cursor: ' cursor-1 ',
+        limit: 20,
+        keyword: ' 发布 ',
+        statuses: ['todo', 'in_progress'],
+        priorities: [1, 3]);
+
+    expect(request.method, 'GET');
+    expect(request.url.path, '/api/client/projects/project-1/tasks');
+    expect(request.url.queryParameters, {
+      'cursor': 'cursor-1',
+      'keyword': '发布',
+      'limit': '20',
+      'priority': '1,3',
+      'status': 'todo,in_progress',
+    });
+    expect(page.tasks.single.title, '发布检查');
+    expect(page.nextCursor, 'next-2');
+  });
+
   test('文档创建解析直接 data 且正文标题走协作接口', () async {
     final requests = <http.Request>[];
     final repository = HttpMagicChatRepository(
