@@ -13,6 +13,7 @@ Flutter 工程与现有客户端并行演进，页面层通过 `MagicChatReposit
 | 联系人、在线状态 | `features/contacts` | `/api/client/contacts` 目录模式与关键词查询、用户资料批量解析、完整邮箱/手机号/用户 ID 精确查找、好友申请发送/查看/接受/拒绝/取消、删除好友、在线状态展示、应用/公开群组加入及打开会话已接入；自有应用创建/编辑/启停/删除、头像、凭据与密钥重置已接入；`user.presence.updated` 实时投影已接入 |
 | 聊天记录搜索 | AppBar 搜索 | `/api/client/search/messages` 已接入，支持跳转会话 |
 | 会话管理 | 会话长按菜单 | 置顶、免打扰 API 与 UI 已接入；打开会话或停留在底部时按最新序号同步已读 |
+| 版本检查 | 设置页、`UpdateService` | 移动端版本清单按 Android/iOS 平台选择、HTTPS 下载地址和非负整数 build 严格校验，发现新版本可打开下载地址；原生桌面自动更新仍由桌面端负责 |
 | 推送授权与通知路由 | `PushService`、`PushTokenProvider`、设置页、`AppShell` | 私有 Server grant 注册/撤销、启动路由解析、通知总开关持久化、开启通知时系统权限请求、Android/iOS 通知权限声明及原生令牌桥接契约已接入；APNs/JPush 厂商 SDK 实现待补 |
 | 二维码 | `QrScannerPage` | Android/iOS/macOS/Web 相机扫码、HTTP(S) 链接打开、文本结果展示及桌面粘贴兜底已接入 |
 | 项目、任务视图 | `features/projects` | 个人/团队项目摘要、项目创建/编辑/删除、项目关键词过滤与游标分页、列表/看板/日历/甘特、任务创建、编辑（描述/项目成员负责人/状态/优先级/日期/标签/一次性与周期提醒）、状态更新、删除、任务详情、完整活动流与 Markdown 评论、成员列表、群组授权管理已接入；目标仍与原版一致为待完善占位 |

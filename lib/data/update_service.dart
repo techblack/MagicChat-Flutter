@@ -1,5 +1,15 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+
+enum AppUpdatePlatform { android, ios }
+
+extension on AppUpdatePlatform {
+  String get manifestKey => switch (this) {
+        AppUpdatePlatform.android => 'android',
+        AppUpdatePlatform.ios => 'ios',
+      };
+}
 
 class AppRelease {
   const AppRelease(
@@ -10,8 +20,9 @@ class AppRelease {
 }
 
 class UpdateService {
-  const UpdateService({http.Client? client}) : _client = client;
+  const UpdateService({http.Client? client, this.platform}) : _client = client;
   final http.Client? _client;
+  final AppUpdatePlatform? platform;
   static const manifestUrl = 'https://jiying.chat/releases/version.json';
   static const currentBuild = 1;
   static const currentVersion = '0.1.0';
@@ -29,26 +40,38 @@ class UpdateService {
       throw Exception('版本服务返回 HTTP ${response.statusCode}');
     }
     final decoded = jsonDecode(response.body);
-    if (decoded is! Map<String, dynamic>)
+    if (decoded is! Map<String, dynamic>) {
       throw const FormatException('版本文件格式不正确');
-    final platform = decoded['android'] is Map<String, dynamic>
-        ? decoded['android'] as Map<String, dynamic>
-        : decoded['ios'];
-    if (platform is! Map<String, dynamic>)
+    }
+    final target = platform ??
+        (defaultTargetPlatform == TargetPlatform.iOS
+            ? AppUpdatePlatform.ios
+            : AppUpdatePlatform.android);
+    final releaseConfig = decoded[target.manifestKey];
+    if (releaseConfig is! Map<String, dynamic>) {
       throw const FormatException('版本文件缺少移动端配置');
-    final version = platform['version'];
-    final build = platform['build'];
-    final url = platform['url'];
+    }
+    final version = releaseConfig['version'];
+    final build = releaseConfig['build'];
+    final url = releaseConfig['url'];
+    final buildNumber = build is num &&
+            build.isFinite &&
+            build == build.truncateToDouble() &&
+            build >= 0 &&
+            build <= 9007199254740991
+        ? build.toInt()
+        : null;
+    final normalizedVersion = version is String ? version.trim() : '';
+    final normalizedUrl = url is String ? url.trim() : '';
     if (version is! String ||
-        version.trim().isEmpty ||
-        build is! num ||
-        build.toInt() < 0 ||
-        url is! String ||
-        !url.startsWith('https://')) {
+        normalizedVersion.isEmpty ||
+        buildNumber == null ||
+        normalizedUrl.isEmpty ||
+        !normalizedUrl.startsWith('https://')) {
       throw const FormatException('版本文件内容不正确');
     }
-    final release =
-        AppRelease(version: version.trim(), build: build.toInt(), url: url);
+    final release = AppRelease(
+        version: normalizedVersion, build: buildNumber, url: normalizedUrl);
     return release.build > currentBuild ? release : null;
   }
 }
