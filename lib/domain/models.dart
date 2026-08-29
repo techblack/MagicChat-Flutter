@@ -86,12 +86,30 @@ class Contact {
       required this.name,
       this.online = false,
       this.type = 'user',
-      this.role = 'member'});
+      this.role = 'member',
+      this.nickname = '',
+      this.email = '',
+      this.phone = '',
+      this.avatar = ''});
   final String id;
   final String name;
   final bool online;
   final String type;
   final String role;
+  final String nickname;
+  final String email;
+  final String phone;
+  final String avatar;
+
+  String get displayName => nickname.isEmpty ? name : nickname;
+}
+
+class ContactDirectory {
+  const ContactDirectory({required this.contacts, required this.mode});
+  final List<Contact> contacts;
+  final String mode;
+
+  bool get supportsFriendManagement => mode == 'friends';
 }
 
 class FriendRequest {

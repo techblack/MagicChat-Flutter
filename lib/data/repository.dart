@@ -44,7 +44,10 @@ abstract interface class MagicChatRepository {
       {required String text, required bool reacted});
   Future<void> submitChoice(
       String conversationId, String messageId, List<String> optionIds);
+  Future<ContactDirectory> contactDirectory({String keyword = ''});
   Future<List<Contact>> contacts({String keyword = ''});
+  Future<List<Contact>> resolveUsers(List<String> userIds);
+  Future<List<Contact>> searchUsers(String query);
   Future<void> createFriendRequest(String userId);
   Future<List<FriendRequest>> friendRequests({String direction = 'incoming'});
   Future<void> acceptFriendRequest(String requestId);
@@ -225,6 +228,24 @@ class DemoRepository implements MagicChatRepository {
         Contact(id: '1', name: '小助手', online: true),
         Contact(id: '2', name: '团队成员'),
       ];
+
+  @override
+  Future<ContactDirectory> contactDirectory({String keyword = ''}) async =>
+      ContactDirectory(
+          contacts: await contacts(keyword: keyword), mode: 'friends');
+
+  @override
+  Future<List<Contact>> resolveUsers(List<String> userIds) async =>
+      (await contacts()).where((user) => userIds.contains(user.id)).toList();
+
+  @override
+  Future<List<Contact>> searchUsers(String query) async {
+    final keyword = query.trim().toLowerCase();
+    return (await contacts())
+        .where((user) =>
+            user.name.toLowerCase().contains(keyword) || user.id == keyword)
+        .toList();
+  }
 
   @override
   Future<void> createFriendRequest(String userId) async {}
@@ -811,7 +832,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
           body: {'option_ids': optionIds.toSet().toList()});
 
   @override
-  Future<List<Contact>> contacts({String keyword = ''}) async {
+  Future<ContactDirectory> contactDirectory({String keyword = ''}) async {
     final query = keyword.trim().isEmpty
         ? ''
         : '?${Uri(queryParameters: {'keyword': keyword.trim()}).query}';
@@ -832,6 +853,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
           id: value['id'] as String,
           name: value['name'] as String,
           online: value['online'] == true,
+          avatar: '${value['avatar'] ?? ''}',
           type:
               '${value['type'] ?? (apps.contains(value) ? 'app' : 'group')}'));
     }
@@ -839,29 +861,50 @@ class HttpMagicChatRepository implements MagicChatRepository {
     if (userIds is List) {
       final ids =
           userIds.whereType<String>().where((id) => id.isNotEmpty).toList();
-      if (ids.isNotEmpty) {
-        final resolved = _data(await _request(
-            'POST', '/api/client/users/resolve',
-            body: {'user_ids': ids.take(100).toList()}))['users'];
-        if (resolved is List) {
-          for (final value in resolved) {
-            if (value is Map<String, dynamic> &&
-                value['id'] is String &&
-                value['name'] is String) {
-              result.add(Contact(
-                  id: value['id'] as String,
-                  name: value['name'] as String,
-                  online: value['online'] == true,
-                  type: 'user',
-                  role: value['role'] == 'owner' || value['role'] == 'admin'
-                      ? value['role'] as String
-                      : 'member'));
-            }
-          }
-        }
-      }
+      result.addAll(await resolveUsers(ids.take(100).toList()));
     }
-    return result;
+    final mode = data['directory_mode'];
+    if (mode != 'organization' && mode != 'friends') {
+      throw const FormatException('通讯录响应格式不正确');
+    }
+    return ContactDirectory(contacts: result, mode: mode as String);
+  }
+
+  @override
+  Future<List<Contact>> contacts({String keyword = ''}) async =>
+      (await contactDirectory(keyword: keyword)).contacts;
+
+  @override
+  Future<List<Contact>> resolveUsers(List<String> userIds) async {
+    if (userIds.isEmpty) return const [];
+    final values = _data(await _request('POST', '/api/client/users/resolve',
+        body: {'user_ids': userIds}))['users'];
+    if (values is! List) throw const FormatException('用户资料响应格式不正确');
+    return values
+        .whereType<Map<String, dynamic>>()
+        .where((item) => item['id'] is String && item['name'] is String)
+        .map((item) => Contact(
+            id: item['id'] as String,
+            name: item['name'] as String,
+            online: item['online'] == true,
+            nickname: '${item['nickname'] ?? ''}',
+            email: '${item['email'] ?? ''}',
+            phone: '${item['phone'] ?? ''}',
+            avatar: '${item['avatar'] ?? ''}',
+            type: 'user'))
+        .toList();
+  }
+
+  @override
+  Future<List<Contact>> searchUsers(String query) async {
+    final value = query.trim();
+    if (value.isEmpty) return const [];
+    final ids = _data(await _request('POST', '/api/client/users/search',
+        body: {'query': value}))['user_ids'];
+    if (ids is! List || ids.any((id) => id is! String)) {
+      throw const FormatException('用户查找响应格式不正确');
+    }
+    return resolveUsers(ids.cast<String>());
   }
 
   @override

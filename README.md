@@ -1,7 +1,7 @@
 # MagicChat Flutter 客户端
 
 这是 desktop/mobile 共用的 Flutter 客户端工程，已生成 Android、iOS、Windows、macOS、Linux 及 Web 宿主目录。
-`lib/domain` 只放跨平台模型和仓储契约，`lib/data` 负责 HTTP/WebSocket，`lib/features` 负责页面，避免平台代码渗入 UI。
+`lib/domain` 只放跨平台模型，`lib/data` 负责仓储契约、HTTP/WebSocket 与平台适配，`lib/features/<domain>` 按业务垂直切分页面和交互，避免平台代码渗入 UI。通讯录已迁移到 `lib/features/contacts/`，其余历史页面会按迁移矩阵逐步从 `main.dart` 拆出。
 
 ## 开发
 
