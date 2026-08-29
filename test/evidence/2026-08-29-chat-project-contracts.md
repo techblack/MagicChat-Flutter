@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | `dart format --set-exit-if-changed lib/data/document_realtime.dart lib/data/repository.dart lib/features/projects/projects_page.dart lib/main.dart test/document_realtime_test.dart test/group_repository_test.dart test/project_repository_test.dart test/projects_page_test.dart` | 通过 | 本阶段 Dart 文件格式 |
 | `flutter analyze --no-pub --no-fatal-infos` | 通过；无 error/warning，保留 55 条仓库既有 info | Flutter 静态检查 |
-| `flutter test --no-pub` | 通过，43 tests | Flutter 全量单元与 Widget 回归 |
+| `flutter test --no-pub` | 通过，78 tests | Flutter 全量单元与 Widget 回归 |
 | `flutter test --no-pub test/document_realtime_test.dart test/group_repository_test.dart test/project_repository_test.dart test/projects_page_test.dart` | 通过，23 tests | 本阶段协议、权限、项目创建与项目回归 |
 | `flutter build web --target=test_driver/project_workspace_harness.dart --release --no-wasm-dry-run` | 通过 | Flutter Web 发布构建入口 |
 | `git diff --check` | 通过 | 空白错误检查 |

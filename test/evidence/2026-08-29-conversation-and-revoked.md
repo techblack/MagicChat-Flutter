@@ -16,7 +16,9 @@
 | --- | --- | --- |
 | `dart format --set-exit-if-changed lib test` | 通过 | 本阶段 Dart 格式 |
 | `flutter test test/conversation_list_test.dart test/message_content_test.dart test/message_reply_test.dart test/realtime_store_test.dart` | 通过，24 tests | 筛选、排序、搜索、历史/实时撤回契约和 UI 流程 |
+| `flutter test --no-pub` | 通过，78 tests | Flutter 全量单元与 Widget 回归 |
 | `flutter analyze --no-pub --no-fatal-infos` | 通过；仅既有 info | 本阶段静态检查 |
+| `flutter build web --release --no-wasm-dry-run` | 通过 | Flutter Web 发布构建 |
 | `git diff --check` | 通过 | 空白检查 |
 
 ## 流程截图
