@@ -1281,6 +1281,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
         contentType: content.type,
         rawBody: content.raw,
         text: content.text,
+        choice: parseMessageChoiceState(item['choice']),
         replyTo: _replyFromJson(item['reply_to']),
         topic: _topicFromJson(item['topic']),
         mine: senderId is String && senderId == _currentUserId,

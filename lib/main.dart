@@ -993,6 +993,9 @@ class _ConversationListState extends State<_ConversationList> {
                     child: Center(child: Text('没有匹配的会话')));
               }
               final c = conversations.elementAt(i - 1);
+              final mentionUnread = c.lastMentionedSeq > c.lastReadSeq;
+              final choiceUnread = c.lastChoiceSeq > c.lastReadSeq;
+              final hasUnread = c.unread > 0 || mentionUnread || choiceUnread;
               return ListTile(
                   minVerticalPadding: 10,
                   contentPadding:
@@ -1016,18 +1019,29 @@ class _ConversationListState extends State<_ConversationList> {
                           : null),
                   title: Text(c.title,
                       style: TextStyle(
-                          fontWeight: c.unread > 0
-                              ? FontWeight.w700
-                              : FontWeight.w500)),
+                          fontWeight:
+                              hasUnread ? FontWeight.w700 : FontWeight.w500)),
                   subtitle: Text(
-                      c.announcement.isNotEmpty ? '公告：${c.announcement}' : c.preview,
+                      c.announcement.isNotEmpty
+                          ? '公告：${c.announcement}'
+                          : c.preview,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontWeight: c.unread > 0 ? FontWeight.w600 : null)),
-                  trailing: c.unread == 0 ? null : Badge(label: Text('${c.unread}')),
+                      style: TextStyle(fontWeight: hasUnread ? FontWeight.w600 : null)),
+                  trailing: !hasUnread
+                      ? null
+                      : Row(mainAxisSize: MainAxisSize.min, children: [
+                          if (mentionUnread)
+                            const Icon(Icons.alternate_email,
+                                size: 17, semanticLabel: '有人提及你'),
+                          if (choiceUnread)
+                            const Icon(Icons.checklist,
+                                size: 17, semanticLabel: '有待响应的选择题'),
+                          if (c.unread > 0) Badge(label: Text('${c.unread}')),
+                        ]),
                   onTap: () async {
                     widget.onSelect(c.id);
-                    if (c.unread > 0 && c.lastMessageSeq > 0) {
+                    if (hasUnread && c.lastMessageSeq > c.lastReadSeq) {
                       await widget.repository
                           .markConversationRead(c.id, c.lastMessageSeq);
                     }
@@ -1495,6 +1509,7 @@ class _ConversationViewState extends State<ConversationView> {
   ChatMessage? _messageFromCache(Object? value) {
     if (value is! Map<String, dynamic> || value['id'] is! String) return null;
     final reactions = value['reactions'];
+    final choice = value['choice'];
     final reply = value['reply_to'];
     final rawTopic = value['topic'];
     return ChatMessage(
@@ -1510,6 +1525,7 @@ class _ConversationViewState extends State<ConversationView> {
           : const {},
       text: '${value['text'] ?? ''}',
       mine: value['mine'] == true,
+      choice: parseMessageChoiceState(choice),
       replyTo: reply is Map<String, dynamic> && reply['id'] is String
           ? MessageReply(
               id: reply['id'] as String,
@@ -1559,6 +1575,17 @@ class _ConversationViewState extends State<ConversationView> {
                   'raw_body': message.rawBody,
                   'text': message.text,
                   'mine': message.mine,
+                  if (message.choice != null)
+                    'choice': {
+                      'my_option_ids': message.choice!.myOptionIds,
+                      'response_count': message.choice!.responseCount,
+                      'options': message.choice!.options
+                          .map((option) => {
+                                'id': option.id,
+                                'response_count': option.responseCount,
+                              })
+                          .toList(),
+                    },
                   'reply_to': message.replyTo == null
                       ? null
                       : {
@@ -2751,21 +2778,16 @@ class _MessageBubble extends StatelessWidget {
                       Text(message.contentType == 'voice' ? '播放语音' : '打开附件'));
             },
           ),
-        if (!revoked && message.contentType == 'choice' && options is List)
-          ...options.whereType<Map<String, dynamic>>().map((option) {
-            final id = option['id'];
-            final label = option['label'] ?? option['text'];
-            return id is String && label is String
-                ? TextButton(
-                    onPressed: canRespond
-                        ? () => repository
-                            .submitChoice(conversationId, message.id, [id])
-                        : null,
-                    child: Align(
-                        alignment: Alignment.centerLeft, child: Text(label)),
-                  )
-                : const SizedBox.shrink();
-          }),
+        if (!revoked && message.contentType == 'choice')
+          _ChoiceOptions(
+              options: _choiceOptions(options),
+              selection: message.rawBody['selection'] == 'multiple'
+                  ? 'multiple'
+                  : 'single',
+              choice: message.choice,
+              canRespond: canRespond,
+              onSubmit: (optionIds) => repository.submitChoice(
+                  conversationId, message.id, optionIds)),
         if (!revoked && message.contentType == 'chart')
           _ChartPreview(body: message.rawBody),
         if (!revoked &&
@@ -2863,6 +2885,134 @@ class _MessageBubble extends StatelessWidget {
             .showSnackBar(SnackBar(content: Text('加载表情参与者失败：$error')));
       }
     }
+  }
+}
+
+class _ChoiceOptionView {
+  const _ChoiceOptionView({required this.id, required this.label});
+
+  final String id;
+  final String label;
+}
+
+List<_ChoiceOptionView> _choiceOptions(Object? value) => value is List
+    ? value
+        .whereType<Map<String, dynamic>>()
+        .map((option) {
+          final id = option['id'];
+          final label = option['label'] ?? option['text'];
+          return id is String && id.isNotEmpty && label is String
+              ? _ChoiceOptionView(id: id, label: label)
+              : null;
+        })
+        .whereType<_ChoiceOptionView>()
+        .toList(growable: false)
+    : const [];
+
+class _ChoiceOptions extends StatefulWidget {
+  const _ChoiceOptions(
+      {required this.options,
+      required this.selection,
+      required this.choice,
+      required this.canRespond,
+      required this.onSubmit});
+
+  final List<_ChoiceOptionView> options;
+  final String selection;
+  final MessageChoiceState? choice;
+  final bool canRespond;
+  final Future<void> Function(List<String> optionIds) onSubmit;
+
+  @override
+  State<_ChoiceOptions> createState() => _ChoiceOptionsState();
+}
+
+class _ChoiceOptionsState extends State<_ChoiceOptions> {
+  late Set<String> _selected;
+  bool _submitting = false;
+  bool _submitted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = {...?widget.choice?.myOptionIds};
+  }
+
+  @override
+  void didUpdateWidget(covariant _ChoiceOptions oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_submitting && widget.choice != oldWidget.choice) {
+      _selected = {...?widget.choice?.myOptionIds};
+    }
+  }
+
+  Future<void> _submit(List<String> ids) async {
+    if (ids.isEmpty || _submitting || _submitted || !widget.canRespond) return;
+    setState(() => _submitting = true);
+    try {
+      await widget.onSubmit(ids);
+      if (mounted) setState(() => _submitted = true);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('提交选择失败：$error')));
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final answered =
+        _submitted || widget.choice?.myOptionIds.isNotEmpty == true;
+    final counts = {
+      for (final option in widget.choice?.options ?? const [])
+        option.id: option.responseCount
+    };
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      ...widget.options.map((option) {
+        final count = counts[option.id] ?? 0;
+        final label = count > 0 ? '${option.label} · $count' : option.label;
+        final selected = _selected.contains(option.id);
+        return Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: widget.selection == 'multiple'
+                ? FilterChip(
+                    label: Text(label),
+                    selected: selected,
+                    onSelected: !answered && widget.canRespond && !_submitting
+                        ? (value) => setState(() {
+                              if (value) {
+                                _selected.add(option.id);
+                              } else {
+                                _selected.remove(option.id);
+                              }
+                            })
+                        : null)
+                : ChoiceChip(
+                    label: Text(label),
+                    selected: selected,
+                    onSelected: !answered && widget.canRespond && !_submitting
+                        ? (_) => _submit([option.id])
+                        : null));
+      }),
+      if (widget.selection == 'multiple')
+        Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+                onPressed: !answered && !_submitting && widget.canRespond
+                    ? () => _submit(_selected.toList())
+                    : null,
+                child: Text(_submitting
+                    ? '提交中…'
+                    : answered
+                        ? '已提交'
+                        : '提交选择'))),
+      if (widget.choice != null)
+        Text('${widget.choice!.responseCount} 人已选择',
+            style: Theme.of(context).textTheme.bodySmall),
+    ]);
   }
 }
 

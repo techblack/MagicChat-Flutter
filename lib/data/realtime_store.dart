@@ -29,12 +29,17 @@ class RealtimeStore extends ChangeNotifier {
         _upsertMessage(payload);
       case 'message.reactions_updated':
         _patchReactions(payload);
+      case 'message.choice_updated':
+        _patchChoice(payload);
       case 'conversation.removed':
         final id = payload['conversation_id'];
         if (id is String) conversations.remove(id);
       case 'conversation.pin_updated':
       case 'conversation.mute_updated':
         _patchConversation(payload);
+      case 'conversation.member_mentioned':
+      case 'conversation.member_choice_received':
+        _patchConversationReminder(payload, event);
       case 'topic.created':
       case 'topic.participated':
       case 'topic.archived':
@@ -87,6 +92,7 @@ class RealtimeStore extends ChangeNotifier {
         contentType: current.contentType,
         rawBody: current.rawBody,
         mine: current.mine,
+        choice: current.choice,
         replyTo: current.replyTo,
         topic: current.topic,
         reactions: reactions
@@ -101,6 +107,40 @@ class RealtimeStore extends ChangeNotifier {
                 users: _reactionUsers(item['users'])))
             .where((reaction) => reaction.count > 0)
             .toList());
+  }
+
+  void _patchChoice(Map<String, dynamic> payload) {
+    final id = payload['message_id'];
+    if (id is! String) return;
+    final current = messages[id];
+    if (current == null || current.contentType != 'choice') return;
+    final choice = parseMessageChoiceState(payload['choice']);
+    if (choice == null) return;
+    final actorId = payload['actor_user_id'];
+    final actorOptionIds = payload['actor_option_ids'];
+    final myOptionIds = actorId == currentUserId && actorOptionIds is List
+        ? actorOptionIds
+            .whereType<String>()
+            .where((id) => id.isNotEmpty)
+            .toList(growable: false)
+        : current.choice?.myOptionIds ?? choice.myOptionIds;
+    messages[id] = ChatMessage(
+        id: current.id,
+        text: current.text,
+        author: current.author,
+        authorId: current.authorId,
+        conversationId: current.conversationId,
+        sequence: current.sequence,
+        contentType: current.contentType,
+        rawBody: current.rawBody,
+        mine: current.mine,
+        choice: MessageChoiceState(
+            myOptionIds: myOptionIds,
+            options: choice.options,
+            responseCount: choice.responseCount),
+        replyTo: current.replyTo,
+        topic: current.topic,
+        reactions: current.reactions);
   }
 
   void _upsertMessage(Map<String, dynamic> payload) {
@@ -156,6 +196,11 @@ class RealtimeStore extends ChangeNotifier {
         mine: resolvedSenderId == null
             ? previous?.mine ?? false
             : resolvedSenderId == currentUserId,
+        choice: body.type == 'revoked'
+            ? null
+            : payload.containsKey('choice')
+                ? parseMessageChoiceState(payload['choice'])
+                : previous?.choice,
         reactions: body.type == 'revoked'
             ? const []
             : payload.containsKey('reactions')
@@ -208,7 +253,46 @@ class RealtimeStore extends ChangeNotifier {
         lastMessageSeq: (payload['last_message_seq'] as num?)?.toInt() ??
             current.lastMessageSeq,
         lastReadSeq: current.lastReadSeq,
+        lastMentionedSeq: current.lastMentionedSeq,
         lastChoiceSeq: current.lastChoiceSeq,
+        members: current.members,
+        canSend: current.canSend,
+        topic: current.topic);
+  }
+
+  void _patchConversationReminder(Map<String, dynamic> payload, String event) {
+    final id = payload['conversation_id'];
+    final sequence = event == 'conversation.member_mentioned'
+        ? payload['last_mentioned_seq']
+        : payload['last_choice_seq'];
+    if (id is! String || sequence is! num) return;
+    final current = conversations[id];
+    if (current == null) return;
+    final value = sequence.toInt();
+    if (value <= 0) return;
+    conversations[id] = ChatConversation(
+        id: current.id,
+        title: current.title,
+        preview: current.preview,
+        announcement: current.announcement,
+        isPublic: current.isPublic,
+        avatar: current.avatar,
+        unread: current.unread,
+        pinned: current.pinned,
+        muted: current.muted,
+        lastMessageSeq: current.lastMessageSeq,
+        lastReadSeq: current.lastReadSeq,
+        lastMentionedSeq: event == 'conversation.member_mentioned'
+            ? value > current.lastMentionedSeq
+                ? value
+                : current.lastMentionedSeq
+            : current.lastMentionedSeq,
+        lastChoiceSeq: event == 'conversation.member_choice_received'
+            ? value > current.lastChoiceSeq
+                ? value
+                : current.lastChoiceSeq
+            : current.lastChoiceSeq,
+        type: current.type,
         members: current.members,
         canSend: current.canSend,
         topic: current.topic);
@@ -242,6 +326,7 @@ class RealtimeStore extends ChangeNotifier {
         muted: current.muted,
         lastMessageSeq: current.lastMessageSeq,
         lastReadSeq: current.lastReadSeq,
+        lastMentionedSeq: current.lastMentionedSeq,
         lastChoiceSeq: current.lastChoiceSeq,
         type: current.type,
         members: current.members,

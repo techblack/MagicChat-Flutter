@@ -8,6 +8,49 @@ import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
 
 void main() {
+  test('HTTP 消息解析选择状态及选项统计', () async {
+    final repository = HttpMagicChatRepository(
+      serverUrl: 'https://chat.example.com',
+      sessionToken: 'token',
+      client: MockClient((request) async {
+        expect(request.url.path,
+            '/api/client/conversations/conversation-1/messages');
+        return _jsonResponse({
+          'data': {
+            'messages': [
+              {
+                'id': 'choice-1',
+                'body': {
+                  'type': 'choice',
+                  'content_type': 'text',
+                  'content': '请选择',
+                  'selection': 'multiple',
+                  'options': [
+                    {'id': 'a', 'label': '选项 A'},
+                    {'id': 'b', 'label': '选项 B'},
+                  ],
+                },
+                'sender': {'id': 'user-1', 'name': 'Alice'},
+                'choice': {
+                  'my_option_ids': ['b'],
+                  'response_count': 3,
+                  'options': [
+                    {'id': 'a', 'response_count': 1},
+                    {'id': 'b', 'response_count': 3},
+                  ],
+                },
+              }
+            ]
+          }
+        });
+      }),
+    );
+    final message = (await repository.messages('conversation-1')).single;
+    expect(message.choice?.myOptionIds, ['b']);
+    expect(message.choice?.responseCount, 3);
+    expect(message.choice?.options.first.responseCount, 1);
+  });
+
   test('HTTP 仓库按表情文本查询参与者并解析用户列表', () async {
     late http.Request request;
     final repository = HttpMagicChatRepository(

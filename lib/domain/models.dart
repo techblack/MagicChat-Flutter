@@ -14,6 +14,7 @@ class ChatConversation {
       this.muted = false,
       this.lastMessageSeq = 0,
       this.lastReadSeq = 0,
+      this.lastMentionedSeq = 0,
       this.lastChoiceSeq = 0,
       this.type = 'direct',
       this.members = const [],
@@ -30,6 +31,7 @@ class ChatConversation {
   final bool muted;
   final int lastMessageSeq;
   final int lastReadSeq;
+  final int lastMentionedSeq;
   final int lastChoiceSeq;
   final String type;
   final List<Contact> members;
@@ -78,6 +80,7 @@ class ChatConversation {
       muted: value['notification_muted'] == true,
       lastMessageSeq: (value['last_message_seq'] as num?)?.toInt() ?? 0,
       lastReadSeq: (value['last_read_seq'] as num?)?.toInt() ?? 0,
+      lastMentionedSeq: (value['last_mentioned_seq'] as num?)?.toInt() ?? 0,
       lastChoiceSeq: (value['last_choice_seq'] as num?)?.toInt() ?? 0,
       canSend: value['can_send'] != false,
       members: members,
@@ -425,6 +428,7 @@ class ChatMessage {
       this.rawBody = const {},
       this.mine = false,
       this.reactions = const [],
+      this.choice,
       this.replyTo,
       this.topic});
   final String id;
@@ -437,8 +441,67 @@ class ChatMessage {
   final String? authorId;
   final bool mine;
   final List<MessageReaction> reactions;
+  final MessageChoiceState? choice;
   final MessageReply? replyTo;
   final MessageTopic? topic;
+}
+
+class MessageChoiceOption {
+  const MessageChoiceOption({required this.id, required this.responseCount});
+
+  final String id;
+  final int responseCount;
+}
+
+class MessageChoiceState {
+  const MessageChoiceState(
+      {required this.myOptionIds,
+      required this.options,
+      required this.responseCount});
+
+  final List<String> myOptionIds;
+  final List<MessageChoiceOption> options;
+  final int responseCount;
+
+  bool selected(String optionId) => myOptionIds.contains(optionId);
+}
+
+MessageChoiceState? parseMessageChoiceState(Object? value) {
+  if (value is! Map<String, dynamic>) return null;
+  final rawMyOptionIds = value['my_option_ids'];
+  // 旧服务端会把尚未作答的选项列表编码为 null，和 Web/Desktop 一样按空
+  // 列表兼容；缺失字段仍视为无效响应。
+  final myOptionIds =
+      rawMyOptionIds == null && value.containsKey('my_option_ids')
+          ? const <Object?>[]
+          : rawMyOptionIds;
+  final options = value['options'];
+  final responseCount = value['response_count'];
+  if (myOptionIds is! List ||
+      options is! List ||
+      responseCount is! num ||
+      !responseCount.isFinite ||
+      responseCount < 0 ||
+      responseCount % 1 != 0) return null;
+  if (!myOptionIds.every((id) => id is String && id.isNotEmpty)) return null;
+  final ids = myOptionIds.cast<String>().toList(growable: false);
+  final parsedOptions = <MessageChoiceOption>[];
+  for (final option in options) {
+    if (option is! Map<String, dynamic> ||
+        option['id'] is! String ||
+        (option['id'] as String).isEmpty ||
+        option['response_count'] is! num ||
+        !(option['response_count'] as num).isFinite ||
+        (option['response_count'] as num) < 0 ||
+        (option['response_count'] as num) % 1 != 0) return null;
+    parsedOptions.add(MessageChoiceOption(
+        id: option['id'] as String,
+        responseCount: (option['response_count'] as num).toInt()));
+  }
+  return MessageChoiceState(
+      myOptionIds: ids,
+      options: parsedOptions,
+      responseCount: responseCount.toInt());
 }
 
 enum ForwardMode { separate, merged }

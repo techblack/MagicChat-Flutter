@@ -5,6 +5,20 @@ import 'package:magicchat_client/main.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/messages/conversation_list.dart';
 
+class _MentionDemoRepository extends DemoRepository {
+  @override
+  Future<List<ChatConversation>> conversations() async => const [
+        ChatConversation(
+            id: 'mention',
+            title: '提及我的群聊',
+            preview: '有人在消息中提及你',
+            type: 'group',
+            lastMessageSeq: 5,
+            lastReadSeq: 2,
+            lastMentionedSeq: 5),
+      ];
+}
+
 void main() {
   const direct = ChatConversation(
       id: 'direct',
@@ -18,6 +32,8 @@ void main() {
       id: 'app', title: '助手', type: 'app', pinned: true, lastMessageSeq: 1);
   const choiceUnread = ChatConversation(
       id: 'choice', title: '选择题', lastMessageSeq: 4, lastChoiceSeq: 5);
+  const mentionUnread = ChatConversation(
+      id: 'mention', title: '提及', lastMessageSeq: 6, lastMentionedSeq: 7);
 
   test('置顶优先，其余按最新消息序号倒序并保持稳定', () {
     expect(
@@ -52,6 +68,8 @@ void main() {
     expect(matchesConversationFilter(pinnedApp, ConversationFilter.direct),
         isTrue);
     expect(matchesConversationFilter(choiceUnread, ConversationFilter.unread),
+        isTrue);
+    expect(matchesConversationFilter(mentionUnread, ConversationFilter.unread),
         isTrue);
   });
 
@@ -99,5 +117,23 @@ void main() {
     await tester.pumpAndSettle();
     await expectLater(find.byKey(const ValueKey('conversation-filters-golden')),
         matchesGoldenFile('evidence/conversation_filters.png'));
+  });
+
+  testWidgets('会话列表显示提及提醒标记', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(RepaintBoundary(
+      key: const ValueKey('conversation-mention-golden'),
+      child: SizedBox(
+        width: 900,
+        height: 700,
+        child:
+            MaterialApp(home: AppShell(repository: _MentionDemoRepository())),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.alternate_email), findsOneWidget);
+    await expectLater(find.byKey(const ValueKey('conversation-mention-golden')),
+        matchesGoldenFile('evidence/conversation_mention.png'));
   });
 }

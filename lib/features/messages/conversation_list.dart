@@ -17,6 +17,7 @@ bool matchesConversationFilter(
   if (filter == ConversationFilter.unread) {
     return conversation.unread > 0 ||
         conversation.lastMessageSeq > conversation.lastReadSeq ||
+        conversation.lastMentionedSeq > conversation.lastReadSeq ||
         conversation.lastChoiceSeq > conversation.lastReadSeq;
   }
   final type = conversation.type == 'topic'

@@ -43,6 +43,30 @@ void main() {
     expect(store.conversations['c1']?.muted, isTrue);
   });
 
+  test('投影会话提及和选择题提醒序号并保持最大值', () {
+    final store = RealtimeStore();
+    store.conversations['c1'] = const ChatConversation(
+        id: 'c1', title: '会话', lastMessageSeq: 8, lastReadSeq: 3);
+    store.apply({
+      'event': 'conversation.member_mentioned',
+      'cursor': 1,
+      'payload': {'conversation_id': 'c1', 'last_mentioned_seq': 6}
+    });
+    expect(store.conversations['c1']?.lastMentionedSeq, 6);
+    store.apply({
+      'event': 'conversation.member_mentioned',
+      'cursor': 2,
+      'payload': {'conversation_id': 'c1', 'last_mentioned_seq': 4}
+    });
+    expect(store.conversations['c1']?.lastMentionedSeq, 6);
+    store.apply({
+      'event': 'conversation.member_choice_received',
+      'cursor': 3,
+      'payload': {'conversation_id': 'c1', 'last_choice_seq': 7}
+    });
+    expect(store.conversations['c1']?.lastChoiceSeq, 7);
+  });
+
   test('投影用户在线状态事件', () {
     final store = RealtimeStore();
     store.contacts['u1'] = const Contact(
@@ -123,6 +147,44 @@ void main() {
     expect(reaction.count, 2);
     expect(reaction.users.map((user) => user.id), ['u1', 'u2']);
     expect(reaction.users.last.name, isEmpty);
+  });
+
+  test('选择消息实时更新保留当前用户选项和各项计数', () {
+    final store = RealtimeStore()..setCurrentUserId('me');
+    store.messages['choice-1'] = const ChatMessage(
+        id: 'choice-1',
+        author: 'Alice',
+        text: '请选择',
+        contentType: 'choice',
+        rawBody: {
+          'type': 'choice',
+          'selection': 'multiple',
+          'options': [
+            {'id': 'a', 'label': '选项 A'},
+            {'id': 'b', 'label': '选项 B'},
+          ],
+        });
+    store.apply({
+      'event': 'message.choice_updated',
+      'cursor': 1,
+      'payload': {
+        'message_id': 'choice-1',
+        'actor_user_id': 'me',
+        'actor_option_ids': ['a', 'b'],
+        'choice': {
+          'my_option_ids': [],
+          'response_count': 2,
+          'options': [
+            {'id': 'a', 'response_count': 1},
+            {'id': 'b', 'response_count': 2},
+          ],
+        },
+      }
+    });
+    final choice = store.messages['choice-1']!.choice!;
+    expect(choice.myOptionIds, ['a', 'b']);
+    expect(choice.options.last.responseCount, 2);
+    expect(choice.responseCount, 2);
   });
 
   test('撤回消息忽略迟到的回应更新', () {
