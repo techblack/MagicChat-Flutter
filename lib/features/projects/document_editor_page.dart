@@ -9,6 +9,7 @@ import '../../data/document_collaboration.dart';
 import '../../domain/models.dart';
 import 'markdown_editor_toolbar.dart';
 import 'rich_document_view.dart';
+import 'rich_document_toolbar.dart';
 
 class DocumentEditorPage extends StatefulWidget {
   const DocumentEditorPage(
@@ -150,6 +151,12 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                       Expanded(child: Text('富文档安全编辑 · 现有内容只读，可追加标准内容块')),
                     ])),
                 const SizedBox(height: 8),
+                RichDocumentToolbar(
+                    enabled: widget.collaboration!.status ==
+                        DocumentCollaborationStatus.synced,
+                    onInsert: (type) =>
+                        unawaited(_appendBlock(initialType: type))),
+                const SizedBox(height: 8),
                 Expanded(
                     child: RichDocumentView(body: widget.collaboration!.body)),
               ])
@@ -197,14 +204,14 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     setState(() {});
   }
 
-  Future<void> _appendBlock() async {
+  Future<void> _appendBlock({RichDocumentBlockType? initialType}) async {
     final session = widget.collaboration;
     if (session == null ||
         session.status != DocumentCollaborationStatus.synced) {
       return;
     }
     final controller = TextEditingController();
-    var type = RichDocumentBlockType.paragraph;
+    var type = initialType ?? RichDocumentBlockType.paragraph;
     final result = await showDialog<
             ({String text, RichDocumentBlockType type})>(
         context: context,

@@ -149,6 +149,80 @@ void main() {
     expect(reaction.users.last.name, isEmpty);
   });
 
+  test('实时选择题更新仅更新 choice 消息并应用当前用户选项', () {
+    final store = RealtimeStore()..setCurrentUserId('me');
+    store.messages['choice-1'] = const ChatMessage(
+        id: 'choice-1',
+        author: 'Alice',
+        text: '请选择',
+        contentType: 'choice',
+        choice: MessageChoiceState(
+            myOptionIds: [],
+            responseCount: 0,
+            options: [MessageChoiceOption(id: 'a', responseCount: 0)]));
+
+    store.apply({
+      'event': 'message.choice_updated',
+      'cursor': 3,
+      'payload': {
+        'message_id': 'choice-1',
+        'actor_user_id': 'me',
+        'actor_option_ids': ['a'],
+        'choice': {
+          'my_option_ids': [],
+          'response_count': 1,
+          'options': [
+            {'id': 'a', 'response_count': 1},
+          ],
+        },
+      },
+    });
+    expect(store.messages['choice-1']?.choice?.myOptionIds, ['a']);
+    expect(store.messages['choice-1']?.choice?.responseCount, 1);
+    expect(store.messages['choice-1']?.choice?.options.single.responseCount, 1);
+
+    store.apply({
+      'event': 'message.choice_updated',
+      'cursor': 4,
+      'payload': {
+        'message_id': 'choice-1',
+        'actor_user_id': 'other',
+        'actor_option_ids': ['a'],
+        'choice': {
+          'my_option_ids': [],
+          'response_count': 2,
+          'options': [
+            {'id': 'a', 'response_count': 2},
+          ],
+        },
+      },
+    });
+    expect(store.messages['choice-1']?.choice?.myOptionIds, ['a']);
+    expect(store.messages['choice-1']?.choice?.responseCount, 2);
+  });
+
+  test('实时撤回消息清除旧 choice 状态', () {
+    final store = RealtimeStore();
+    store.messages['choice-1'] = const ChatMessage(
+        id: 'choice-1',
+        author: 'Alice',
+        text: '请选择',
+        contentType: 'choice',
+        choice: MessageChoiceState(
+            myOptionIds: ['a'], responseCount: 1, options: []));
+    store.apply({
+      'event': 'message.updated',
+      'cursor': 1,
+      'payload': {
+        'id': 'choice-1',
+        'body': {'type': 'revoked'},
+        'revoked_at': '2026-08-30T00:00:00Z',
+      },
+    });
+    expect(store.messages['choice-1']?.contentType, 'revoked');
+    expect(store.messages['choice-1']?.choice, isNull);
+  });
+
   test('选择消息实时更新保留当前用户选项和各项计数', () {
     final store = RealtimeStore()..setCurrentUserId('me');
     store.messages['choice-1'] = const ChatMessage(
