@@ -14,6 +14,7 @@ import 'data/session_store.dart';
 import 'data/platform_connector_selector.dart';
 import 'data/realtime.dart';
 import 'data/realtime_store.dart';
+import 'data/document_collaboration.dart';
 import 'data/storage_service.dart';
 import 'data/push_service.dart';
 import 'data/local_notification_service.dart';
@@ -556,6 +557,18 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 800;
+    final httpRepository = widget.repository;
+    final documentCollaborationFactory =
+        httpRepository is HttpMagicChatRepository && widget.serverUrl != null
+            ? (ProjectDocument document) => document.documentType == 'markdown'
+                ? DocumentCollaborationSession(
+                    serverUrl: widget.serverUrl!,
+                    token: httpRepository.sessionToken,
+                    documentId: document.id,
+                    documentType: document.documentType ?? 'document',
+                    connector: connectWithAuthorization)
+                : null
+            : null;
     final pages = <Widget>[
       MessagesPage(
           repository: _repository,
@@ -572,7 +585,9 @@ class _AppShellState extends State<AppShell> {
                 _selectedConversation = id;
                 _index = 0;
               })),
-      ProjectsPage(repository: _repository),
+      ProjectsPage(
+          repository: _repository,
+          documentCollaborationFactory: documentCollaborationFactory),
       SettingsPage(
           repository: _repository,
           realtimeStore: widget.realtimeStore,

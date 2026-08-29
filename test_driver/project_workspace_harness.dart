@@ -14,7 +14,7 @@ Future<void> main() async {
 - 任务四种状态已经覆盖
 - 文档目录树支持展开与移动
 
-> 正文协作同步将在下一阶段接入。
+> 此离线演示不建立文档协作连接；正式登录入口会为 Markdown 文档接入正文同步。
 ''');
   runApp(const _ProjectWorkspaceHarness());
 }

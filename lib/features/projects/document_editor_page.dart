@@ -1,15 +1,22 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/repository.dart';
+import '../../data/document_collaboration.dart';
 import '../../domain/models.dart';
 
 class DocumentEditorPage extends StatefulWidget {
   const DocumentEditorPage(
-      {required this.repository, required this.document, super.key});
+      {required this.repository,
+      required this.document,
+      this.collaboration,
+      super.key});
   final MagicChatRepository repository;
   final ProjectDocument document;
+  final DocumentCollaborationSession? collaboration;
 
   @override
   State<DocumentEditorPage> createState() => _DocumentEditorPageState();
@@ -25,7 +32,25 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
   @override
   void initState() {
     super.initState();
-    _loadDraft();
+    if (widget.collaboration == null) {
+      _loadDraft();
+    } else {
+      widget.collaboration!.addListener(_onCollaborationChanged);
+      unawaited(widget.collaboration!.connect().catchError((_) {}));
+    }
+  }
+
+  void _onCollaborationChanged() {
+    if (!mounted) return;
+    final session = widget.collaboration!;
+    if (session.status == DocumentCollaborationStatus.synced &&
+        _body.text != session.text) {
+      final offset = _body.selection.baseOffset.clamp(0, session.text.length);
+      _body.value = TextEditingValue(
+          text: session.text,
+          selection: TextSelection.collapsed(offset: offset));
+    }
+    setState(() {});
   }
 
   Future<void> _loadDraft() async {
@@ -40,6 +65,8 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
 
   @override
   void dispose() {
+    widget.collaboration?.removeListener(_onCollaborationChanged);
+    unawaited(widget.collaboration?.close());
     _title.dispose();
     _body.dispose();
     super.dispose();
@@ -52,12 +79,17 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     try {
       await widget.repository
           .updateCollaborativeDocumentTitle(widget.document.id, title);
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-          'magicchat.document.${widget.document.id}.draft', _body.text);
+      final collaborationSynced =
+          widget.collaboration?.status == DocumentCollaborationStatus.synced;
+      if (!collaborationSynced) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(
+            'magicchat.document.${widget.document.id}.draft', _body.text);
+      }
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('标题已同步，正文已保存为本机草稿')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text(collaborationSynced ? '标题和正文已同步' : '标题已同步，正文已保存为本机草稿')));
       }
     } catch (error) {
       if (mounted) {
@@ -103,13 +135,28 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                 decoration: const InputDecoration(
                     hintText: '输入 Markdown 或文档内容…',
                     border: OutlineInputBorder()),
-                onChanged: (_) => setState(() {})),
+                readOnly: widget.collaboration?.status ==
+                    DocumentCollaborationStatus.connecting,
+                onChanged: (value) {
+                  widget.collaboration?.replaceText(value);
+                  setState(() {});
+                }),
       ),
       bottomNavigationBar: SafeArea(
           child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                Text('${_body.text.length} 字',
+                Text(
+                    widget.collaboration == null
+                        ? '${_body.text.length} 字'
+                        : '${_body.text.length} 字 · $_collaborationLabel',
                     style: Theme.of(context).textTheme.bodySmall)
               ]))));
+
+  String get _collaborationLabel => switch (widget.collaboration!.status) {
+        DocumentCollaborationStatus.disconnected => '未连接',
+        DocumentCollaborationStatus.connecting => '连接中',
+        DocumentCollaborationStatus.synced => '已同步',
+        DocumentCollaborationStatus.error => '连接失败',
+      };
 }

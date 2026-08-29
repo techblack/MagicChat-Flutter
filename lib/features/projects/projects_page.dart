@@ -3,13 +3,19 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../data/repository.dart';
+import '../../data/document_collaboration.dart';
 import '../../domain/models.dart';
 import 'document_editor_page.dart';
 import 'project_task_details_page.dart';
 
+typedef DocumentCollaborationFactory = DocumentCollaborationSession? Function(
+    ProjectDocument document);
+
 class ProjectsPage extends StatefulWidget {
-  const ProjectsPage({required this.repository, super.key});
+  const ProjectsPage(
+      {required this.repository, this.documentCollaborationFactory, super.key});
   final MagicChatRepository repository;
+  final DocumentCollaborationFactory? documentCollaborationFactory;
 
   @override
   State<ProjectsPage> createState() => _ProjectsPageState();
@@ -803,7 +809,10 @@ class _ProjectsPageState extends State<ProjectsPage> {
                 context,
                 MaterialPageRoute(
                     builder: (_) => DocumentEditorPage(
-                        repository: repository, document: document))),
+                        repository: repository,
+                        document: document,
+                        collaboration: widget.documentCollaborationFactory
+                            ?.call(document)))),
             onLongPress: () => _documentActions(context, project, document));
       }).toList();
 
