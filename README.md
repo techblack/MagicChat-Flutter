@@ -18,7 +18,9 @@ CI 可使用同样的命令验证：`flutter pub get && dart format --set-exit-i
 
 仓库的 `client-flutter` GitHub Actions 会在相关目录变更时自动执行上述门禁，并构建 Web 与 Linux Debug 产物。
 
-Linux 构建需要系统安装 `clang++`、GTK3、`libsecret-1-dev` 和 CMake；在 Ubuntu/Debian 上可执行 `apt install clang libgtk-3-dev libsecret-1-dev` 后运行 `flutter build linux`。
+Linux 构建需要系统安装 `clang++`、GTK3、`libsecret-1-dev`、GStreamer 开发包和 CMake；在 Ubuntu/Debian 上可执行
+`apt install clang libgtk-3-dev libsecret-1-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev`
+后运行 `flutter build linux`。
 
 当前壳已覆盖原客户端的一级入口：消息、联系人、项目和设置，并提供登录/Server 配置入口。网络仓储契约对应 `/api/client/`，实时层对应既有 WebSocket envelope；迁移业务模块时只需替换 `MagicChatRepository` 实现，不改变页面导航。
 
