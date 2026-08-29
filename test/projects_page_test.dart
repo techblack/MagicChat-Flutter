@@ -25,6 +25,42 @@ void main() {
     expect(find.text('删除项目'), findsNothing);
   });
 
+  testWidgets('项目列表支持关键词过滤且项目详情包含目标和成员入口', (tester) async {
+    await tester.pumpWidget(_app());
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, '客户端');
+    await tester.pump();
+    expect(find.text('客户端迭代'), findsOneWidget);
+    expect(find.text('我的项目'), findsNothing);
+
+    await tester.tap(find.text('客户端迭代'));
+    await tester.pumpAndSettle();
+    expect(find.text('目标'), findsOneWidget);
+    expect(find.text('成员'), findsOneWidget);
+    await tester.tap(find.text('目标'));
+    await tester.pumpAndSettle();
+    expect(find.text('待完善'), findsOneWidget);
+    await tester.tap(find.text('成员'));
+    await tester.pumpAndSettle();
+    expect(find.text('演示用户'), findsOneWidget);
+  });
+
+  testWidgets('普通项目可以打开授权群组并选择可用群组', (tester) async {
+    await tester.pumpWidget(_app());
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('客户端迭代'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('授权群组'));
+    await tester.pumpAndSettle();
+    expect(find.text('授权群组'), findsOneWidget);
+    expect(find.text('团队群聊'), findsOneWidget);
+    await tester.tap(find.text('团队群聊'));
+    await tester.pumpAndSettle();
+    expect(find.text('团队群聊'), findsOneWidget);
+  });
+
   testWidgets('项目工作区提供五种视图和完整任务状态', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1200, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));

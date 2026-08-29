@@ -12,6 +12,7 @@ class ChatConversation {
       this.pinned = false,
       this.muted = false,
       this.lastMessageSeq = 0,
+      this.type = 'direct',
       this.members = const []});
   final String id;
   final String title;
@@ -23,6 +24,7 @@ class ChatConversation {
   final bool pinned;
   final bool muted;
   final int lastMessageSeq;
+  final String type;
   final List<Contact> members;
 }
 
@@ -136,6 +138,32 @@ class Project {
   final String avatar;
   final bool isPersonal;
   final String updatedAt;
+}
+
+class ProjectPage {
+  const ProjectPage(
+      {required this.projects, this.personalProject, this.nextCursor});
+
+  final List<Project> projects;
+  final Project? personalProject;
+  final String? nextCursor;
+}
+
+class ProjectGroup {
+  const ProjectGroup(
+      {required this.id,
+      required this.name,
+      this.avatar = '',
+      this.status = '',
+      this.memberCount = 0,
+      this.createdAt = ''});
+
+  final String id;
+  final String name;
+  final String avatar;
+  final String status;
+  final int memberCount;
+  final String createdAt;
 }
 
 class ProjectTask {

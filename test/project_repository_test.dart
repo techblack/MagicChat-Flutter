@@ -70,6 +70,45 @@ void main() {
         isTrue);
   });
 
+  test('项目列表会沿 next_cursor 拉取后续页面', () async {
+    final requests = <http.Request>[];
+    final repository = HttpMagicChatRepository(
+        serverUrl: 'https://chat.example.com',
+        sessionToken: 'test-token',
+        client: MockClient((request) async {
+          requests.add(request);
+          final secondPage = request.url.queryParameters['cursor'] == 'next';
+          return _jsonResponse({
+            'data': {
+              'personal_project': secondPage
+                  ? null
+                  : {
+                      'id': 'personal-1',
+                      'name': '我的项目',
+                      'is_personal': true,
+                      'updated_at': '2026-08-29T10:00:00Z',
+                    },
+              'projects': [
+                {
+                  'id': secondPage ? 'project-2' : 'project-1',
+                  'name': secondPage ? '第二页' : '第一页',
+                  'is_personal': false,
+                  'updated_at': '2026-08-29T10:00:00Z',
+                }
+              ],
+              'next_cursor': secondPage ? null : 'next',
+            }
+          });
+        }));
+
+    final projects = await repository.projects();
+
+    expect(projects.map((item) => item.id),
+        ['personal-1', 'project-1', 'project-2']);
+    expect(requests, hasLength(2));
+    expect(requests.last.url.queryParameters['cursor'], 'next');
+  });
+
   test('任务解析嵌套负责人且显式发送清空字段', () async {
     late http.Request updateRequest;
     final repository = HttpMagicChatRepository(
@@ -224,6 +263,86 @@ void main() {
     expect(members.last.sourceGroupIds, ['group-1']);
     expect(requests, hasLength(2));
     expect(requests.last.url.queryParameters['cursor'], 'next-1');
+  });
+
+  test('项目成员资料字段隐藏时通过用户解析补齐资料', () async {
+    final repository = HttpMagicChatRepository(
+        serverUrl: 'https://chat.example.com',
+        sessionToken: 'test-token',
+        client: MockClient((request) async {
+          if (request.method == 'POST') {
+            return _jsonResponse({
+              'data': {
+                'users': [
+                  {
+                    'id': 'user-hidden',
+                    'name': '真实成员',
+                    'nickname': '小明',
+                    'email': 'ming@example.com',
+                    'avatar': '/ming.webp',
+                  }
+                ]
+              }
+            });
+          }
+          return _jsonResponse({
+            'data': {
+              'members': [
+                {
+                  'id': 'user-hidden',
+                  'role': 'member',
+                  'status': 'active',
+                  'source_group_ids': [],
+                }
+              ],
+              'next_cursor': null,
+            }
+          });
+        }));
+
+    final member = (await repository.projectMembers('project-1')).single;
+
+    expect(member.displayName, '小明');
+    expect(member.email, 'ming@example.com');
+  });
+
+  test('项目群组授权使用项目 groups 路由且会解析分页', () async {
+    final requests = <http.Request>[];
+    final repository = HttpMagicChatRepository(
+        serverUrl: 'https://chat.example.com',
+        sessionToken: 'test-token',
+        client: MockClient((request) async {
+          requests.add(request);
+          if (request.method == 'GET') {
+            final secondPage = request.url.queryParameters['cursor'] == 'next';
+            return _jsonResponse({
+              'data': {
+                'groups': [
+                  {
+                    'id': secondPage ? 'group-2' : 'group-1',
+                    'name': secondPage ? '研发群' : '产品群',
+                    'member_count': secondPage ? 4 : 8,
+                    'status': 'active',
+                    'created_at': '2026-08-29T12:00:00Z',
+                  }
+                ],
+                'next_cursor': secondPage ? null : 'next',
+              }
+            });
+          }
+          return _jsonResponse({'data': {}});
+        }));
+
+    final groups = await repository.projectGroups('project-1');
+    await repository.bindProjectGroup('project-1', 'group-3');
+    await repository.unbindProjectGroup('project-1', 'group-3');
+
+    expect(groups.map((item) => item.name), ['产品群', '研发群']);
+    expect(requests[1].method, 'GET');
+    expect(requests[2].method, 'PUT');
+    expect(requests[3].method, 'DELETE');
+    expect(
+        requests[2].url.path, '/api/client/projects/project-1/groups/group-3');
   });
 
   test('任务动态可加载且评论响应立即回显', () async {

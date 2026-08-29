@@ -54,10 +54,16 @@ abstract interface class MagicChatRepository {
   Future<void> rejectFriendRequest(String requestId);
   Future<void> cancelFriendRequest(String requestId);
   Future<List<Project>> projects();
-  Future<Project> createProject(String name, {String description = ''});
+  Future<ProjectPage> projectPage(
+      {String? cursor, int limit = 100, String keyword = ''});
+  Future<Project> createProject(String name,
+      {String description = '', List<String> groupIds = const []});
   Future<Project> updateProject(String projectId,
       {String? name, String? description});
   Future<void> deleteProject(String projectId);
+  Future<List<ProjectGroup>> projectGroups(String projectId);
+  Future<void> bindProjectGroup(String projectId, String groupId);
+  Future<void> unbindProjectGroup(String projectId, String groupId);
   Future<List<ProjectMember>> projectMembers(String projectId);
   Future<List<ProjectTask>> tasks(String projectId);
   Future<List<ProjectTaskActivity>> taskActivities(
@@ -118,14 +124,19 @@ class DemoRepository implements MagicChatRepository {
             title: 'MagicChat 小助手',
             preview: 'Flutter 客户端正在迁移中。'),
         ChatConversation(
-            id: 'team', title: '团队群聊', preview: '今天的项目进展如何？', unread: 2),
+            id: 'team',
+            title: '团队群聊',
+            preview: '今天的项目进展如何？',
+            unread: 2,
+            type: 'group'),
       ];
 
   @override
   Future<ChatConversation> createGroupConversation(String name,
           {List<String> memberIds = const [],
           List<String> appIds = const []}) async =>
-      ChatConversation(id: DateTime.now().toIso8601String(), title: name);
+      ChatConversation(
+          id: DateTime.now().toIso8601String(), title: name, type: 'group');
 
   @override
   Future<ChatConversation> createAppConversation(String appId) async =>
@@ -265,8 +276,17 @@ class DemoRepository implements MagicChatRepository {
       ];
 
   @override
-  Future<Project> createProject(String name, {String description = ''}) async =>
-      Project(id: DateTime.now().toIso8601String(), name: name);
+  Future<ProjectPage> projectPage(
+          {String? cursor, int limit = 100, String keyword = ''}) async =>
+      ProjectPage(projects: await projects(), nextCursor: null);
+
+  @override
+  Future<Project> createProject(String name,
+          {String description = '', List<String> groupIds = const []}) async =>
+      Project(
+          id: DateTime.now().toIso8601String(),
+          name: name,
+          description: description);
 
   @override
   Future<Project> updateProject(String projectId,
@@ -276,6 +296,15 @@ class DemoRepository implements MagicChatRepository {
 
   @override
   Future<void> deleteProject(String projectId) async {}
+
+  @override
+  Future<List<ProjectGroup>> projectGroups(String projectId) async => const [];
+
+  @override
+  Future<void> bindProjectGroup(String projectId, String groupId) async {}
+
+  @override
+  Future<void> unbindProjectGroup(String projectId, String groupId) async {}
 
   @override
   Future<List<ProjectMember>> projectMembers(String projectId) async => const [
@@ -543,6 +572,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
       ChatConversation(
           id: '${item['id'] ?? ''}',
           title: '${item['name'] ?? '未命名会话'}',
+          type: '${item['type'] ?? 'direct'}',
           preview: '${item['summary'] ?? ''}',
           announcement: '${item['announcement'] ?? ''}',
           isPublic: item['visibility'] == 'public' || item['is_public'] == true,
@@ -915,22 +945,26 @@ class HttpMagicChatRepository implements MagicChatRepository {
   @override
   Future<List<Contact>> resolveUsers(List<String> userIds) async {
     if (userIds.isEmpty) return const [];
-    final values = _data(await _request('POST', '/api/client/users/resolve',
-        body: {'user_ids': userIds}))['users'];
-    if (values is! List) throw const FormatException('用户资料响应格式不正确');
-    return values
-        .whereType<Map<String, dynamic>>()
-        .where((item) => item['id'] is String && item['name'] is String)
-        .map((item) => Contact(
-            id: item['id'] as String,
-            name: item['name'] as String,
-            online: item['online'] == true,
-            nickname: '${item['nickname'] ?? ''}',
-            email: '${item['email'] ?? ''}',
-            phone: '${item['phone'] ?? ''}',
-            avatar: '${item['avatar'] ?? ''}',
-            type: 'user'))
-        .toList();
+    final result = <Contact>[];
+    for (var start = 0; start < userIds.length; start += 100) {
+      final end = (start + 100).clamp(0, userIds.length);
+      final values = _data(await _request('POST', '/api/client/users/resolve',
+          body: {'user_ids': userIds.sublist(start, end)}))['users'];
+      if (values is! List) throw const FormatException('用户资料响应格式不正确');
+      result.addAll(values
+          .whereType<Map<String, dynamic>>()
+          .where((item) => item['id'] is String && item['name'] is String)
+          .map((item) => Contact(
+              id: item['id'] as String,
+              name: item['name'] as String,
+              online: item['online'] == true,
+              nickname: '${item['nickname'] ?? ''}',
+              email: '${item['email'] ?? ''}',
+              phone: '${item['phone'] ?? ''}',
+              avatar: '${item['avatar'] ?? ''}',
+              type: 'user')));
+    }
+    return result;
   }
 
   @override
@@ -986,25 +1020,53 @@ class HttpMagicChatRepository implements MagicChatRepository {
 
   @override
   Future<List<Project>> projects() async {
-    final data = _data(await _request('GET', '/api/client/projects?limit=100'));
     final result = <Project>[];
-    final personal = data['personal_project'];
-    final projects = data['projects'];
-    for (final value in [personal, if (projects is List) ...projects]) {
-      if (value is Map<String, dynamic> &&
-          value['id'] is String &&
-          value['name'] is String) {
-        result.add(_projectFromJson(value));
+    String? cursor;
+    do {
+      final page = await projectPage(cursor: cursor);
+      if (cursor == null && page.personalProject != null) {
+        result.add(page.personalProject!);
       }
-    }
+      result.addAll(page.projects);
+      final next = page.nextCursor;
+      if (next == null || next.isEmpty || next == cursor) break;
+      cursor = next;
+    } while (true);
     return result;
   }
 
   @override
-  Future<Project> createProject(String name, {String description = ''}) async {
+  Future<ProjectPage> projectPage(
+      {String? cursor, int limit = 100, String keyword = ''}) async {
+    final query = Uri(queryParameters: {
+      'limit': '$limit',
+      if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
+      if (keyword.trim().isNotEmpty) 'keyword': keyword.trim(),
+    }).query;
+    final data = _data(await _request('GET', '/api/client/projects?$query'));
+    final personal = data['personal_project'];
+    final values = data['projects'];
+    if (personal != null && personal is! Map<String, dynamic>) {
+      throw const FormatException('个人项目响应格式不正确');
+    }
+    if (values is! List) throw const FormatException('项目列表响应格式不正确');
+    final projects =
+        values.whereType<Map<String, dynamic>>().map(_projectFromJson).toList();
+    return ProjectPage(
+        personalProject: personal is Map<String, dynamic>
+            ? _projectFromJson(personal)
+            : null,
+        projects: projects,
+        nextCursor: data['next_cursor'] as String?);
+  }
+
+  @override
+  Future<Project> createProject(String name,
+      {String description = '', List<String> groupIds = const []}) async {
     final data = _data(await _request('POST', '/api/client/projects', body: {
       'name': name,
       'description': description,
+      'group_ids': groupIds,
     }));
     return _projectFromJson(data);
   }
@@ -1028,6 +1090,40 @@ class HttpMagicChatRepository implements MagicChatRepository {
   }
 
   @override
+  Future<List<ProjectGroup>> projectGroups(String projectId) async {
+    final groups = <ProjectGroup>[];
+    String? cursor;
+    do {
+      final query = Uri(queryParameters: {
+        'limit': '100',
+        if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
+      }).query;
+      final data = _data(await _request('GET',
+          '/api/client/projects/${Uri.encodeComponent(projectId)}/groups?$query'));
+      final values = data['groups'];
+      if (values is! List) throw const FormatException('项目群组响应格式不正确');
+      groups.addAll(
+          values.whereType<Map<String, dynamic>>().map(_projectGroupFromJson));
+      final next = data['next_cursor'] as String?;
+      if (next == null || next.isEmpty || next == cursor) break;
+      cursor = next;
+    } while (true);
+    return groups;
+  }
+
+  @override
+  Future<void> bindProjectGroup(String projectId, String groupId) async {
+    await _request('PUT',
+        '/api/client/projects/${Uri.encodeComponent(projectId)}/groups/${Uri.encodeComponent(groupId)}');
+  }
+
+  @override
+  Future<void> unbindProjectGroup(String projectId, String groupId) async {
+    await _request('DELETE',
+        '/api/client/projects/${Uri.encodeComponent(projectId)}/groups/${Uri.encodeComponent(groupId)}');
+  }
+
+  @override
   Future<List<ProjectMember>> projectMembers(String projectId) async {
     final members = <ProjectMember>[];
     String? cursor;
@@ -1046,7 +1142,29 @@ class HttpMagicChatRepository implements MagicChatRepository {
           values.whereType<Map<String, dynamic>>().map(_projectMemberFromJson));
       cursor = data['next_cursor'] as String?;
     } while (cursor != null && cursor.isNotEmpty);
-    return members;
+    final incomplete = members
+        .where((member) =>
+            member.name == member.id && member.displayName == member.id)
+        .map((member) => member.id)
+        .toSet()
+        .toList();
+    if (incomplete.isEmpty) return members;
+    final users = await resolveUsers(incomplete);
+    final usersById = {for (final user in users) user.id: user};
+    return members.map((member) {
+      final user = usersById[member.id];
+      if (user == null) return member;
+      return ProjectMember(
+          id: member.id,
+          name: user.name.isEmpty ? member.name : user.name,
+          nickname: user.nickname.isEmpty ? member.nickname : user.nickname,
+          avatar: user.avatar.isEmpty ? member.avatar : user.avatar,
+          email: user.email.isEmpty ? member.email : user.email,
+          displayNameOverride: user.displayName,
+          role: member.role,
+          status: member.status,
+          sourceGroupIds: member.sourceGroupIds);
+    }).toList();
   }
 
   @override
@@ -1276,6 +1394,20 @@ class HttpMagicChatRepository implements MagicChatRepository {
                 : null);
   }
 
+  ProjectGroup _projectGroupFromJson(Map<String, dynamic> value) {
+    if (value['id'] is! String || value['name'] is! String) {
+      throw const FormatException('项目群组响应格式不正确');
+    }
+    return ProjectGroup(
+        id: value['id'] as String,
+        name: value['name'] as String,
+        avatar: value['avatar'] is String ? value['avatar'] as String : '',
+        status: value['status'] is String ? value['status'] as String : '',
+        memberCount: (value['member_count'] as num?)?.toInt() ?? 0,
+        createdAt:
+            value['created_at'] is String ? value['created_at'] as String : '');
+  }
+
   ProjectDocument _documentFromJson(Map<String, dynamic> value) {
     if (value['id'] is! String ||
         value['project_id'] is! String ||
@@ -1311,16 +1443,21 @@ class HttpMagicChatRepository implements MagicChatRepository {
         value['source_group_ids'] is! List) {
       throw const FormatException('项目成员响应格式不正确');
     }
+    final id = value['id'] as String;
+    final name =
+        value['name'] is String && (value['name'] as String).trim().isNotEmpty
+            ? value['name'] as String
+            : id;
     return ProjectMember(
-        id: value['id'] as String,
-        name: value['name'] is String ? value['name'] as String : '',
+        id: id,
+        name: name,
         nickname:
             value['nickname'] is String ? value['nickname'] as String : '',
         avatar: value['avatar'] is String ? value['avatar'] as String : '',
         email: value['email'] is String ? value['email'] as String : '',
         displayNameOverride: value['display_name'] is String
             ? value['display_name'] as String
-            : '',
+            : name,
         role: value['role'] as String,
         status: value['status'] is String ? value['status'] as String : '',
         sourceGroupIds:

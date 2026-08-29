@@ -15,6 +15,8 @@ class ProjectsPage extends StatefulWidget {
 
 class _ProjectsPageState extends State<ProjectsPage> {
   late Future<List<Project>> _projects;
+  final _searchController = TextEditingController();
+  String _search = '';
 
   MagicChatRepository get repository => widget.repository;
 
@@ -26,6 +28,12 @@ class _ProjectsPageState extends State<ProjectsPage> {
 
   void _reloadProjects() {
     setState(() => _projects = repository.projects());
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   @override
@@ -48,16 +56,45 @@ class _ProjectsPageState extends State<ProjectsPage> {
               if (!snapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
               }
+              final keyword = _search.trim().toLowerCase();
+              final projects = keyword.isEmpty
+                  ? snapshot.data!
+                  : snapshot.data!
+                      .where((project) =>
+                          project.name.toLowerCase().contains(keyword) ||
+                          project.description.toLowerCase().contains(keyword))
+                      .toList();
               return RefreshIndicator(
                   onRefresh: () async => _reloadProjects(),
                   child: ListView.separated(
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                    itemCount: snapshot.data!.length,
+                    itemCount: projects.length + 1,
                     separatorBuilder: (_, __) => const SizedBox(height: 2),
                     itemBuilder: (context, index) {
-                      final project = snapshot.data![index];
+                      if (index == 0) {
+                        return Padding(
+                            padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
+                            child: TextField(
+                                controller: _searchController,
+                                onChanged: (value) =>
+                                    setState(() => _search = value),
+                                decoration: InputDecoration(
+                                    prefixIcon: const Icon(Icons.search),
+                                    hintText: '搜索项目',
+                                    suffixIcon: _search.isEmpty
+                                        ? null
+                                        : IconButton(
+                                            tooltip: '清除搜索',
+                                            onPressed: () {
+                                              _searchController.clear();
+                                              setState(() => _search = '');
+                                            },
+                                            icon: const Icon(Icons.clear)),
+                                    border: const OutlineInputBorder())));
+                      }
+                      final project = projects[index - 1];
                       return ListTile(
                         contentPadding: const EdgeInsets.symmetric(
                             horizontal: 12, vertical: 4),
@@ -119,11 +156,20 @@ class _ProjectsPageState extends State<ProjectsPage> {
                   onTap: () => Navigator.pop(context, 'edit')),
               if (!project.isPersonal)
                 ListTile(
+                    leading: const Icon(Icons.group_outlined),
+                    title: const Text('授权群组'),
+                    onTap: () => Navigator.pop(context, 'groups')),
+              if (!project.isPersonal)
+                ListTile(
                     leading: const Icon(Icons.delete_outline),
                     title: const Text('删除项目'),
                     onTap: () => Navigator.pop(context, 'delete')),
             ])));
     if (!context.mounted || action == null) return;
+    if (action == 'groups') {
+      await _projectGroupAccess(context, project);
+      return;
+    }
     if (action == 'delete') {
       final ok = await showDialog<bool>(
           context: context,
@@ -227,7 +273,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
                 return const Center(child: CircularProgressIndicator());
               }
               return DefaultTabController(
-                length: 5,
+                length: 7,
                 child: Column(children: [
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
@@ -241,12 +287,14 @@ class _ProjectsPageState extends State<ProjectsPage> {
                           tooltip: '新建任务'),
                     ]),
                   ),
-                  const TabBar(tabs: [
+                  const TabBar(isScrollable: true, tabs: [
                     Tab(text: '列表'),
                     Tab(text: '看板'),
                     Tab(text: '日历'),
                     Tab(text: '甘特'),
-                    Tab(text: '文档')
+                    Tab(text: '文档'),
+                    Tab(text: '目标'),
+                    Tab(text: '成员')
                   ]),
                   Expanded(
                       child: TabBarView(children: [
@@ -259,6 +307,8 @@ class _ProjectsPageState extends State<ProjectsPage> {
                     _taskCalendar(context, project, snapshot.data!),
                     _taskGantt(context, project, snapshot.data!),
                     _documentsView(context, project),
+                    _goalsView(context),
+                    _membersView(context, project),
                   ])),
                 ]),
               );
@@ -496,6 +546,129 @@ class _ProjectsPageState extends State<ProjectsPage> {
     dueController.dispose();
     labelsController.dispose();
     reminderController.dispose();
+  }
+
+  Widget _goalsView(BuildContext context) => const Center(
+      child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.flag_outlined, size: 40),
+            SizedBox(height: 12),
+            Text('目标'),
+            SizedBox(height: 4),
+            Text('待完善', style: TextStyle(color: Colors.grey))
+          ])));
+
+  Widget _membersView(BuildContext context, Project project) =>
+      FutureBuilder<List<ProjectMember>>(
+          future: repository.projectMembers(project.id),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Center(child: Text('成员加载失败：${snapshot.error}'));
+            }
+            if (!snapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.data!.isEmpty) {
+              return const Center(child: Text('暂无项目成员'));
+            }
+            return ListView.separated(
+                padding: const EdgeInsets.all(16),
+                itemCount: snapshot.data!.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final member = snapshot.data![index];
+                  final source = member.sourceGroupIds.isEmpty
+                      ? ''
+                      : ' · 来源群组 ${member.sourceGroupIds.length} 个';
+                  return ListTile(
+                      leading: CircleAvatar(
+                          child: Text(member.displayName.isEmpty
+                              ? '?'
+                              : member.displayName.characters.first)),
+                      title: Text(member.displayName),
+                      subtitle: Text(
+                          '${member.email.isEmpty ? '未提供邮箱' : member.email}$source'),
+                      trailing: Text(member.role == 'owner' ? '所有者' : '成员'));
+                });
+          });
+
+  Future<void> _projectGroupAccess(
+      BuildContext context, Project project) async {
+    try {
+      final result = await Future.wait([
+        repository.projectGroups(project.id),
+        repository.conversations(),
+      ]);
+      if (!context.mounted) return;
+      var linked = (result[0] as List<ProjectGroup>).toList();
+      final groups = (result[1] as List<ChatConversation>)
+          .where((item) => item.type == 'group')
+          .toList();
+      await showDialog<void>(
+          context: context,
+          builder: (dialogContext) =>
+              StatefulBuilder(builder: (dialogContext, setDialogState) {
+                final linkedIds = linked.map((item) => item.id).toSet();
+                final available = groups
+                    .where((item) => !linkedIds.contains(item.id))
+                    .toList();
+                return AlertDialog(
+                    title: const Text('授权群组'),
+                    content: SizedBox(
+                        width: 420,
+                        child: ListView(shrinkWrap: true, children: [
+                          if (linked.isEmpty)
+                            const ListTile(title: Text('暂无授权群组')),
+                          ...linked.map((group) => ListTile(
+                              leading: const Icon(Icons.group_outlined),
+                              title: Text(group.name),
+                              subtitle: Text('${group.memberCount} 人'),
+                              trailing: IconButton(
+                                  tooltip: '取消授权',
+                                  icon: const Icon(Icons.remove_circle_outline),
+                                  onPressed: () async {
+                                    await repository.unbindProjectGroup(
+                                        project.id, group.id);
+                                    if (dialogContext.mounted) {
+                                      setDialogState(() => linked = linked
+                                          .where((item) => item.id != group.id)
+                                          .toList());
+                                    }
+                                  }))),
+                          const Divider(),
+                          if (available.isEmpty)
+                            const ListTile(title: Text('没有可授权的群组')),
+                          ...available.map((group) => ListTile(
+                              leading: const Icon(Icons.add_circle_outline),
+                              title: Text(group.title),
+                              onTap: () async {
+                                await repository.bindProjectGroup(
+                                    project.id, group.id);
+                                if (dialogContext.mounted) {
+                                  setDialogState(() => linked = [
+                                        ProjectGroup(
+                                            id: group.id,
+                                            name: group.title,
+                                            avatar: group.avatar,
+                                            memberCount: group.members.length),
+                                        ...linked
+                                      ]);
+                                }
+                              }))
+                        ])),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(dialogContext),
+                          child: const Text('关闭'))
+                    ]);
+              }));
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('授权群组加载失败：$error')));
+      }
+    }
   }
 
   Widget _documentsView(BuildContext context, Project project) =>
