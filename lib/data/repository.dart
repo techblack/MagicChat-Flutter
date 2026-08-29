@@ -61,25 +61,19 @@ abstract interface class MagicChatRepository {
   Future<List<ProjectTask>> tasks(String projectId);
   Future<List<ProjectDocument>> documents(String projectId);
   Future<ProjectDocument> createDocument(String projectId, String title,
-      {String kind = 'document'});
+      {String kind = 'document', String? documentType, String? parentId});
   Future<ProjectDocument> updateDocument(String documentId,
       {String? title, String? parentId});
+  Future<String> updateCollaborativeDocumentTitle(
+      String documentId, String title);
   Future<void> deleteDocument(String documentId);
   Future<void> moveDocument(String documentId,
       {String? parentId, int index = 0});
   Future<ProjectTask> createTask(String projectId, String title);
   Future<ProjectTask> updateTaskStatus(
       String projectId, String taskId, String status);
-  Future<ProjectTask> updateTask(String projectId, String taskId,
-      {String? title,
-      String? description,
-      String? status,
-      int? priority,
-      String? startDate,
-      String? dueDate,
-      List<String>? labels,
-      String? assigneeUserId,
-      Map<String, dynamic>? reminder});
+  Future<ProjectTask> updateTask(
+      String projectId, String taskId, ProjectTaskUpdate update);
   Future<void> deleteTask(String projectId, String taskId);
   Future<void> addTaskComment(String projectId, String taskId, String content);
 }
@@ -293,12 +287,16 @@ class DemoRepository implements MagicChatRepository {
 
   @override
   Future<ProjectDocument> createDocument(String projectId, String title,
-          {String kind = 'document'}) async =>
+          {String kind = 'document',
+          String? documentType,
+          String? parentId}) async =>
       ProjectDocument(
           id: DateTime.now().toIso8601String(),
           projectId: projectId,
           title: title,
-          kind: kind);
+          kind: kind,
+          parentId: parentId,
+          documentType: kind == 'document' ? documentType ?? 'document' : null);
 
   @override
   Future<ProjectDocument> updateDocument(String documentId,
@@ -308,6 +306,11 @@ class DemoRepository implements MagicChatRepository {
           projectId: '',
           title: title ?? '文档',
           parentId: parentId);
+
+  @override
+  Future<String> updateCollaborativeDocumentTitle(
+          String documentId, String title) async =>
+      title;
 
   @override
   Future<void> deleteDocument(String documentId) async {}
@@ -331,27 +334,20 @@ class DemoRepository implements MagicChatRepository {
           id: taskId, projectId: projectId, title: '任务', status: status);
 
   @override
-  Future<ProjectTask> updateTask(String projectId, String taskId,
-          {String? title,
-          String? description,
-          String? status,
-          int? priority,
-          String? startDate,
-          String? dueDate,
-          List<String>? labels,
-          String? assigneeUserId,
-          Map<String, dynamic>? reminder}) async =>
+  Future<ProjectTask> updateTask(
+          String projectId, String taskId, ProjectTaskUpdate update) async =>
       ProjectTask(
           id: taskId,
           projectId: projectId,
-          title: title ?? '任务',
-          status: status ?? 'todo',
-          description: description ?? '',
-          priority: priority ?? 2,
-          startDate: startDate,
-          dueDate: dueDate,
-          labels: labels ?? const [],
-          assigneeUserId: assigneeUserId);
+          title: update.title,
+          status: update.status,
+          description: update.description,
+          priority: update.priority,
+          startDate: update.startDate,
+          dueDate: update.dueDate,
+          labels: update.labels,
+          assigneeUserId: update.assigneeUserId,
+          reminder: update.reminder);
 
   @override
   Future<void> deleteTask(String projectId, String taskId) async {}
@@ -956,8 +952,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
       if (value is Map<String, dynamic> &&
           value['id'] is String &&
           value['name'] is String) {
-        result.add(
-            Project(id: value['id'] as String, name: value['name'] as String));
+        result.add(_projectFromJson(value));
       }
     }
     return result;
@@ -969,11 +964,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
       'name': name,
       'description': description,
     }));
-    final value = data['project'];
-    if (value is! Map<String, dynamic>)
-      throw const FormatException('项目响应格式不正确');
-    return Project(
-        id: '${value['id'] ?? ''}', name: '${value['name'] ?? name}');
+    return _projectFromJson(data);
   }
 
   @override
@@ -985,14 +976,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
     final data = _data(await _request(
         'PATCH', '/api/client/projects/${Uri.encodeComponent(projectId)}',
         body: body));
-    final value = data['project'];
-    if (value is! Map<String, dynamic>) {
-      throw const FormatException('项目响应格式不正确');
-    }
-    return Project(
-        id: '${value['id'] ?? projectId}',
-        name: '${value['name'] ?? name ?? ''}',
-        description: '${value['description'] ?? description ?? ''}');
+    return _projectFromJson(data);
   }
 
   @override
@@ -1019,7 +1003,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
             startDate: item['start_date'] as String?,
             dueDate: item['due_date'] as String?,
             labels: _labels(item['labels']),
-            assigneeUserId: item['assignee_user_id'] as String?,
+            assigneeUserId: _assigneeId(item['assignee']),
             reminder: item['reminder'] is Map<String, dynamic>
                 ? item['reminder'] as Map<String, dynamic>
                 : null))
@@ -1041,6 +1025,9 @@ class HttpMagicChatRepository implements MagicChatRepository {
               title: '${item['title'] ?? ''}',
               kind: '${item['kind'] ?? 'document'}',
               parentId: item['parent_id'] as String?,
+              documentType: item['document_type'] as String?,
+              sortOrder: (item['sort_order'] as num?)?.toInt() ?? 0,
+              schemaVersion: (item['schema_version'] as num?)?.toInt() ?? 1,
             ))
         .where((item) => item.id.isNotEmpty && item.title.isNotEmpty)
         .toList();
@@ -1048,22 +1035,18 @@ class HttpMagicChatRepository implements MagicChatRepository {
 
   @override
   Future<ProjectDocument> createDocument(String projectId, String title,
-      {String kind = 'document'}) async {
+      {String kind = 'document',
+      String? documentType,
+      String? parentId}) async {
     final data = _data(await _request('POST',
         '/api/client/projects/${Uri.encodeComponent(projectId)}/documents',
         body: {
           'kind': kind,
           'title': title,
+          'parent_id': parentId,
+          if (kind == 'document') 'document_type': documentType ?? 'document',
         }));
-    final value = data['document'];
-    if (value is! Map<String, dynamic>)
-      throw const FormatException('文档响应格式不正确');
-    return ProjectDocument(
-        id: '${value['id'] ?? ''}',
-        projectId: projectId,
-        title: '${value['title'] ?? title}',
-        kind: '${value['kind'] ?? kind}',
-        parentId: value['parent_id'] as String?);
+    return _documentFromJson(data);
   }
 
   @override
@@ -1075,16 +1058,19 @@ class HttpMagicChatRepository implements MagicChatRepository {
     final data = _data(await _request(
         'PATCH', '/api/client/documents/${Uri.encodeComponent(documentId)}',
         body: body));
-    final value = data['document'];
-    if (value is! Map<String, dynamic>) {
-      throw const FormatException('文档响应格式不正确');
+    return _documentFromJson(data);
+  }
+
+  @override
+  Future<String> updateCollaborativeDocumentTitle(
+      String documentId, String title) async {
+    final data = _data(await _request('PATCH',
+        '/api/client/document/collaboration/${Uri.encodeComponent(documentId)}/title',
+        body: {'title': title}));
+    if (data['document_id'] != documentId || data['title'] is! String) {
+      throw const FormatException('文档标题响应格式不正确');
     }
-    return ProjectDocument(
-        id: '${value['id'] ?? documentId}',
-        projectId: '${value['project_id'] ?? ''}',
-        title: '${value['title'] ?? title ?? ''}',
-        kind: '${value['kind'] ?? 'document'}',
-        parentId: value['parent_id'] as String?);
+    return data['title'] as String;
   }
 
   @override
@@ -1122,26 +1108,19 @@ class HttpMagicChatRepository implements MagicChatRepository {
   }
 
   @override
-  Future<ProjectTask> updateTask(String projectId, String taskId,
-      {String? title,
-      String? description,
-      String? status,
-      int? priority,
-      String? startDate,
-      String? dueDate,
-      List<String>? labels,
-      String? assigneeUserId,
-      Map<String, dynamic>? reminder}) async {
-    final body = <String, dynamic>{};
-    if (title != null) body['title'] = title;
-    if (description != null) body['description'] = description;
-    if (status != null) body['status'] = status;
-    if (priority != null) body['priority'] = priority;
-    if (startDate != null) body['start_date'] = startDate;
-    if (dueDate != null) body['due_date'] = dueDate;
-    if (labels != null) body['labels'] = labels;
-    if (assigneeUserId != null) body['assignee_user_id'] = assigneeUserId;
-    if (reminder != null) body['reminder'] = reminder;
+  Future<ProjectTask> updateTask(
+      String projectId, String taskId, ProjectTaskUpdate update) async {
+    final body = <String, dynamic>{
+      'title': update.title,
+      'description': update.description,
+      'status': update.status,
+      'priority': update.priority,
+      'start_date': update.startDate,
+      'due_date': update.dueDate,
+      'labels': update.labels,
+      'assignee_user_id': update.assigneeUserId,
+      'reminder': update.reminder,
+    };
     final data = _data(await _request('PATCH',
         '/api/client/projects/${Uri.encodeComponent(projectId)}/tasks/${Uri.encodeComponent(taskId)}',
         body: body));
@@ -1172,7 +1151,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
       startDate: item['start_date'] as String?,
       dueDate: item['due_date'] as String?,
       labels: _labels(item['labels']),
-      assigneeUserId: item['assignee_user_id'] as String?,
+      assigneeUserId: _assigneeId(item['assignee']),
       reminder: item['reminder'] is Map<String, dynamic>
           ? item['reminder'] as Map<String, dynamic>
           : null);
@@ -1183,4 +1162,47 @@ class HttpMagicChatRepository implements MagicChatRepository {
           .where((item) => item.trim().isNotEmpty)
           .toList()
       : const [];
+
+  String? _assigneeId(Object? value) =>
+      value is Map<String, dynamic> && value['id'] is String
+          ? value['id'] as String
+          : null;
+
+  Project _projectFromJson(Map<String, dynamic> value) {
+    if (value['id'] is! String || value['name'] is! String) {
+      throw const FormatException('项目响应格式不正确');
+    }
+    final taskCounts = value['task_counts'];
+    return Project(
+        id: value['id'] as String,
+        name: value['name'] as String,
+        description: value['description'] is String
+            ? value['description'] as String
+            : '',
+        avatar: value['avatar'] is String ? value['avatar'] as String : '',
+        isPersonal: value['is_personal'] == true,
+        updatedAt:
+            value['updated_at'] is String ? value['updated_at'] as String : '',
+        taskCount:
+            taskCounts is Map<String, dynamic> && taskCounts['total'] is num
+                ? (taskCounts['total'] as num).toInt()
+                : null);
+  }
+
+  ProjectDocument _documentFromJson(Map<String, dynamic> value) {
+    if (value['id'] is! String ||
+        value['project_id'] is! String ||
+        value['title'] is! String) {
+      throw const FormatException('文档响应格式不正确');
+    }
+    return ProjectDocument(
+        id: value['id'] as String,
+        projectId: value['project_id'] as String,
+        title: value['title'] as String,
+        kind: value['kind'] is String ? value['kind'] as String : 'document',
+        parentId: value['parent_id'] as String?,
+        documentType: value['document_type'] as String?,
+        sortOrder: (value['sort_order'] as num?)?.toInt() ?? 0,
+        schemaVersion: (value['schema_version'] as num?)?.toInt() ?? 1);
+  }
 }

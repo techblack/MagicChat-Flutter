@@ -124,12 +124,18 @@ class Project {
   const Project(
       {required this.id,
       required this.name,
-      this.taskCount = 0,
-      this.description = ''});
+      this.taskCount,
+      this.description = '',
+      this.avatar = '',
+      this.isPersonal = false,
+      this.updatedAt = ''});
   final String id;
   final String name;
-  final int taskCount;
+  final int? taskCount;
   final String description;
+  final String avatar;
+  final bool isPersonal;
+  final String updatedAt;
 }
 
 class ProjectTask {
@@ -158,18 +164,47 @@ class ProjectTask {
   final Map<String, dynamic>? reminder;
 }
 
+class ProjectTaskUpdate {
+  const ProjectTaskUpdate(
+      {required this.title,
+      required this.description,
+      required this.status,
+      required this.priority,
+      required this.startDate,
+      required this.dueDate,
+      required this.labels,
+      required this.assigneeUserId,
+      required this.reminder});
+
+  final String title;
+  final String description;
+  final String status;
+  final int priority;
+  final String? startDate;
+  final String? dueDate;
+  final List<String> labels;
+  final String? assigneeUserId;
+  final Map<String, dynamic>? reminder;
+}
+
 class ProjectDocument {
   const ProjectDocument(
       {required this.id,
       required this.projectId,
       required this.title,
       this.kind = 'document',
-      this.parentId});
+      this.parentId,
+      this.documentType,
+      this.sortOrder = 0,
+      this.schemaVersion = 1});
   final String id;
   final String projectId;
   final String title;
   final String kind;
   final String? parentId;
+  final String? documentType;
+  final int sortOrder;
+  final int schemaVersion;
 }
 
 class CurrentUser {

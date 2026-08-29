@@ -15,8 +15,8 @@ Flutter 工程与现有客户端并行演进，页面层通过 `MagicChatReposit
 | 会话管理 | 会话长按菜单 | 置顶、免打扰 API 与 UI 已接入；打开会话或停留在底部时按最新序号同步已读 |
 | 推送授权与通知路由 | `PushService`、`PushTokenProvider`、设置页、`AppShell` | 私有 Server grant 注册/撤销、启动路由解析、通知总开关持久化、开启通知时系统权限请求、Android/iOS 通知权限声明及原生令牌桥接契约已接入；APNs/JPush 厂商 SDK 实现待补 |
 | 二维码 | `QrScannerPage` | Android/iOS/macOS/Web 相机扫码、HTTP(S) 链接打开、文本结果展示及桌面粘贴兜底已接入 |
-| 项目、任务视图 | 项目及任务抽屉 | 项目创建、编辑、删除、列表/看板/日历时间线/甘特、`/tasks`、任务创建、编辑（描述/负责人/状态/优先级/日期/标签/一次性与周期提醒）、状态更新、删除和评论已接入 |
-| 文档协作 | 项目 → 文档、`DocumentRealtime`、`DocumentEditorPage` | 项目文档/目录列表、创建、创建目录、重命名、移动到根目录或其他目录和删除、编辑器界面（Markdown 编辑/预览、标题保存、本地草稿恢复）、二进制协作 WebSocket 桥接已接入；正文服务端协同持久化与协议帧解释待迁移 |
+| 项目、任务视图 | `features/projects` | 个人/团队项目摘要、项目创建/编辑/删除、列表/看板/日历/甘特、任务创建、编辑（描述/负责人/状态/优先级/日期/标签/一次性与周期提醒）、状态更新、删除和评论提交已接入；项目搜索/分页、目标、成员与群组授权、任务活动流和成员选择器待迁移 |
+| 文档协作 | `features/projects`、`DocumentRealtime` | 文档目录树、富文本/Markdown 类型、创建/重命名/移动/删除、Markdown 编辑预览、本机草稿恢复及协作标题接口已接入；正文 Hocuspocus/Yjs 状态同步与服务端持久化待迁移 |
 | 图片、文件、语音、选择、对象卡片、图表、回应 | `_MessageBubble`、`flutter_markdown_plus`、文件选择器、`VoiceRecorder`、`_ChartPreview` | 文件选择与 multipart 发送、Markdown 渲染及链接、图片/音频按 MIME 分流、图片交互预览、附件打开/语音播放入口、麦克风录制发送、类型摘要、折线/柱状/饼图/雷达图专用预览、对象展开、图标、choice 选项响应和 reaction 胶囊已接入 |
 | 推送、系统通知、平台文件能力 | Flutter platform channels | 待按平台接入 |
 
@@ -29,5 +29,5 @@ Flutter 工程与现有客户端并行演进，页面层通过 `MagicChatReposit
 
 ## 代码结构迁移
 
-- 通讯录页面和好友管理弹窗已从 `main.dart` 迁移到 `lib/features/contacts/`，页面只依赖仓储契约、领域模型与实时 Store。
-- 后续按项目、设置、消息的顺序继续拆分；`main.dart` 最终只保留应用启动与顶层装配。
+- 通讯录页面和好友管理弹窗已从 `main.dart` 迁移到 `lib/features/contacts/`，项目工作区和文档编辑器已迁移到 `lib/features/projects/`；页面只依赖仓储契约、领域模型与必要的平台存储适配。
+- 后续按设置、消息的顺序继续拆分；`main.dart` 最终只保留应用启动与顶层装配。
