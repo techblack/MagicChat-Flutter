@@ -30,4 +30,4 @@ Flutter 工程与现有客户端并行演进，页面层通过 `MagicChatReposit
 ## 代码结构迁移
 
 - 通讯录页面和好友管理弹窗已从 `main.dart` 迁移到 `lib/features/contacts/`，项目工作区和文档编辑器已迁移到 `lib/features/projects/`；页面只依赖仓储契约、领域模型与必要的平台存储适配。
-- 后续按设置、消息的顺序继续拆分；`main.dart` 最终只保留应用启动与顶层装配。
+- 设置页已迁移到 `lib/features/settings/`；后续继续拆分消息页，`main.dart` 最终只保留应用启动与顶层装配。
