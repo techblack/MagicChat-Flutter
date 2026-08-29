@@ -73,6 +73,22 @@ class PushService {
     }
   }
 
+  /// 撤销当前平台插件暴露的授权，返回是否找到可撤销的授权。
+  /// 平台没有推送适配器或授权已不可用时保持幂等，无需阻断登录生命周期。
+  Future<bool> revokePlatformGrant({
+    required String serverUrl,
+    required String sessionToken,
+    PushTokenProvider provider = const PushTokenProvider(),
+  }) async {
+    final grant = await provider.readGrant();
+    if (grant == null) return false;
+    await revokeGrant(
+        serverUrl: serverUrl,
+        sessionToken: sessionToken,
+        installationId: grant.installationId);
+    return true;
+  }
+
   Future<void> revokeGrant(
       {required String serverUrl,
       required String sessionToken,

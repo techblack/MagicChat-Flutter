@@ -85,6 +85,9 @@ class _MagicChatAppState extends State<MagicChatApp> {
         _ => ThemeMode.system,
       };
     });
+    if (server != null && token != null) {
+      unawaited(_registerPush(server, token));
+    }
   }
 
   Future<void> _login(String server, String email, String password) async {
@@ -142,9 +145,20 @@ class _MagicChatAppState extends State<MagicChatApp> {
     }
   }
 
+  Future<void> _revokePush(String server, String token) async {
+    try {
+      await PushService()
+          .revokePlatformGrant(serverUrl: server, sessionToken: token);
+    } catch (_) {
+      // Revocation is best effort; logout and account switching must continue.
+    }
+  }
+
   Future<void> _logout() async {
     final prefs = await SharedPreferences.getInstance();
     final server = prefs.getString('magicchat.server_url');
+    final token = await const SessionStore().readToken();
+    if (server != null && token != null) await _revokePush(server, token);
     if (server != null) {
       await AuthService().logout(serverUrl: server);
     }
@@ -168,9 +182,14 @@ class _MagicChatAppState extends State<MagicChatApp> {
   Future<void> _changeServer(String server) async {
     final normalized = server.trim().replaceFirst(RegExp(r'/+$'), '');
     if (normalized.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final oldServer = prefs.getString('magicchat.server_url');
+    final oldToken = await const SessionStore().readToken();
+    if (oldServer != null && oldToken != null) {
+      await _revokePush(oldServer, oldToken);
+    }
     await _realtime?.close();
     await const SessionStore().clear();
-    final prefs = await SharedPreferences.getInstance();
     await prefs.setString('magicchat.server_url', normalized);
     if (mounted)
       setState(() {
@@ -181,9 +200,14 @@ class _MagicChatAppState extends State<MagicChatApp> {
   }
 
   Future<void> _switchAccount(StoredAccount account) async {
+    final prefs = await SharedPreferences.getInstance();
+    final oldServer = prefs.getString('magicchat.server_url');
+    final oldToken = await const SessionStore().readToken();
+    if (oldServer != null && oldToken != null) {
+      await _revokePush(oldServer, oldToken);
+    }
     await _realtime?.close();
     await const SessionStore().writeToken(account.token);
-    final prefs = await SharedPreferences.getInstance();
     await prefs.setString('magicchat.server_url', account.serverUrl);
     if (!mounted) return;
     setState(() {
@@ -196,6 +220,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
               sessionToken: account.token,
               connector: connectWithAuthorization));
     });
+    unawaited(_registerPush(account.serverUrl, account.token));
   }
 
   @override
