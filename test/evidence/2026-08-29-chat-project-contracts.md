@@ -20,7 +20,7 @@
 - 群聊菜单根据当前成员角色展示操作：成员可改名称、添加用户和退出；管理员/群主可改公告、头像和移除成员；仅群主可切换公开状态和解散群聊。
 - 应用成员移除使用服务端的 typed member 路由；用户成员继续使用兼容的简化路由。退出和解散使用现有 `/leave`、`DELETE` 路由。
 - 新建项目对齐 Web 行为，在创建表单中加载当前可见群聊、支持搜索和最多 100 个关联群聊，并一次性发送 `group_ids`。
-- `DocumentRealtime` 发送 Hocuspocus v4 路由、认证和空状态向量 SyncStep1 帧；真实会话凭据仍由原生 Cookie/Authorization 连接器承载，未写入协议 token。正文 Yjs 更新解析和编辑器绑定仍未伪造。
+- `DocumentRealtime` 发送 Hocuspocus v4 路由和认证帧，并在收到 `Auth.Authenticated` 后再发送空状态向量 SyncStep1；真实会话凭据仍由原生 Cookie/Authorization 连接器承载，未写入协议 token。正文 Yjs 更新解析和编辑器绑定仍未伪造。
 
 ## 本地服务冒烟
 

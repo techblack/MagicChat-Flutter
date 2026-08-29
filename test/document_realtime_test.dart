@@ -31,7 +31,7 @@ void main() {
     expect(reader.remaining, 0);
   });
 
-  test('带文档名连接会先发送认证和同步握手帧', () async {
+  test('带文档名连接先认证，收到认证成功后再发送同步帧', () async {
     final channel = _FakeChannel();
     final realtime = DocumentRealtime(
         serverUrl: 'https://chat.example.com/base',
@@ -46,12 +46,15 @@ void main() {
 
     await realtime.connect();
 
-    expect(channel.sent, hasLength(2));
+    expect(channel.sent, hasLength(1));
     final auth = _FrameReader(channel.sent[0] as Uint8List);
     expect(auth.string(), 'doc-1');
     expect(auth.varUint(), HocuspocusMessageType.auth);
     expect(auth.varUint(), 0);
     expect(auth.string(), 'session-cookie');
+    channel.emit(encodeHocuspocusAuthenticatedFrame(documentName: 'doc-1'));
+    await Future<void>.delayed(Duration.zero);
+    expect(channel.sent, hasLength(2));
     expect(_FrameReader(channel.sent[1] as Uint8List).string(), 'doc-1');
     await realtime.close();
   });
@@ -110,6 +113,8 @@ class _FakeChannel implements WebSocketChannel {
 
   @override
   Stream<Object?> get stream => _incoming.stream;
+
+  void emit(Object? value) => _incoming.add(value);
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

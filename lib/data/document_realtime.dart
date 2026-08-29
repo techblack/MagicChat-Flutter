@@ -40,10 +40,12 @@ class DocumentRealtime {
   final _events = StreamController<Uint8List>.broadcast();
   Stream<Uint8List> get events => _events.stream;
   bool _closed = false;
+  bool _syncRequested = false;
 
   Future<void> connect() async {
     await _subscription?.cancel();
     _closed = false;
+    _syncRequested = false;
     final channel = connector(_uri, token);
     _channel = channel;
     _subscription = channel.stream.listen(
@@ -56,6 +58,13 @@ class DocumentRealtime {
             return;
           }
           _events.add(frame);
+          if (!_syncRequested &&
+              documentId != null &&
+              _isAuthenticatedFrame(frame, documentId!)) {
+            _syncRequested = true;
+            _sendProtocolFrame(channel,
+                encodeHocuspocusSyncStepOneFrame(documentName: documentId!));
+          }
         },
         onError: _events.addError,
         onDone: () {
@@ -72,10 +81,6 @@ class DocumentRealtime {
         channel,
         encodeHocuspocusAuthenticationFrame(
             documentName: name, token: hocuspocusToken));
-    // An empty Yjs state vector requests the complete current document. The
-    // response is emitted as raw bytes for a Yjs-compatible caller to apply.
-    _sendProtocolFrame(
-        channel, encodeHocuspocusSyncStepOneFrame(documentName: name));
   }
 
   Future<void> send(Uint8List frame) async {
@@ -115,6 +120,13 @@ class DocumentRealtime {
     }
     channel.sink.add(frame);
   }
+
+  bool _isAuthenticatedFrame(Uint8List frame, String name) {
+    final reader = _FrameReader(frame);
+    return reader.string() == name &&
+        reader.varUint() == HocuspocusMessageType.auth &&
+        reader.varUint() == 2;
+  }
 }
 
 /// Hocuspocus v4 的消息类型。
@@ -138,6 +150,19 @@ Uint8List encodeHocuspocusAuthenticationFrame({
   _writeVarUint(bytes, 0); // AuthMessageType.Token
   _writeVarString(bytes, token);
   _writeVarString(bytes, version);
+  return bytes.takeBytes();
+}
+
+/// 编码服务端认证成功响应，供握手测试和兼容连接器使用。
+Uint8List encodeHocuspocusAuthenticatedFrame({
+  required String documentName,
+  String scope = '',
+}) {
+  final bytes = BytesBuilder(copy: false);
+  _writeVarString(bytes, documentName);
+  _writeVarUint(bytes, HocuspocusMessageType.auth);
+  _writeVarUint(bytes, 2); // AuthMessageType.Authenticated
+  _writeVarString(bytes, scope);
   return bytes.takeBytes();
 }
 
@@ -175,4 +200,28 @@ void _writeVarString(BytesBuilder bytes, String value) {
 void _writeVarUint8Array(BytesBuilder bytes, Uint8List value) {
   _writeVarUint(bytes, value.length);
   bytes.add(value);
+}
+
+class _FrameReader {
+  _FrameReader(this._frame);
+  final Uint8List _frame;
+  var _offset = 0;
+
+  int varUint() {
+    var value = 0;
+    var shift = 0;
+    while (true) {
+      final byte = _frame[_offset++];
+      value |= (byte & 0x7f) << shift;
+      if (byte & 0x80 == 0) return value;
+      shift += 7;
+    }
+  }
+
+  String string() {
+    final length = varUint();
+    final value = Uint8List.sublistView(_frame, _offset, _offset + length);
+    _offset += length;
+    return utf8.decode(value);
+  }
 }
