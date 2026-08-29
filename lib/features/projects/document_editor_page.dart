@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/repository.dart';
 import '../../data/document_collaboration.dart';
 import '../../domain/models.dart';
+import 'rich_document_view.dart';
 
 class DocumentEditorPage extends StatefulWidget {
   const DocumentEditorPage(
@@ -109,11 +110,12 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
             decoration: const InputDecoration(
                 border: InputBorder.none, hintText: '文档标题')),
         actions: [
-          IconButton(
-              tooltip: _preview ? '编辑' : '预览',
-              onPressed: () => setState(() => _preview = !_preview),
-              icon: Icon(
-                  _preview ? Icons.edit_outlined : Icons.preview_outlined)),
+          if (widget.document.documentType != 'document')
+            IconButton(
+                tooltip: _preview ? '编辑' : '预览',
+                onPressed: () => setState(() => _preview = !_preview),
+                icon: Icon(
+                    _preview ? Icons.edit_outlined : Icons.preview_outlined)),
           IconButton(
               tooltip: '保存标题',
               onPressed: _saving ? null : _save,
@@ -122,25 +124,44 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
-        child: _preview
-            ? Markdown(
-                data: _body.text.isEmpty ? '暂无内容' : _body.text,
-                padding: EdgeInsets.zero)
-            : TextField(
-                controller: _body,
-                expands: true,
-                maxLines: null,
-                minLines: null,
-                textAlignVertical: TextAlignVertical.top,
-                decoration: const InputDecoration(
-                    hintText: '输入 Markdown 或文档内容…',
-                    border: OutlineInputBorder()),
-                readOnly: widget.collaboration?.status ==
-                    DocumentCollaborationStatus.connecting,
-                onChanged: (value) {
-                  widget.collaboration?.replaceText(value);
-                  setState(() {});
-                }),
+        child: widget.document.documentType == 'document' &&
+                widget.collaboration != null
+            ? Column(children: [
+                Container(
+                    width: double.infinity,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.secondaryContainer,
+                        borderRadius: BorderRadius.circular(8)),
+                    child: const Row(children: [
+                      Icon(Icons.visibility_outlined, size: 18),
+                      SizedBox(width: 8),
+                      Expanded(child: Text('富文档只读预览 · 编辑器工具栏正在迁移')),
+                    ])),
+                const SizedBox(height: 8),
+                Expanded(
+                    child: RichDocumentView(body: widget.collaboration!.body)),
+              ])
+            : _preview
+                ? Markdown(
+                    data: _body.text.isEmpty ? '暂无内容' : _body.text,
+                    padding: EdgeInsets.zero)
+                : TextField(
+                    controller: _body,
+                    expands: true,
+                    maxLines: null,
+                    minLines: null,
+                    textAlignVertical: TextAlignVertical.top,
+                    decoration: const InputDecoration(
+                        hintText: '输入 Markdown 或文档内容…',
+                        border: OutlineInputBorder()),
+                    readOnly: widget.collaboration?.status ==
+                        DocumentCollaborationStatus.connecting,
+                    onChanged: (value) {
+                      widget.collaboration?.replaceText(value);
+                      setState(() {});
+                    }),
       ),
       bottomNavigationBar: SafeArea(
           child: Padding(
@@ -149,7 +170,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                 Text(
                     widget.collaboration == null
                         ? '${_body.text.length} 字'
-                        : '${_body.text.length} 字 · $_collaborationLabel',
+                        : '${widget.collaboration!.text.length} 字 · $_collaborationLabel',
                     style: Theme.of(context).textTheme.bodySmall)
               ]))));
 
