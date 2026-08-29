@@ -77,6 +77,27 @@ class _FriendManagementDialogState extends State<FriendManagementDialog> {
     }
   }
 
+  Future<void> _deleteFriend(Contact friend) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除好友'),
+        content: Text('确定删除好友“${friend.displayName}”吗？'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('删除')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _run('delete:${friend.id}',
+        () => widget.repository.deleteFriend(friend.id), '已删除好友');
+  }
+
   void _showMessage(String message) => ScaffoldMessenger.of(context)
       .showSnackBar(SnackBar(content: Text(message)));
 
@@ -126,6 +147,36 @@ class _FriendManagementDialogState extends State<FriendManagementDialog> {
                             .map((user) =>
                                 _searchResultTile(user, snapshot.data))
                             .toList())),
+              ],
+              if (widget.friends.isNotEmpty) ...[
+                Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('我的好友',
+                        style: Theme.of(context).textTheme.titleMedium)),
+                const SizedBox(height: 8),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: widget.friends.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 6),
+                    itemBuilder: (context, index) {
+                      final friend = widget.friends[index];
+                      return _FriendTile(
+                        user: friend,
+                        subtitle:
+                            friend.email.isEmpty ? friend.id : friend.email,
+                        trailing: TextButton(
+                          key: ValueKey('delete-friend-${friend.id}'),
+                          onPressed: _updatingKey.isEmpty
+                              ? () => _deleteFriend(friend)
+                              : null,
+                          child: const Text('删除'),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 16),
               ],
               const SizedBox(height: 16),
               Align(

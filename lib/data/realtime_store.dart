@@ -56,7 +56,14 @@ class RealtimeStore extends ChangeNotifier {
           name: current.name,
           online: online,
           type: current.type,
-          role: current.role);
+          role: current.role,
+          nickname: current.nickname,
+          email: current.email,
+          phone: current.phone,
+          avatar: current.avatar,
+          joined: current.joined,
+          memberCount: current.memberCount,
+          visibility: current.visibility);
     }
   }
 

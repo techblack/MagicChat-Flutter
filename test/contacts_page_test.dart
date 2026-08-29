@@ -41,6 +41,38 @@ void main() {
     expect(
         find.byKey(const ValueKey('friend-management-button')), findsNothing);
   });
+
+  testWidgets('好友管理可确认并删除已有好友', (tester) async {
+    final repository = _FriendRepository();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: ContactsPage(repository: repository))));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('friend-management-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('delete-friend-friend-bob')));
+    await tester.pumpAndSettle();
+    expect(find.text('确定删除好友“Bob”吗？'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, '删除').last);
+    await tester.pumpAndSettle();
+    expect(repository.deletedUserId, 'friend-bob');
+    expect(find.text('已删除好友'), findsOneWidget);
+  });
+
+  testWidgets('公开群组未加入时先加入再打开会话', (tester) async {
+    String? opened;
+    final repository = _GroupRepository();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: ContactsPage(
+                repository: repository,
+                onOpenConversation: (id) => opened = id))));
+    await tester.pumpAndSettle();
+    expect(find.text('3 人 · 公开群组'), findsOneWidget);
+    await tester.tap(find.text('公开群组'));
+    await tester.pumpAndSettle();
+    expect(repository.joinedGroupId, 'group-public');
+    expect(opened, 'group-public');
+  });
 }
 
 class _FriendRepository extends DemoRepository {
@@ -49,6 +81,7 @@ class _FriendRepository extends DemoRepository {
   final String mode;
   String lastSearch = '';
   String requestedUserId = '';
+  String deletedUserId = '';
 
   @override
   Future<ContactDirectory> contactDirectory({String keyword = ''}) async =>
@@ -88,5 +121,32 @@ class _FriendRepository extends DemoRepository {
   @override
   Future<void> createFriendRequest(String userId) async {
     requestedUserId = userId;
+  }
+
+  @override
+  Future<void> deleteFriend(String userId) async {
+    deletedUserId = userId;
+  }
+}
+
+class _GroupRepository extends DemoRepository {
+  String? joinedGroupId;
+
+  @override
+  Future<ContactDirectory> contactDirectory({String keyword = ''}) async =>
+      const ContactDirectory(contacts: [
+        Contact(
+            id: 'group-public',
+            name: '公开群组',
+            type: 'group',
+            joined: false,
+            memberCount: 3,
+            visibility: 'public')
+      ], mode: 'organization');
+
+  @override
+  Future<ChatConversation> joinGroupConversation(String conversationId) async {
+    joinedGroupId = conversationId;
+    return ChatConversation(id: conversationId, title: '公开群组', type: 'group');
   }
 }

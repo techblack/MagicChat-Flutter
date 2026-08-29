@@ -9,6 +9,42 @@ import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/main.dart';
 
 void main() {
+  test('调用恢复会话和加入公开群 API', () async {
+    final requests = <http.BaseRequest>[];
+    final repository = HttpMagicChatRepository(
+      serverUrl: 'https://chat.example.com',
+      sessionToken: 'test-token',
+      client: MockClient((request) async {
+        requests.add(request);
+        return http.Response(
+            jsonEncode({
+              'data': {
+                'conversation': {
+                  'id': 'conversation-1',
+                  'name': 'Product Group',
+                  'type': 'group',
+                },
+              },
+            }),
+            200);
+      }),
+    );
+
+    final restored = await repository.restoreConversation('hidden/1');
+    final joined = await repository.joinGroupConversation('group/1');
+
+    expect(restored.id, 'conversation-1');
+    expect(joined.title, 'Product Group');
+    expect(requests.map((request) => '${request.method} ${request.url.path}'), [
+      'POST /api/client/conversations/hidden%2F1/restore',
+      'POST /api/client/conversations/groups/group%2F1/join',
+    ]);
+    expect(
+        requests.every((request) =>
+            request.headers['authorization'] == 'Bearer test-token'),
+        isTrue);
+  });
+
   test('调用群聊退出、解散和按类型移除 API', () async {
     final requests = <http.BaseRequest>[];
     final repository = HttpMagicChatRepository(

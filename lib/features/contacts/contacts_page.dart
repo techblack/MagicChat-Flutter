@@ -133,19 +133,30 @@ class _ContactsPageState extends State<ContactsPage> {
                   ? '?'
                   : contact.displayName.substring(0, 1))),
           title: Text(contact.displayName),
-          subtitle: Text(contact.online ? '在线' : '离线',
+          subtitle: Text(
+              contact.type == 'group'
+                  ? '${contact.memberCount} 人 · ${contact.joined ? '已加入' : contact.visibility == 'public' ? '公开群组' : '群组'}'
+                  : contact.online
+                      ? '在线'
+                      : '离线',
               style: TextStyle(
-                  color: contact.online
-                      ? Colors.green.shade700
-                      : Theme.of(context).colorScheme.onSurfaceVariant)),
-          trailing: Container(
-              width: 10,
-              height: 10,
-              decoration: BoxDecoration(
-                  color: contact.online
-                      ? Colors.green
-                      : Theme.of(context).colorScheme.outlineVariant,
-                  shape: BoxShape.circle)),
+                  color: contact.type == 'group'
+                      ? Theme.of(context).colorScheme.onSurfaceVariant
+                      : contact.online
+                          ? Colors.green.shade700
+                          : Theme.of(context).colorScheme.onSurfaceVariant)),
+          trailing: contact.type == 'group'
+              ? Icon(contact.joined
+                  ? Icons.check_circle_outline
+                  : Icons.public_outlined)
+              : Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                      color: contact.online
+                          ? Colors.green
+                          : Theme.of(context).colorScheme.outlineVariant,
+                      shape: BoxShape.circle)),
           onTap: () => _openConversation(contact),
         );
       },
@@ -158,7 +169,9 @@ class _ContactsPageState extends State<ContactsPage> {
           ? await widget.repository.createAppConversation(contact.id)
           : contact.type == 'user'
               ? await widget.repository.createDirectConversation(contact.id)
-              : ChatConversation(id: contact.id, title: contact.name);
+              : contact.joined
+                  ? ChatConversation(id: contact.id, title: contact.name)
+                  : await widget.repository.joinGroupConversation(contact.id);
       if (mounted) widget.onOpenConversation?.call(conversation.id);
     } catch (error) {
       if (mounted) {

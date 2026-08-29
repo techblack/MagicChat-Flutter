@@ -665,7 +665,10 @@ class Contact {
       this.nickname = '',
       this.email = '',
       this.phone = '',
-      this.avatar = ''});
+      this.avatar = '',
+      this.joined = false,
+      this.memberCount = 0,
+      this.visibility = 'private'});
   final String id;
   final String name;
   final bool online;
@@ -675,6 +678,9 @@ class Contact {
   final String email;
   final String phone;
   final String avatar;
+  final bool joined;
+  final int memberCount;
+  final String visibility;
 
   String get displayName => nickname.isEmpty ? name : nickname;
 }

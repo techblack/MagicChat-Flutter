@@ -45,14 +45,22 @@ void main() {
 
   test('投影用户在线状态事件', () {
     final store = RealtimeStore();
-    store.contacts['u1'] =
-        const Contact(id: 'u1', name: 'Alice', online: false);
+    store.contacts['u1'] = const Contact(
+        id: 'u1',
+        name: 'Alice',
+        online: false,
+        nickname: '小爱',
+        email: 'alice@example.com',
+        avatar: '/avatar.webp');
     store.apply({
       'event': 'user.presence.updated',
       'cursor': 1,
       'payload': {'user_id': 'u1', 'online': true}
     });
     expect(store.contacts['u1']?.online, isTrue);
+    expect(store.contacts['u1']?.nickname, '小爱');
+    expect(store.contacts['u1']?.email, 'alice@example.com');
+    expect(store.contacts['u1']?.avatar, '/avatar.webp');
   });
 
   test('按当前用户 ID 标记实时消息归属', () {

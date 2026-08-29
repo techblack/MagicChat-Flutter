@@ -13,6 +13,8 @@ abstract interface class MagicChatRepository {
   Future<ChatConversation> createAppConversation(String appId);
   Future<ChatConversation> createDirectConversation(String userId);
   Future<void> dismissConversation(String conversationId);
+  Future<ChatConversation> restoreConversation(String conversationId);
+  Future<ChatConversation> joinGroupConversation(String conversationId);
   Future<void> renameGroupConversation(String conversationId, String name);
   Future<void> updateGroupAnnouncement(
       String conversationId, String announcement);
@@ -61,6 +63,7 @@ abstract interface class MagicChatRepository {
   Future<List<Contact>> resolveUsers(List<String> userIds);
   Future<List<Contact>> searchUsers(String query);
   Future<void> createFriendRequest(String userId);
+  Future<void> deleteFriend(String userId);
   Future<List<FriendRequest>> friendRequests({String direction = 'incoming'});
   Future<void> acceptFriendRequest(String requestId);
   Future<void> rejectFriendRequest(String requestId);
@@ -175,6 +178,14 @@ class DemoRepository implements MagicChatRepository {
 
   @override
   Future<void> dismissConversation(String conversationId) async {}
+
+  @override
+  Future<ChatConversation> restoreConversation(String conversationId) async =>
+      ChatConversation(id: conversationId, title: '已恢复会话');
+
+  @override
+  Future<ChatConversation> joinGroupConversation(String conversationId) async =>
+      ChatConversation(id: conversationId, title: '群聊', type: 'group');
 
   @override
   Future<void> renameGroupConversation(
@@ -430,6 +441,10 @@ class DemoRepository implements MagicChatRepository {
 
   @override
   Future<void> createFriendRequest(String userId) async {}
+
+  @override
+  Future<void> deleteFriend(String userId) async {}
+
   @override
   Future<List<FriendRequest>> friendRequests(
           {String direction = 'incoming'}) async =>
@@ -782,6 +797,20 @@ class HttpMagicChatRepository implements MagicChatRepository {
   Future<void> dismissConversation(String conversationId) async {
     await _request('DELETE',
         '/api/client/conversations/${Uri.encodeComponent(conversationId)}');
+  }
+
+  @override
+  Future<ChatConversation> restoreConversation(String conversationId) async {
+    final data = _data(await _request('POST',
+        '/api/client/conversations/${Uri.encodeComponent(conversationId)}/restore'));
+    return _conversationFromEnvelope(data, '恢复对话响应格式不正确');
+  }
+
+  @override
+  Future<ChatConversation> joinGroupConversation(String conversationId) async {
+    final data = _data(await _request('POST',
+        '/api/client/conversations/groups/${Uri.encodeComponent(conversationId)}/join'));
+    return _conversationFromEnvelope(data, '加入群聊响应格式不正确');
   }
 
   @override
@@ -1371,8 +1400,10 @@ class HttpMagicChatRepository implements MagicChatRepository {
           name: value['name'] as String,
           online: value['online'] == true,
           avatar: '${value['avatar'] ?? ''}',
-          type:
-              '${value['type'] ?? (apps.contains(value) ? 'app' : 'group')}'));
+          type: '${value['type'] ?? (apps.contains(value) ? 'app' : 'group')}',
+          joined: value['joined'] == true,
+          memberCount: (value['member_count'] as num?)?.toInt() ?? 0,
+          visibility: value['visibility'] == 'public' ? 'public' : 'private'));
     }
     final userIds = data['user_ids'];
     if (userIds is List) {
@@ -1432,6 +1463,12 @@ class HttpMagicChatRepository implements MagicChatRepository {
   Future<void> createFriendRequest(String userId) async {
     await _request('POST', '/api/client/friend-requests',
         body: {'user_id': userId});
+  }
+
+  @override
+  Future<void> deleteFriend(String userId) async {
+    await _request(
+        'DELETE', '/api/client/friends/${Uri.encodeComponent(userId)}');
   }
 
   @override

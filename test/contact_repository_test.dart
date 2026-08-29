@@ -4,8 +4,32 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:magicchat_client/data/repository.dart';
+import 'package:magicchat_client/domain/models.dart';
 
 void main() {
+  test('调用删除好友 API', () async {
+    final requests = <http.BaseRequest>[];
+    final repository = HttpMagicChatRepository(
+      serverUrl: 'https://chat.example.com',
+      sessionToken: 'test-token',
+      client: MockClient((request) async {
+        requests.add(request);
+        return http.Response(
+            jsonEncode({
+              'data': {'user_id': 'user/1'}
+            }),
+            200);
+      }),
+    );
+
+    await repository.deleteFriend('user/1');
+
+    expect(requests.map((request) => '${request.method} ${request.url.path}'), [
+      'DELETE /api/client/friends/user%2F1',
+    ]);
+    expect(requests.single.headers['authorization'], 'Bearer test-token');
+  });
+
   test('精确查找用户后批量解析资料', () async {
     final requests = <http.Request>[];
     final repository = HttpMagicChatRepository(
@@ -65,7 +89,16 @@ void main() {
           jsonEncode({
             'data': {
               'apps': [],
-              'groups': [],
+              'groups': [
+                {
+                  'id': 'group-public',
+                  'name': 'public-group',
+                  'type': 'group',
+                  'joined': false,
+                  'member_count': 3,
+                  'visibility': 'public',
+                }
+              ],
               'user_ids': [],
               'directory_mode': 'friends',
             }
@@ -77,5 +110,9 @@ void main() {
 
     expect(directory.mode, 'friends');
     expect(directory.supportsFriendManagement, isTrue);
+    expect(directory.contacts.single, isA<Contact>());
+    expect(directory.contacts.single.joined, isFalse);
+    expect(directory.contacts.single.memberCount, 3);
+    expect(directory.contacts.single.visibility, 'public');
   });
 }
