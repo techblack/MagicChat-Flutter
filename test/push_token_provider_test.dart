@@ -10,6 +10,11 @@ import 'package:magicchat_client/data/push_token_provider.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('iOS 推送平台名称符合 push-gateway 契约', () {
+    expect(pushPlatformName(TargetPlatform.iOS), 'ios');
+    expect(pushPlatformName(TargetPlatform.android), 'android');
+  });
+
   test('无原生插件时 Push Grant 安全降级', () async {
     final channel = MethodChannel('test/push');
     channel.setMockMethodCallHandler((_) async => null);
@@ -36,6 +41,77 @@ void main() {
         await const PushTokenProvider(
                 channel: MethodChannel('test/push-expired'))
             .readGrant(),
+        isNull);
+  });
+
+  test('读取并规范化原生 APNs 设备令牌', () async {
+    final channel = MethodChannel('test/apns-device-token');
+    channel.setMockMethodCallHandler((_) async => {
+          'provider': 'apns',
+          'platform': 'ios',
+          'environment': 'development',
+          'token': '  ${'a' * 64}  ',
+        });
+    addTearDown(() => channel.setMockMethodCallHandler(null));
+
+    final token = await const PushTokenProvider(
+            channel: MethodChannel('test/apns-device-token'))
+        .readDeviceToken();
+
+    expect(token?.provider, 'apns');
+    expect(token?.platform, 'ios');
+    expect(token?.environment, 'development');
+    expect(token?.token, 'a' * 64);
+  });
+
+  test('拒绝平台与推送厂商不匹配的设备令牌', () async {
+    final channel = MethodChannel('test/mismatched-device-token');
+    channel.setMockMethodCallHandler((_) async => {
+          'provider': 'jpush',
+          'platform': 'ios',
+          'environment': 'production',
+          'token': 'registration-id',
+        });
+    addTearDown(() => channel.setMockMethodCallHandler(null));
+
+    expect(
+        await const PushTokenProvider(
+                channel: MethodChannel('test/mismatched-device-token'))
+            .readDeviceToken(),
+        isNull);
+  });
+
+  test('拒绝开发环境 JPush 令牌', () async {
+    final channel = MethodChannel('test/jpush-development-token');
+    channel.setMockMethodCallHandler((_) async => {
+          'provider': 'jpush',
+          'platform': 'android',
+          'environment': 'development',
+          'token': 'registration-id',
+        });
+    addTearDown(() => channel.setMockMethodCallHandler(null));
+
+    expect(
+        await const PushTokenProvider(
+                channel: MethodChannel('test/jpush-development-token'))
+            .readDeviceToken(),
+        isNull);
+  });
+
+  test('拒绝奇数长度的 APNs 令牌', () async {
+    final channel = MethodChannel('test/odd-apns-token');
+    channel.setMockMethodCallHandler((_) async => {
+          'provider': 'apns',
+          'platform': 'ios',
+          'environment': 'production',
+          'token': 'a' * 33,
+        });
+    addTearDown(() => channel.setMockMethodCallHandler(null));
+
+    expect(
+        await const PushTokenProvider(
+                channel: MethodChannel('test/odd-apns-token'))
+            .readDeviceToken(),
         isNull);
   });
 

@@ -4,6 +4,8 @@ import UserNotifications
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+  private let apnsTokenKey = "magicchat.apns.deviceToken"
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -13,6 +15,34 @@ import UserNotifications
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    let push = FlutterMethodChannel(
+      name: "magicchat/push",
+      binaryMessenger: engineBridge.applicationRegistrar.messenger()
+    )
+    push.setMethodCallHandler { [weak self] call, result in
+      guard call.method == "getDeviceToken" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      guard let self,
+            let token = UserDefaults.standard.string(forKey: self.apnsTokenKey),
+            !token.isEmpty else {
+        UIApplication.shared.registerForRemoteNotifications()
+        result(nil)
+        return
+      }
+      #if DEBUG
+      let environment = "development"
+      #else
+      let environment = "production"
+      #endif
+      result([
+        "provider": "apns",
+        "platform": "ios",
+        "environment": environment,
+        "token": token,
+      ])
+    }
     let notifications = FlutterMethodChannel(
       name: "magicchat/notifications",
       binaryMessenger: engineBridge.applicationRegistrar.messenger()
@@ -59,5 +89,22 @@ import UserNotifications
         result(FlutterMethodNotImplemented)
       }
     }
+  }
+
+  override func application(
+    _ application: UIApplication,
+    didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+  ) {
+    let token = deviceToken.map { String(format: "%02x", $0) }.joined()
+    UserDefaults.standard.set(token, forKey: apnsTokenKey)
+    super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
+  }
+
+  override func application(
+    _ application: UIApplication,
+    didFailToRegisterForRemoteNotificationsWithError error: Error
+  ) {
+    UserDefaults.standard.removeObject(forKey: apnsTokenKey)
+    super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
   }
 }

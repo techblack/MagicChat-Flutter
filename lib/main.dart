@@ -140,7 +140,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
       await PushService().registerPlatformGrant(
           serverUrl: server,
           sessionToken: token,
-          platform: defaultTargetPlatform.name);
+          platform: pushPlatformName(defaultTargetPlatform));
     } catch (_) {
       // Push registration is optional; login must not be blocked by a plugin
       // or network failure.

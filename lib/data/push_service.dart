@@ -1,8 +1,20 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'http_client.dart';
 import 'push_token_provider.dart';
 import 'session_store.dart';
+
+String pushPlatformName(TargetPlatform platform) {
+  switch (platform) {
+    case TargetPlatform.iOS:
+      return 'ios';
+    case TargetPlatform.android:
+      return 'android';
+    default:
+      return platform.name;
+  }
+}
 
 class PushGrant {
   const PushGrant(

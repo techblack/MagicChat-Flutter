@@ -20,6 +20,17 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         createNotificationChannel()
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "magicchat/push")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getDeviceToken" -> {
+                        // JPush is not bundled by the Flutter client yet. Keep
+                        // the bridge explicit so Dart can safely fall back.
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
