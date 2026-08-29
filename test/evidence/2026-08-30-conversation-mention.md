@@ -11,7 +11,7 @@
 | 命令 | 结果 | 覆盖 |
 | --- | --- | --- |
 | `dart format lib/domain/models.dart lib/data/realtime_store.dart lib/features/messages/conversation_list.dart lib/main.dart test/realtime_store_test.dart test/conversation_list_test.dart` | 通过 | Dart 格式 |
-| `flutter test --no-pub test/realtime_store_test.dart test/conversation_list_test.dart` | 通过（21 项） | 实时提醒序号、未读筛选、提及图标及截图 |
+| `flutter test --no-pub test/realtime_store_test.dart test/conversation_list_test.dart` | 通过（22 项） | 实时提醒序号、响应解析、未读筛选、提及图标及截图 |
 | `flutter analyze --no-pub lib/domain/models.dart lib/data/realtime_store.dart lib/features/messages/conversation_list.dart lib/main.dart test/realtime_store_test.dart test/conversation_list_test.dart` | 通过；无 error | 静态检查 |
 | `git diff --check` | 通过 | 空白错误检查 |
 

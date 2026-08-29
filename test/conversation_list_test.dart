@@ -81,6 +81,19 @@ void main() {
     expect(matchesConversationQuery(conversation, '不存在'), isFalse);
   });
 
+  test('会话响应解析提及和选择提醒序号', () {
+    final conversation = ChatConversation.fromJson({
+      'id': 'c1',
+      'name': '工程群',
+      'last_message_seq': 8,
+      'last_read_seq': 3,
+      'last_mentioned_seq': 6,
+      'last_choice_seq': 7,
+    });
+    expect(conversation.lastMentionedSeq, 6);
+    expect(conversation.lastChoiceSeq, 7);
+  });
+
   testWidgets('会话列表支持未读筛选和关键词搜索', (tester) async {
     await tester.binding.setSurfaceSize(const Size(900, 700));
     addTearDown(() => tester.binding.setSurfaceSize(null));
