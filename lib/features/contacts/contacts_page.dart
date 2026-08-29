@@ -3,17 +3,20 @@ import 'package:flutter/material.dart';
 import '../../data/realtime_store.dart';
 import '../../data/repository.dart';
 import '../../domain/models.dart';
+import 'applications_page.dart';
 import 'friend_management_dialog.dart';
 
 class ContactsPage extends StatefulWidget {
   const ContactsPage(
       {required this.repository,
       this.realtimeStore,
+      this.serverUrl,
       this.onOpenConversation,
       super.key});
 
   final MagicChatRepository repository;
   final RealtimeStore? realtimeStore;
+  final String? serverUrl;
   final ValueChanged<String>? onOpenConversation;
 
   @override
@@ -71,6 +74,16 @@ class _ContactsPageState extends State<ContactsPage> {
                           tooltip: '新朋友',
                           onPressed: () => _showFriendManagement(directory!),
                           icon: const Icon(Icons.person_add_alt_1_outlined)),
+                    IconButton(
+                        key: const ValueKey('app-management-button'),
+                        tooltip: '我的应用',
+                        onPressed: () => Navigator.push<void>(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => ApplicationsPage(
+                                    repository: widget.repository,
+                                    serverUrl: widget.serverUrl))),
+                        icon: const Icon(Icons.smart_toy_outlined)),
                     IconButton(
                         tooltip: '刷新',
                         onPressed: _load,

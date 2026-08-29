@@ -39,7 +39,8 @@ class ChatMessage {
       this.contentType = 'text',
       this.rawBody = const {},
       this.mine = false,
-      this.reactions = const []});
+      this.reactions = const [],
+      this.replyTo});
   final String id;
   final String? conversationId;
   final int? sequence;
@@ -50,6 +51,16 @@ class ChatMessage {
   final String? authorId;
   final bool mine;
   final List<MessageReaction> reactions;
+  final MessageReply? replyTo;
+}
+
+class MessageReply {
+  const MessageReply(
+      {required this.id, required this.author, required this.text});
+
+  final String id;
+  final String author;
+  final String text;
 }
 
 class MessageSearchResult {
@@ -319,4 +330,111 @@ class CurrentUser {
   final String avatar;
   final String phone;
   String get displayName => nickname.isNotEmpty ? nickname : name;
+}
+
+/// 当前用户创建的应用配置。
+///
+/// 字段名与服务端 `/api/client/apps` 的 JSON 契约保持一致；Dart 属性仍
+/// 使用 lowerCamelCase，便于 Flutter 侧调用。
+class OwnedApp {
+  const OwnedApp({
+    required this.id,
+    required this.name,
+    this.description = '',
+    this.avatar = '',
+    this.connectionStatus = 'offline',
+    this.createdAt = '',
+    this.updatedAt = '',
+    this.enabled = true,
+    this.visibility = 'creator',
+    this.userIds = const [],
+  });
+
+  final String id;
+  final String name;
+  final String description;
+  final String avatar;
+  final String connectionStatus;
+  final String createdAt;
+  final String updatedAt;
+  final bool enabled;
+  final String visibility;
+  final List<String> userIds;
+
+  factory OwnedApp.fromJson(Map<String, dynamic> value) {
+    final id = value['id'];
+    final name = value['name'];
+    final createdAt = value['created_at'];
+    final updatedAt = value['updated_at'];
+    final userIds = value['user_ids'];
+    if (id is! String ||
+        id.isEmpty ||
+        name is! String ||
+        name.isEmpty ||
+        createdAt is! String ||
+        createdAt.isEmpty ||
+        updatedAt is! String ||
+        updatedAt.isEmpty ||
+        userIds is! List ||
+        userIds.any((item) => item is! String)) {
+      throw const FormatException('应用响应格式不正确');
+    }
+    final connectionStatus = value['connection_status'];
+    final visibility = value['visibility'];
+    return OwnedApp(
+      id: id,
+      name: name,
+      description:
+          value['description'] is String ? value['description'] as String : '',
+      avatar: value['avatar'] is String ? value['avatar'] as String : '',
+      connectionStatus:
+          connectionStatus == 'online' || connectionStatus == 'disabled'
+              ? connectionStatus as String
+              : 'offline',
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+      enabled: value['enabled'] != false,
+      visibility: visibility == 'public' || visibility == 'restricted'
+          ? visibility as String
+          : 'creator',
+      userIds: userIds.whereType<String>().toList(growable: false),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'avatar': avatar,
+        'connection_status': connectionStatus,
+        'created_at': createdAt,
+        'description': description,
+        'enabled': enabled,
+        'id': id,
+        'name': name,
+        'updated_at': updatedAt,
+        'user_ids': userIds,
+        'visibility': visibility,
+      };
+}
+
+class AppCredentials {
+  const AppCredentials({required this.app, required this.connectionSecret});
+
+  final OwnedApp app;
+  final String connectionSecret;
+
+  factory AppCredentials.fromJson(Map<String, dynamic> value) {
+    final app = value['app'];
+    final secret = value['connection_secret'];
+    if (app is! Map<String, dynamic> || secret is! String || secret.isEmpty) {
+      throw const FormatException('应用接入信息响应格式不正确');
+    }
+    return AppCredentials(
+      app: OwnedApp.fromJson(app),
+      connectionSecret: secret,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'app': app.toJson(),
+        'connection_secret': connectionSecret,
+      };
 }

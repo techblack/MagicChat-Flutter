@@ -560,6 +560,7 @@ class _AppShellState extends State<AppShell> {
       ContactsPage(
           repository: _repository,
           realtimeStore: widget.realtimeStore,
+          serverUrl: widget.serverUrl,
           onOpenConversation: (id) => setState(() {
                 _selectedConversation = id;
                 _index = 0;
@@ -1232,6 +1233,7 @@ class _ConversationViewState extends State<ConversationView> {
   int _lastReadSequence = 0;
   final _selectedMessageIds = <String>{};
   List<ChatMessage> _visibleMessages = const [];
+  MessageReply? _replyTo;
 
   @override
   void initState() {
@@ -1300,6 +1302,7 @@ class _ConversationViewState extends State<ConversationView> {
   ChatMessage? _messageFromCache(Object? value) {
     if (value is! Map<String, dynamic> || value['id'] is! String) return null;
     final reactions = value['reactions'];
+    final reply = value['reply_to'];
     return ChatMessage(
       id: value['id'] as String,
       author: '${value['author'] ?? '用户'}',
@@ -1313,6 +1316,12 @@ class _ConversationViewState extends State<ConversationView> {
           : const {},
       text: '${value['text'] ?? ''}',
       mine: value['mine'] == true,
+      replyTo: reply is Map<String, dynamic> && reply['id'] is String
+          ? MessageReply(
+              id: reply['id'] as String,
+              author: '${reply['author'] ?? '用户'}',
+              text: '${reply['text'] ?? '[消息]'}')
+          : null,
       reactions: reactions is List
           ? reactions
               .whereType<Map<String, dynamic>>()
@@ -1340,6 +1349,13 @@ class _ConversationViewState extends State<ConversationView> {
                   'raw_body': message.rawBody,
                   'text': message.text,
                   'mine': message.mine,
+                  'reply_to': message.replyTo == null
+                      ? null
+                      : {
+                          'id': message.replyTo!.id,
+                          'author': message.replyTo!.author,
+                          'text': message.replyTo!.text,
+                        },
                   'reactions': message.reactions
                       .map((reaction) => {
                             'text': reaction.text,
@@ -1448,6 +1464,7 @@ class _ConversationViewState extends State<ConversationView> {
     if (oldWidget.conversationId != widget.conversationId) {
       _olderMessages.clear();
       _lastReadSequence = 0;
+      _replyTo = null;
       _messagesFuture = _loadMessages();
       _contactsFuture = _loadConversationContacts();
       _controller.clear();
@@ -1475,8 +1492,14 @@ class _ConversationViewState extends State<ConversationView> {
         await widget.repository.sendVoice(
             conversationId,
             AttachmentUpload(
-                path: path, name: 'voice.m4a', mimeType: 'audio/mp4'));
-        if (mounted) setState(() => _messagesFuture = _loadMessages());
+                path: path, name: 'voice.m4a', mimeType: 'audio/mp4'),
+            replyToMessageId: _replyTo?.id);
+        if (mounted) {
+          setState(() {
+            _replyTo = null;
+            _messagesFuture = _loadMessages();
+          });
+        }
       } catch (error) {
         if (mounted) {
           setState(() => _recording = false);
@@ -1586,64 +1609,104 @@ class _ConversationViewState extends State<ConversationView> {
         SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(10, 6, 10, 10),
-            child: Row(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                IconButton(
-                  icon: const Icon(Icons.alternate_email),
-                  tooltip: '提及成员',
-                  onPressed: _sendingFile ? null : _pickMention,
-                ),
-                IconButton(
-                  icon: const Icon(Icons.attach_file),
-                  tooltip: '发送文件',
-                  onPressed: _sendingFile
-                      ? null
-                      : () => _pickAndSendFile(conversationId),
-                ),
-                IconButton(
-                  icon: Icon(_recording ? Icons.stop : Icons.mic_none),
-                  tooltip: _recording ? '停止并发送语音' : '录制语音',
-                  color:
-                      _recording ? Theme.of(context).colorScheme.error : null,
-                  onPressed:
-                      _sendingFile ? null : () => _toggleVoice(conversationId),
-                ),
-                Expanded(
-                    child: TextField(
-                        controller: _controller,
-                        minLines: 1,
-                        maxLines: 5,
-                        textInputAction: TextInputAction.newline,
-                        decoration: const InputDecoration(
-                            hintText: '输入消息…',
-                            prefixIcon: Icon(Icons.emoji_emotions_outlined),
-                            isDense: true))),
-                const SizedBox(width: 6),
-                IconButton.filled(
-                  icon: const Icon(Icons.send_rounded),
-                  style: IconButton.styleFrom(
-                      minimumSize: const Size(46, 46),
-                      shape: const CircleBorder()),
-                  tooltip: '发送',
-                  onPressed: () async {
-                    final text = _controller.text.trim();
-                    if (text.isEmpty) return;
-                    try {
-                      await widget.repository.sendMessage(conversationId, text);
-                      _controller.clear();
-                      final key = _draftKey;
-                      if (key != null) {
-                        final prefs = await SharedPreferences.getInstance();
-                        await prefs.remove(key);
-                      }
-                      setState(() {});
-                    } catch (error) {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('发送消息失败：$error')));
-                      }
-                    }
-                  },
+                if (_replyTo != null)
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .secondaryContainer
+                          .withValues(alpha: .55),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(children: [
+                      const Icon(Icons.reply, size: 18),
+                      const SizedBox(width: 6),
+                      Expanded(
+                          child: Text(
+                              '回复 ${_replyTo!.author}：${_replyTo!.text}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis)),
+                      IconButton(
+                          tooltip: '取消回复',
+                          onPressed: () => setState(() => _replyTo = null),
+                          icon: const Icon(Icons.close, size: 18)),
+                    ]),
+                  ),
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.alternate_email),
+                      tooltip: '提及成员',
+                      onPressed: _sendingFile ? null : _pickMention,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.attach_file),
+                      tooltip: '发送文件',
+                      onPressed: _sendingFile
+                          ? null
+                          : () => _pickAndSendFile(conversationId),
+                    ),
+                    IconButton(
+                      icon: Icon(_recording ? Icons.stop : Icons.mic_none),
+                      tooltip: _recording ? '停止并发送语音' : '录制语音',
+                      color: _recording
+                          ? Theme.of(context).colorScheme.error
+                          : null,
+                      onPressed: _sendingFile
+                          ? null
+                          : () => _toggleVoice(conversationId),
+                    ),
+                    Expanded(
+                        child: TextField(
+                            controller: _controller,
+                            minLines: 1,
+                            maxLines: 5,
+                            textInputAction: TextInputAction.newline,
+                            decoration: InputDecoration(
+                                hintText: '输入消息…',
+                                prefixIcon: IconButton(
+                                  tooltip: '选择表情',
+                                  icon: Icon(Icons.emoji_emotions_outlined),
+                                  onPressed: _showEmojiPicker,
+                                ),
+                                isDense: true))),
+                    const SizedBox(width: 6),
+                    IconButton.filled(
+                      icon: const Icon(Icons.send_rounded),
+                      style: IconButton.styleFrom(
+                          minimumSize: const Size(46, 46),
+                          shape: const CircleBorder()),
+                      tooltip: '发送',
+                      onPressed: () async {
+                        final text = _controller.text.trim();
+                        if (text.isEmpty) return;
+                        try {
+                          await widget.repository.sendMessage(
+                              conversationId, text,
+                              replyToMessageId: _replyTo?.id);
+                          _controller.clear();
+                          if (mounted) setState(() => _replyTo = null);
+                          final key = _draftKey;
+                          if (key != null) {
+                            final prefs = await SharedPreferences.getInstance();
+                            await prefs.remove(key);
+                          }
+                          if (mounted) setState(() {});
+                        } catch (error) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('发送消息失败：$error')));
+                          }
+                        }
+                      },
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -1664,6 +1727,60 @@ class _ConversationViewState extends State<ConversationView> {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('已复制')));
     }
+  }
+
+  Future<void> _showEmojiPicker() async {
+    const emojis = [
+      '😀',
+      '😂',
+      '🙂',
+      '😍',
+      '🤔',
+      '😢',
+      '😡',
+      '👍',
+      '👎',
+      '👏',
+      '🙏',
+      '🎉',
+      '❤️',
+      '🔥',
+      '✅',
+      '⭐',
+      '🚀',
+      '💡',
+    ];
+    final emoji = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: GridView.count(
+          shrinkWrap: true,
+          crossAxisCount: 6,
+          padding: const EdgeInsets.all(16),
+          mainAxisSpacing: 8,
+          crossAxisSpacing: 8,
+          children: emojis
+              .map((value) => InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () => Navigator.pop(context, value),
+                    child: Center(
+                        child:
+                            Text(value, style: const TextStyle(fontSize: 28))),
+                  ))
+              .toList(),
+        ),
+      ),
+    );
+    if (emoji == null || !mounted) return;
+    final value = _controller.value;
+    final text = value.text;
+    final start = value.selection.isValid ? value.selection.start : text.length;
+    final end = value.selection.isValid ? value.selection.end : start;
+    final next = text.replaceRange(start, end, emoji);
+    _controller.value = TextEditingValue(
+        text: next,
+        selection: TextSelection.collapsed(offset: start + emoji.length));
   }
 
   Future<void> _revokeSelected(String conversationId) async {
@@ -1741,13 +1858,21 @@ class _ConversationViewState extends State<ConversationView> {
           name: file.name,
           mimeType: _mimeType(file.extension));
       if (upload.mimeType.startsWith('image/')) {
-        await widget.repository.sendImage(conversationId, upload);
+        await widget.repository
+            .sendImage(conversationId, upload, replyToMessageId: _replyTo?.id);
       } else if (upload.mimeType.startsWith('audio/')) {
-        await widget.repository.sendVoice(conversationId, upload);
+        await widget.repository
+            .sendVoice(conversationId, upload, replyToMessageId: _replyTo?.id);
       } else {
-        await widget.repository.sendFile(conversationId, upload);
+        await widget.repository
+            .sendFile(conversationId, upload, replyToMessageId: _replyTo?.id);
       }
-      if (mounted) setState(() => _messagesFuture = _loadMessages());
+      if (mounted) {
+        setState(() {
+          _replyTo = null;
+          _messagesFuture = _loadMessages();
+        });
+      }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -1834,6 +1959,11 @@ class _ConversationViewState extends State<ConversationView> {
               onTap: () => Navigator.pop(context, 'revoke'),
             ),
           ListTile(
+            leading: const Icon(Icons.reply),
+            title: const Text('回复'),
+            onTap: () => Navigator.pop(context, 'reply'),
+          ),
+          ListTile(
               leading: const Icon(Icons.checklist),
               title: const Text('多选'),
               onTap: () => Navigator.pop(context, 'select')),
@@ -1851,6 +1981,11 @@ class _ConversationViewState extends State<ConversationView> {
     if (!mounted || action == null) return;
     if (action == 'select') {
       if (mounted) setState(() => _selectedMessageIds.add(message.id));
+    } else if (action == 'reply') {
+      if (mounted) {
+        setState(() => _replyTo = MessageReply(
+            id: message.id, author: message.author, text: message.text));
+      }
     } else if (action == 'revoke') {
       await _confirmRevoke(conversationId, message);
     } else if (action == 'topic') {
@@ -1925,6 +2060,26 @@ class _MessageBubble extends StatelessWidget {
         ),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (message.replyTo != null)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.fromLTRB(8, 5, 8, 5),
+            decoration: BoxDecoration(
+              color: mine
+                  ? colors.onPrimary.withValues(alpha: .16)
+                  : colors.primary.withValues(alpha: .08),
+              border: Border(left: BorderSide(color: colors.primary, width: 3)),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              '回复 ${message.replyTo!.author}：${message.replyTo!.text}',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: mine ? colors.onPrimary : colors.onSurfaceVariant),
+            ),
+          ),
         if (!mine)
           FutureBuilder<List<Contact>>(
               future: contactsFuture,

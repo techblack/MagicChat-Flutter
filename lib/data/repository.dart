@@ -30,18 +30,20 @@ abstract interface class MagicChatRepository {
       String conversationId, String messageId, String targetConversationId);
   Future<List<ChatMessage>> messages(String conversationId,
       {int? beforeSeq, int limit = 50});
-  Future<void> sendMessage(String conversationId, String text);
+  Future<void> sendMessage(String conversationId, String text,
+      {String? replyToMessageId});
   Future<bool> setConversationPinned(String conversationId, bool pinned);
   Future<bool> setConversationMuted(String conversationId, bool muted);
   Future<void> markConversationRead(String conversationId, int upToSeq);
   Future<List<MessageSearchResult>> searchMessages(String keyword);
   Future<void> revokeMessage(String conversationId, String messageId);
-  Future<void> sendFile(String conversationId, AttachmentUpload upload);
+  Future<void> sendFile(String conversationId, AttachmentUpload upload,
+      {String? replyToMessageId});
   Future<Uri?> attachmentUrl(String fileId);
   Future<void> sendImage(String conversationId, AttachmentUpload upload,
-      {String caption = ''});
+      {String caption = '', String? replyToMessageId});
   Future<void> sendVoice(String conversationId, AttachmentUpload upload,
-      {String transcript = '', int durationMs = 0});
+      {String transcript = '', int durationMs = 0, String? replyToMessageId});
   Future<List<MessageReaction>> setReaction(
       String conversationId, String messageId,
       {required String text, required bool reacted});
@@ -56,6 +58,21 @@ abstract interface class MagicChatRepository {
   Future<void> acceptFriendRequest(String requestId);
   Future<void> rejectFriendRequest(String requestId);
   Future<void> cancelFriendRequest(String requestId);
+  Future<List<OwnedApp>> apps();
+  Future<AppCredentials> createApp(String name,
+      {String description = '',
+      String visibility = 'creator',
+      List<String> userIds = const []});
+  Future<AppCredentials> getAppCredentials(String appId);
+  Future<OwnedApp> updateApp(String appId,
+      {String? name,
+      String? description,
+      String? visibility,
+      List<String>? userIds});
+  Future<OwnedApp> setAppEnabled(String appId, bool enabled);
+  Future<AppCredentials> regenerateAppSecret(String appId);
+  Future<void> deleteApp(String appId);
+  Future<OwnedApp> uploadAppAvatar(String appId, AttachmentUpload upload);
   Future<List<Project>> projects();
   Future<ProjectPage> projectPage(
       {String? cursor, int limit = 100, String keyword = ''});
@@ -197,12 +214,16 @@ class DemoRepository implements MagicChatRepository {
       List.unmodifiable(_messages);
 
   @override
-  Future<void> sendMessage(String conversationId, String text) async {
+  Future<void> sendMessage(String conversationId, String text,
+      {String? replyToMessageId}) async {
     _messages.add(ChatMessage(
         id: DateTime.now().toIso8601String(),
         author: '我',
         text: text,
-        mine: true));
+        mine: true,
+        replyTo: replyToMessageId == null
+            ? null
+            : MessageReply(id: replyToMessageId, author: '用户', text: '引用消息')));
   }
 
   @override
@@ -220,17 +241,20 @@ class DemoRepository implements MagicChatRepository {
       const [];
 
   @override
-  Future<void> sendFile(String conversationId, AttachmentUpload upload) async {}
+  Future<void> sendFile(String conversationId, AttachmentUpload upload,
+      {String? replyToMessageId}) async {}
   @override
   Future<Uri?> attachmentUrl(String fileId) async => null;
   @override
   Future<void> revokeMessage(String conversationId, String messageId) async {}
   @override
   Future<void> sendImage(String conversationId, AttachmentUpload upload,
-      {String caption = ''}) async {}
+      {String caption = '', String? replyToMessageId}) async {}
   @override
   Future<void> sendVoice(String conversationId, AttachmentUpload upload,
-      {String transcript = '', int durationMs = 0}) async {}
+      {String transcript = '',
+      int durationMs = 0,
+      String? replyToMessageId}) async {}
 
   @override
   Future<List<MessageReaction>> setReaction(
@@ -277,6 +301,131 @@ class DemoRepository implements MagicChatRepository {
   Future<void> rejectFriendRequest(String requestId) async {}
   @override
   Future<void> cancelFriendRequest(String requestId) async {}
+
+  final _apps = <OwnedApp>[
+    const OwnedApp(
+        id: 'demo-app',
+        name: '演示应用',
+        description: '用于演示应用接入配置',
+        createdAt: '2026-08-29T10:00:00Z',
+        updatedAt: '2026-08-29T10:00:00Z'),
+  ];
+  final _appSecrets = <String, String>{'demo-app': 'demo-app-secret'};
+
+  @override
+  Future<List<OwnedApp>> apps() async => List.unmodifiable(_apps);
+
+  @override
+  Future<AppCredentials> createApp(String name,
+      {String description = '',
+      String visibility = 'creator',
+      List<String> userIds = const []}) async {
+    final id = DateTime.now().toIso8601String();
+    final now = DateTime.now().toUtc().toIso8601String();
+    final app = OwnedApp(
+        id: id,
+        name: name,
+        description: description,
+        visibility: visibility,
+        userIds:
+            visibility == 'restricted' ? List.unmodifiable(userIds) : const [],
+        createdAt: now,
+        updatedAt: now);
+    _apps.add(app);
+    final secret = 'demo-secret-$id';
+    _appSecrets[id] = secret;
+    return AppCredentials(app: app, connectionSecret: secret);
+  }
+
+  @override
+  Future<AppCredentials> getAppCredentials(String appId) async {
+    final index = _apps.indexWhere((item) => item.id == appId);
+    if (index < 0) throw StateError('应用不存在');
+    return AppCredentials(
+        app: _apps[index], connectionSecret: _appSecrets[appId]!);
+  }
+
+  @override
+  Future<OwnedApp> updateApp(String appId,
+      {String? name,
+      String? description,
+      String? visibility,
+      List<String>? userIds}) async {
+    final index = _apps.indexWhere((item) => item.id == appId);
+    if (index < 0) throw StateError('应用不存在');
+    final current = _apps[index];
+    final nextVisibility = visibility ?? current.visibility;
+    final updated = OwnedApp(
+        id: current.id,
+        name: name ?? current.name,
+        description: description ?? current.description,
+        avatar: current.avatar,
+        connectionStatus: current.connectionStatus,
+        createdAt: current.createdAt,
+        updatedAt: DateTime.now().toUtc().toIso8601String(),
+        enabled: current.enabled,
+        visibility: nextVisibility,
+        userIds: nextVisibility == 'restricted'
+            ? (userIds ?? current.userIds)
+            : const []);
+    _apps[index] = updated;
+    return updated;
+  }
+
+  @override
+  Future<OwnedApp> setAppEnabled(String appId, bool enabled) async {
+    final index = _apps.indexWhere((item) => item.id == appId);
+    if (index < 0) throw StateError('应用不存在');
+    final current = _apps[index];
+    final updated = OwnedApp(
+        id: current.id,
+        name: current.name,
+        description: current.description,
+        avatar: current.avatar,
+        connectionStatus: enabled ? 'offline' : 'disabled',
+        createdAt: current.createdAt,
+        updatedAt: DateTime.now().toUtc().toIso8601String(),
+        enabled: enabled,
+        visibility: current.visibility,
+        userIds: current.userIds);
+    _apps[index] = updated;
+    return updated;
+  }
+
+  @override
+  Future<AppCredentials> regenerateAppSecret(String appId) async {
+    final app = (await getAppCredentials(appId)).app;
+    final secret = 'demo-secret-${DateTime.now().microsecondsSinceEpoch}';
+    _appSecrets[appId] = secret;
+    return AppCredentials(app: app, connectionSecret: secret);
+  }
+
+  @override
+  Future<void> deleteApp(String appId) async {
+    _apps.removeWhere((item) => item.id == appId);
+    _appSecrets.remove(appId);
+  }
+
+  @override
+  Future<OwnedApp> uploadAppAvatar(
+      String appId, AttachmentUpload upload) async {
+    final index = _apps.indexWhere((item) => item.id == appId);
+    if (index < 0) throw StateError('应用不存在');
+    final current = _apps[index];
+    final updated = OwnedApp(
+        id: current.id,
+        name: current.name,
+        description: current.description,
+        avatar: upload.path.isEmpty ? current.avatar : upload.path,
+        connectionStatus: current.connectionStatus,
+        createdAt: current.createdAt,
+        updatedAt: DateTime.now().toUtc().toIso8601String(),
+        enabled: current.enabled,
+        visibility: current.visibility,
+        userIds: current.userIds);
+    _apps[index] = updated;
+    return updated;
+  }
 
   @override
   Future<List<Project>> projects() async => const [
@@ -743,6 +892,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
               contentType: content.type,
               rawBody: content.raw,
               text: content.text,
+              replyTo: _replyFromJson(item['reply_to']),
               mine: senderId is String && senderId == _currentUserId,
               reactions: _reactionsFromJson(item['reactions']));
         })
@@ -762,14 +912,30 @@ class HttpMagicChatRepository implements MagicChatRepository {
           .toList()
       : const [];
 
+  MessageReply? _replyFromJson(Object? value) {
+    if (value is! Map<String, dynamic> || value['id'] is! String) return null;
+    final sender = value['sender'];
+    final name = sender is Map<String, dynamic> && sender['name'] is String
+        ? sender['name'] as String
+        : '用户';
+    final summary = value['summary'];
+    return MessageReply(
+        id: value['id'] as String,
+        author: name,
+        text: summary is String && summary.isNotEmpty ? summary : '[消息]');
+  }
+
   @override
-  Future<void> sendMessage(String conversationId, String text) async =>
+  Future<void> sendMessage(String conversationId, String text,
+          {String? replyToMessageId}) async =>
       _request('POST',
           '/api/client/conversations/${Uri.encodeComponent(conversationId)}/messages',
           body: {
             'client_message_id':
                 DateTime.now().microsecondsSinceEpoch.toString(),
-            'body': {'type': 'text', 'content': text}
+            'body': {'type': 'text', 'content': text},
+            if (replyToMessageId != null)
+              'reply_to_message_id': replyToMessageId,
           });
 
   @override
@@ -823,7 +989,8 @@ class HttpMagicChatRepository implements MagicChatRepository {
               conversationId: conversationId is String ? conversationId : null,
               contentType: body.type,
               rawBody: body.raw,
-              text: body.text);
+              text: body.text,
+              replyTo: _replyFromJson(message['reply_to']));
           return conversationId is String && conversationName is String
               ? MessageSearchResult(
                   conversationId: conversationId,
@@ -842,8 +1009,10 @@ class HttpMagicChatRepository implements MagicChatRepository {
   }
 
   @override
-  Future<void> sendFile(String conversationId, AttachmentUpload upload) async {
-    await _sendMultipart(conversationId, 'files', 'file', upload, const {});
+  Future<void> sendFile(String conversationId, AttachmentUpload upload,
+      {String? replyToMessageId}) async {
+    await _sendMultipart(conversationId, 'files', 'file', upload, const {},
+        replyToMessageId: replyToMessageId);
   }
 
   @override
@@ -861,18 +1030,23 @@ class HttpMagicChatRepository implements MagicChatRepository {
 
   @override
   Future<void> sendImage(String conversationId, AttachmentUpload upload,
-          {String caption = ''}) async =>
+          {String caption = '', String? replyToMessageId}) async =>
       _sendMultipart(conversationId, 'images', 'image', upload,
-          {'caption': caption, 'caption_type': 'text'});
+          {'caption': caption, 'caption_type': 'text'},
+          replyToMessageId: replyToMessageId);
 
   @override
   Future<void> sendVoice(String conversationId, AttachmentUpload upload,
-          {String transcript = '', int durationMs = 0}) async =>
+          {String transcript = '',
+          int durationMs = 0,
+          String? replyToMessageId}) async =>
       _sendMultipart(conversationId, 'voices', 'voice', upload,
-          {'transcript': transcript, 'duration_ms': '$durationMs'});
+          {'transcript': transcript, 'duration_ms': '$durationMs'},
+          replyToMessageId: replyToMessageId);
 
   Future<void> _sendMultipart(String conversationId, String route, String field,
-      AttachmentUpload upload, Map<String, String> fields) async {
+      AttachmentUpload upload, Map<String, String> fields,
+      {String? replyToMessageId}) async {
     final uri = baseUri.resolve(
         'api/client/conversations/${Uri.encodeComponent(conversationId)}/messages/$route');
     final request = http.MultipartRequest('POST', uri)
@@ -880,12 +1054,15 @@ class HttpMagicChatRepository implements MagicChatRepository {
       ..headers['Accept'] = 'application/json'
       ..fields['client_message_id'] =
           DateTime.now().microsecondsSinceEpoch.toString()
-      ..fields.addAll(fields)
-      ..files.add(upload.bytes != null
-          ? http.MultipartFile.fromBytes(field, upload.bytes!,
-              filename: upload.name, contentType: _mediaType(upload.mimeType))
-          : await http.MultipartFile.fromPath(field, upload.path,
-              filename: upload.name, contentType: _mediaType(upload.mimeType)));
+      ..fields.addAll(fields);
+    if (replyToMessageId != null) {
+      request.fields['reply_to_message_id'] = replyToMessageId;
+    }
+    request.files.add(upload.bytes != null
+        ? http.MultipartFile.fromBytes(field, upload.bytes!,
+            filename: upload.name, contentType: _mediaType(upload.mimeType))
+        : await http.MultipartFile.fromPath(field, upload.path,
+            filename: upload.name, contentType: _mediaType(upload.mimeType)));
     final response = await _client.send(request).timeout(requestTimeout);
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('附件发送失败（HTTP ${response.statusCode}）');
@@ -1042,6 +1219,113 @@ class HttpMagicChatRepository implements MagicChatRepository {
   @override
   Future<void> cancelFriendRequest(String requestId) async => _request('DELETE',
       '/api/client/friend-requests/${Uri.encodeComponent(requestId)}');
+
+  @override
+  Future<List<OwnedApp>> apps() async {
+    final data = _data(await _request('GET', '/api/client/apps'));
+    final values = data['apps'];
+    if (values is! List) throw const FormatException('应用列表响应格式不正确');
+    return values
+        .whereType<Map<String, dynamic>>()
+        .map(OwnedApp.fromJson)
+        .toList();
+  }
+
+  @override
+  Future<AppCredentials> createApp(String name,
+      {String description = '',
+      String visibility = 'creator',
+      List<String> userIds = const []}) async {
+    final data = _data(await _request('POST', '/api/client/apps', body: {
+      'name': name,
+      'description': description,
+      'visibility': visibility,
+      'user_ids': visibility == 'restricted' ? userIds : [],
+    }));
+    return _appCredentialsFromJson(data);
+  }
+
+  @override
+  Future<AppCredentials> getAppCredentials(String appId) async {
+    final data = _data(await _request(
+        'GET', '/api/client/apps/${Uri.encodeComponent(appId)}'));
+    return _appCredentialsFromJson(data);
+  }
+
+  @override
+  Future<OwnedApp> updateApp(String appId,
+      {String? name,
+      String? description,
+      String? visibility,
+      List<String>? userIds}) async {
+    final body = <String, dynamic>{};
+    if (name != null) body['name'] = name;
+    if (description != null) body['description'] = description;
+    if (visibility != null) body['visibility'] = visibility;
+    if (userIds != null) {
+      body['user_ids'] =
+          visibility == null || visibility == 'restricted' ? userIds : [];
+    }
+    final data = _data(await _request(
+        'PATCH', '/api/client/apps/${Uri.encodeComponent(appId)}',
+        body: body));
+    return _ownedAppFromEnvelope(data);
+  }
+
+  @override
+  Future<OwnedApp> setAppEnabled(String appId, bool enabled) async {
+    final data = _data(await _request(
+        'POST',
+        '/api/client/apps/${Uri.encodeComponent(appId)}/'
+            '${enabled ? 'enable' : 'disable'}'));
+    return _ownedAppFromEnvelope(data);
+  }
+
+  @override
+  Future<AppCredentials> regenerateAppSecret(String appId) async {
+    final data = _data(await _request('POST',
+        '/api/client/apps/${Uri.encodeComponent(appId)}/secret/regenerate'));
+    return _appCredentialsFromJson(data);
+  }
+
+  @override
+  Future<void> deleteApp(String appId) async {
+    await _request('DELETE', '/api/client/apps/${Uri.encodeComponent(appId)}');
+  }
+
+  @override
+  Future<OwnedApp> uploadAppAvatar(
+      String appId, AttachmentUpload upload) async {
+    final uri =
+        baseUri.resolve('api/client/apps/${Uri.encodeComponent(appId)}/avatar');
+    final request = http.MultipartRequest('POST', uri)
+      ..headers['Authorization'] = 'Bearer $sessionToken'
+      ..headers['Accept'] = 'application/json'
+      ..files.add(upload.bytes != null
+          ? http.MultipartFile.fromBytes('file', upload.bytes!,
+              filename: upload.name, contentType: _mediaType(upload.mimeType))
+          : await http.MultipartFile.fromPath('file', upload.path,
+              filename: upload.name, contentType: _mediaType(upload.mimeType)));
+    final response = await _client.send(request).timeout(requestTimeout);
+    final text = await response.stream.bytesToString();
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('上传应用头像失败（HTTP ${response.statusCode}）');
+    }
+    if (text.isEmpty) throw const FormatException('应用响应格式不正确');
+    return _ownedAppFromEnvelope(_data(jsonDecode(text)));
+  }
+
+  OwnedApp _ownedAppFromEnvelope(Map<String, dynamic> data) {
+    final value = data['app'];
+    if (value is! Map<String, dynamic>) {
+      throw const FormatException('应用响应格式不正确');
+    }
+    return OwnedApp.fromJson(value);
+  }
+
+  AppCredentials _appCredentialsFromJson(Map<String, dynamic> data) {
+    return AppCredentials.fromJson(data);
+  }
 
   @override
   Future<List<Project>> projects() async {

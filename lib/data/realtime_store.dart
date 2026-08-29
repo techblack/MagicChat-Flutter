@@ -76,6 +76,7 @@ class RealtimeStore extends ChangeNotifier {
         contentType: current.contentType,
         rawBody: current.rawBody,
         mine: current.mine,
+        replyTo: current.replyTo,
         reactions: reactions
             .whereType<Map<String, dynamic>>()
             .where((item) => item['text'] is String)
@@ -99,6 +100,12 @@ class RealtimeStore extends ChangeNotifier {
     final name = sender is Map<String, dynamic> ? sender['name'] : null;
     final senderId = sender is Map<String, dynamic> ? sender['id'] : null;
     final conversationId = payload['conversation_id'];
+    final reply = payload['reply_to'];
+    final replySender = reply is Map<String, dynamic> ? reply['sender'] : null;
+    final replyName =
+        replySender is Map<String, dynamic> && replySender['name'] is String
+            ? replySender['name'] as String
+            : '用户';
     messages[id] = ChatMessage(
         id: id,
         sequence: (payload['seq'] as num?)?.toInt(),
@@ -108,6 +115,15 @@ class RealtimeStore extends ChangeNotifier {
         contentType: body.type,
         rawBody: body.raw,
         text: body.text,
+        replyTo: reply is Map<String, dynamic> && reply['id'] is String
+            ? MessageReply(
+                id: reply['id'] as String,
+                author: replyName,
+                text: reply['summary'] is String &&
+                        (reply['summary'] as String).isNotEmpty
+                    ? reply['summary'] as String
+                    : '[消息]')
+            : null,
         mine: senderId is String && senderId == currentUserId,
         reactions: _reactions(payload['reactions']));
   }
