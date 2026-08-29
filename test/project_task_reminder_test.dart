@@ -16,6 +16,24 @@ void main() {
     expect(find.text('每周一、三、五 09:30'), findsOneWidget);
   });
 
+  testWidgets('任务详情按 Markdown 渲染任务说明', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+        home: ProjectTaskDetailsPage(
+            repository: _ReminderRepository(),
+            project: const Project(id: 'project-1', name: '发布计划'),
+            task: const ProjectTask(
+                id: 'task-markdown',
+                projectId: 'project-1',
+                title: '发布检查',
+                status: 'todo',
+                description: '**核对清单**\n\n- 版本号'))));
+    await tester.pumpAndSettle();
+
+    expect(find.text('核对清单', findRichText: true), findsOneWidget);
+    expect(find.text('版本号', findRichText: true), findsOneWidget);
+    expect(find.text('**核对清单**'), findsNothing);
+  });
+
   testWidgets('已完成任务的提醒显示为已暂停', (tester) async {
     await tester.pumpWidget(MaterialApp(
         home: ProjectTaskDetailsPage(

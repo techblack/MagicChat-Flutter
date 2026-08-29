@@ -148,7 +148,9 @@ class _ProjectTaskDetailsPageState extends State<ProjectTaskDetailsPage> {
             ]),
             if (widget.task.description.isNotEmpty) ...[
               const SizedBox(height: 12),
-              Text(widget.task.description),
+              MarkdownBody(
+                  data: widget.task.description,
+                  styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context))),
             ],
             if (widget.task.startDate != null ||
                 widget.task.dueDate != null) ...[
