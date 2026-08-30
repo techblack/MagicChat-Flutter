@@ -14,6 +14,7 @@ import 'data/session_store.dart';
 import 'data/platform_connector_selector.dart';
 import 'data/realtime.dart';
 import 'data/realtime_store.dart';
+import 'data/message_cache_store.dart';
 import 'data/document_collaboration.dart';
 import 'data/push_service.dart';
 import 'data/local_notification_service.dart';
@@ -166,6 +167,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
       await AuthService().logout(serverUrl: server);
     }
     await prefs.remove('magicchat.server_url');
+    await MessageCacheStore().clearAll();
     await _realtime?.close();
     if (mounted) {
       setState(() {
@@ -193,6 +195,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
     }
     await _realtime?.close();
     await const SessionStore().clear();
+    await MessageCacheStore().clearAll();
     await prefs.setString('magicchat.server_url', normalized);
     if (mounted)
       setState(() {
@@ -288,6 +291,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
                     onCodeLogin: _loginWithCode,
                     initialServer: _serverUrl)
                 : AppShell(
+                    key: ValueKey(_repository),
                     repository: _repository!,
                     serverUrl: _serverUrl,
                     onServerChanged: _changeServer,
@@ -510,6 +514,7 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   late final MagicChatRepository _repository = widget.repository;
+  String? _currentUserId;
   int _index = 0;
   String? _selectedConversation;
   StreamSubscription<Map<String, dynamic>>? _realtimeSubscription;
@@ -523,12 +528,18 @@ class _AppShellState extends State<AppShell> {
     if (realtime != null && store != null) {
       unawaited(widget.repository.currentUser().then((user) {
         store.setCurrentUserId(user.id);
+        if (mounted) setState(() => _currentUserId = user.id);
       }).catchError((_) {}));
       _realtimeSubscription = realtime.events.listen((event) {
         store.apply(event);
         _notifyIncomingMessage(event);
       });
       realtime.connect();
+    }
+    if (realtime == null || store == null) {
+      unawaited(widget.repository.currentUser().then((user) {
+        if (mounted) setState(() => _currentUserId = user.id);
+      }).catchError((_) {}));
     }
     _resolveNotificationRoute();
   }
@@ -602,6 +613,7 @@ class _AppShellState extends State<AppShell> {
           repository: _repository,
           serverUrl: widget.serverUrl,
           realtimeStore: widget.realtimeStore,
+          cacheScope: _messageCacheScope,
           selectedId: _selectedConversation,
           onSelect: (id) =>
               setState(() => _selectedConversation = id.isEmpty ? null : id),
@@ -683,6 +695,15 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
+  MessageCacheScope? get _messageCacheScope {
+    final server = widget.serverUrl?.trim();
+    final user = _currentUserId?.trim();
+    if (server == null || server.isEmpty || user == null || user.isEmpty) {
+      return null;
+    }
+    return MessageCacheScope(serverUrl: server, userId: user);
+  }
+
   void _openInternalMessageLink(String path) {
     final target = parseInternalMessagePath(path);
     if (target == null) return;
@@ -714,6 +735,7 @@ class MessagesPage extends StatelessWidget {
       {required this.repository,
       this.serverUrl,
       this.realtimeStore,
+      this.cacheScope,
       required this.selectedId,
       required this.onSelect,
       this.onOpenInternalLink,
@@ -721,6 +743,7 @@ class MessagesPage extends StatelessWidget {
   final MagicChatRepository repository;
   final String? serverUrl;
   final RealtimeStore? realtimeStore;
+  final MessageCacheScope? cacheScope;
   final String? selectedId;
   final ValueChanged<String> onSelect;
   final ValueChanged<String>? onOpenInternalLink;
@@ -750,6 +773,7 @@ class MessagesPage extends StatelessWidget {
               child: ConversationView(
                 repository: repository,
                 realtimeStore: realtimeStore,
+                cacheScope: cacheScope,
                 conversationId: selectedId,
                 onOpenConversation: onSelect,
                 onOpenInternalLink: onOpenInternalLink,
@@ -772,6 +796,7 @@ class MessagesPage extends StatelessWidget {
                   child: ConversationView(
                       repository: repository,
                       realtimeStore: realtimeStore,
+                      cacheScope: cacheScope,
                       conversationId: selectedId,
                       onOpenConversation: onSelect,
                       onOpenInternalLink: onOpenInternalLink))
@@ -1286,12 +1311,14 @@ class ConversationView extends StatefulWidget {
   const ConversationView(
       {required this.repository,
       this.realtimeStore,
+      this.cacheScope,
       required this.conversationId,
       this.onOpenConversation,
       this.onOpenInternalLink,
       super.key});
   final MagicChatRepository repository;
   final RealtimeStore? realtimeStore;
+  final MessageCacheScope? cacheScope;
   final String? conversationId;
   final ValueChanged<String>? onOpenConversation;
   final ValueChanged<String>? onOpenInternalLink;
@@ -1318,11 +1345,15 @@ class _ConversationViewState extends State<ConversationView> {
   final _scrollController = ScrollController();
   final _voiceRecorder = VoiceRecorder();
   Future<List<ChatMessage>>? _messagesFuture;
+  MessagePage? _messagePage;
+  final _messageCacheStore = MessageCacheStore();
   bool _sendingFile = false;
   bool _recording = false;
   Future<List<Contact>>? _contactsFuture;
   final _olderMessages = <ChatMessage>[];
   bool _loadingOlder = false;
+  bool _hasMoreOlder = true;
+  int? _lastOlderBeforeSeq;
   int _lastReadSequence = 0;
   final _selectedMessageIds = <String>{};
   List<ChatMessage> _visibleMessages = const [];
@@ -1457,8 +1488,6 @@ class _ConversationViewState extends State<ConversationView> {
     }
   }
 
-  String _messageCacheKey(String id) => 'magicchat.messages.$id';
-
   ChatMessage? _messageFromCache(Object? value) {
     if (value is! Map<String, dynamic> || value['id'] is! String) return null;
     final reactions = value['reactions'];
@@ -1514,10 +1543,12 @@ class _ConversationViewState extends State<ConversationView> {
   }
 
   Future<void> _cacheMessages(String id, List<ChatMessage> messages) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-        _messageCacheKey(id),
-        jsonEncode(messages
+    final scope = widget.cacheScope;
+    if (scope == null) return;
+    await _messageCacheStore.write(
+        scope,
+        id,
+        messages
             .map((message) => {
                   'id': message.id,
                   'author': message.author,
@@ -1562,17 +1593,14 @@ class _ConversationViewState extends State<ConversationView> {
                           })
                       .toList(),
                 })
-            .toList()));
+            .toList());
   }
 
   Future<List<ChatMessage>> _readCachedMessages(String id) async {
-    final prefs = await SharedPreferences.getInstance();
-    final encoded = prefs.getString(_messageCacheKey(id));
-    if (encoded == null) return const [];
-    final decoded = jsonDecode(encoded);
-    return decoded is List
-        ? decoded.map(_messageFromCache).whereType<ChatMessage>().toList()
-        : const [];
+    final scope = widget.cacheScope;
+    if (scope == null) return const [];
+    final records = await _messageCacheStore.read(scope, id);
+    return records.map(_messageFromCache).whereType<ChatMessage>().toList();
   }
 
   Future<List<ChatMessage>> _loadMessages() async {
@@ -1582,6 +1610,9 @@ class _ConversationViewState extends State<ConversationView> {
     if (cached.isNotEmpty) unawaited(_refreshMessages(id));
     if (cached.isNotEmpty) return cached;
     final fresh = await widget.repository.messages(id);
+    _messagePage = fresh is MessagePage ? fresh : null;
+    _hasMoreOlder = _messagePage?.hasMoreBefore ?? true;
+    _lastOlderBeforeSeq = null;
     unawaited(_cacheMessages(id, fresh));
     // 消息接口返回的 choice/reaction 可能来自旧缓存或断线前的视图；
     // 快照查询是尽力而为的后台修正，失败时不影响消息首屏加载。
@@ -1591,6 +1622,9 @@ class _ConversationViewState extends State<ConversationView> {
 
   Future<void> _refreshMessages(String id) async {
     final fresh = await widget.repository.messages(id);
+    _messagePage = fresh is MessagePage ? fresh : null;
+    _hasMoreOlder = _messagePage?.hasMoreBefore ?? true;
+    _lastOlderBeforeSeq = null;
     final merged = <String, ChatMessage>{
       for (final message in await _readCachedMessages(id)) message.id: message,
       for (final message in fresh) message.id: message,
@@ -1718,6 +1752,7 @@ class _ConversationViewState extends State<ConversationView> {
 
   Future<void> _onScroll() async {
     if (_loadingOlder ||
+        !_hasMoreOlder ||
         !_scrollController.hasClients ||
         _scrollController.position.pixels > 24) return;
     final id = widget.conversationId;
@@ -1732,16 +1767,26 @@ class _ConversationViewState extends State<ConversationView> {
                 current == null || message.sequence! < current.sequence!
                     ? message
                     : current);
-    if (first?.sequence == null || first!.sequence! <= 1) return;
+    if (first?.sequence == null ||
+        first!.sequence! <= 1 ||
+        _lastOlderBeforeSeq == first.sequence) return;
+    _lastOlderBeforeSeq = first.sequence;
     setState(() => _loadingOlder = true);
     try {
-      final older = await widget.repository
+      final olderPage = await widget.repository
           .messages(id, beforeSeq: first.sequence, limit: 50);
+      final older = olderPage.toList(growable: false);
       if (mounted) {
         final existing =
             {..._olderMessages, ...snapshot}.map((item) => item.id).toSet();
         final added =
             older.where((item) => !existing.contains(item.id)).toList();
+        if (olderPage is MessagePage) {
+          _messagePage = olderPage;
+          _hasMoreOlder = olderPage.hasMoreBefore && added.isNotEmpty;
+        } else if (added.isEmpty) {
+          _hasMoreOlder = false;
+        }
         _olderMessages.insertAll(0, added);
         unawaited(_cacheMessages(id, [..._olderMessages, ...snapshot]));
         setState(() {});
@@ -1786,15 +1831,25 @@ class _ConversationViewState extends State<ConversationView> {
     if (oldWidget.conversationId != widget.conversationId) {
       if (_recording) unawaited(_cancelRecording());
       _olderMessages.clear();
+      _hasMoreOlder = true;
+      _lastOlderBeforeSeq = null;
       _lastReadSequence = 0;
       _replyTo = null;
       _conversation = null;
       _topicDetail = null;
+      _messagePage = null;
       _canSend = true;
       _messagesFuture = _loadMessages();
       _contactsFuture = _loadConversationContacts();
       _controller.clear();
       unawaited(_restoreDraft());
+    }
+    if (oldWidget.cacheScope != widget.cacheScope) {
+      _olderMessages.clear();
+      _hasMoreOlder = true;
+      _lastOlderBeforeSeq = null;
+      _messagePage = null;
+      _messagesFuture = _loadMessages();
     }
   }
 

@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -444,6 +445,38 @@ class ChatMessage {
   final MessageChoiceState? choice;
   final MessageReply? replyTo;
   final MessageTopic? topic;
+}
+
+/// A message list that preserves the server's history-window metadata while
+/// remaining usable by existing callers expecting a `List<ChatMessage>`.
+class MessagePage extends ListBase<ChatMessage> {
+  MessagePage({
+    required List<ChatMessage> messages,
+    required this.hasMoreBefore,
+    required this.hasMoreAfter,
+    required this.limit,
+    required this.newestSeq,
+    required this.oldestSeq,
+  }) : _messages = List<ChatMessage>.of(messages);
+
+  final List<ChatMessage> _messages;
+  final bool hasMoreBefore;
+  final bool hasMoreAfter;
+  final int limit;
+  final int newestSeq;
+  final int oldestSeq;
+
+  @override
+  int get length => _messages.length;
+
+  @override
+  set length(int value) => _messages.length = value;
+
+  @override
+  ChatMessage operator [](int index) => _messages[index];
+
+  @override
+  void operator []=(int index, ChatMessage value) => _messages[index] = value;
 }
 
 class MessageChoiceOption {

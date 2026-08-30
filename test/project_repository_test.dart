@@ -314,6 +314,41 @@ void main() {
     expect(page.nextCursor, 'next-2');
   });
 
+  test('消息分页保留服务端历史窗口元数据', () async {
+    final repository = HttpMagicChatRepository(
+        serverUrl: 'https://chat.example.com',
+        sessionToken: 'test-token',
+        client: MockClient((_) async => _jsonResponse({
+              'data': {
+                'messages': [
+                  {
+                    'id': 'message-1',
+                    'seq': 10,
+                    'sender': {'id': 'user-1', 'name': 'Alice'},
+                    'body': {'type': 'text', 'content': 'hello'},
+                  }
+                ],
+                'page': {
+                  'has_more_before': false,
+                  'has_more_after': true,
+                  'limit': 20,
+                  'newest_seq': 10,
+                  'oldest_seq': 10,
+                }
+              }
+            })));
+
+    final messages = await repository.messages('conversation-1');
+
+    expect(messages, isA<MessagePage>());
+    final page = messages as MessagePage;
+    expect(page.hasMoreBefore, isFalse);
+    expect(page.hasMoreAfter, isTrue);
+    expect(page.limit, 20);
+    expect(page.newestSeq, 10);
+    expect(page.oldestSeq, 10);
+  });
+
   test('文档创建解析直接 data 且正文标题走协作接口', () async {
     final requests = <http.Request>[];
     final repository = HttpMagicChatRepository(

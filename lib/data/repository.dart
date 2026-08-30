@@ -1317,11 +1317,38 @@ class HttpMagicChatRepository implements MagicChatRepository {
         '/api/client/conversations/${Uri.encodeComponent(conversationId)}/messages?$suffix'));
     final values = data['messages'];
     if (values is! List) throw const FormatException('消息列表响应格式不正确');
-    return values
+    final parsed = values
         .whereType<Map<String, dynamic>>()
         .map((item) => _messageFromJson(item, conversationId))
         .where((item) => item.id.isNotEmpty)
         .toList();
+    final rawPage = data['page'];
+    if (rawPage == null) return parsed;
+    if (rawPage is! Map<String, dynamic>) {
+      throw const FormatException('消息分页响应格式不正确');
+    }
+    int? pageInt(Object? value) => value is num && value.isFinite
+        ? value.toInt() == value
+            ? value.toInt()
+            : null
+        : null;
+    final limitValue = pageInt(rawPage['limit']);
+    final newestSeq = pageInt(rawPage['newest_seq']);
+    final oldestSeq = pageInt(rawPage['oldest_seq']);
+    if (rawPage['has_more_before'] is! bool ||
+        rawPage['has_more_after'] is! bool ||
+        limitValue == null ||
+        newestSeq == null ||
+        oldestSeq == null) {
+      throw const FormatException('消息分页响应格式不正确');
+    }
+    return MessagePage(
+        messages: parsed,
+        hasMoreBefore: rawPage['has_more_before'] as bool,
+        hasMoreAfter: rawPage['has_more_after'] as bool,
+        limit: limitValue,
+        newestSeq: newestSeq,
+        oldestSeq: oldestSeq);
   }
 
   ChatMessage _messageFromJson(
