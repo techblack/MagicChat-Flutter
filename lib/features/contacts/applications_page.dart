@@ -3,16 +3,29 @@ import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../../data/avatar_processor.dart';
+import '../../data/message_cache_store.dart';
 import '../../data/repository.dart';
 import '../../domain/models.dart';
+import '../shared/cached_avatar.dart';
+
+Uri? _resolveAvatarUri(String? serverUrl, String value) {
+  if (value.trim().isEmpty) return null;
+  final parsed = Uri.tryParse(value);
+  if (parsed == null) return null;
+  if (parsed.hasScheme) return parsed;
+  final server = Uri.tryParse(serverUrl ?? '');
+  return server?.resolve(value);
+}
 
 /// Owned application management.  Keeping this flow outside `main.dart` makes
 /// the contact directory and application lifecycle independently testable.
 class ApplicationsPage extends StatefulWidget {
-  const ApplicationsPage({required this.repository, this.serverUrl, super.key});
+  const ApplicationsPage(
+      {required this.repository, this.serverUrl, this.cacheScope, super.key});
 
   final MagicChatRepository repository;
   final String? serverUrl;
+  final MessageCacheScope? cacheScope;
 
   @override
   State<ApplicationsPage> createState() => _ApplicationsPageState();
@@ -232,8 +245,10 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
                 itemCount: apps.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 8),
                 itemBuilder: (context, index) => _AppCard(
+                  repository: widget.repository,
                   app: apps[index],
                   serverUrl: widget.serverUrl,
+                  cacheScope: widget.cacheScope,
                   busy: _busy,
                   onEdit: () => _edit(apps[index]),
                   onCredentials: () async {
@@ -260,8 +275,10 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
 
 class _AppCard extends StatelessWidget {
   const _AppCard({
+    required this.repository,
     required this.app,
     required this.serverUrl,
+    required this.cacheScope,
     required this.busy,
     required this.onEdit,
     required this.onCredentials,
@@ -270,8 +287,10 @@ class _AppCard extends StatelessWidget {
     required this.onDelete,
   });
 
+  final MagicChatRepository repository;
   final OwnedApp app;
   final String? serverUrl;
+  final MessageCacheScope? cacheScope;
   final bool busy;
   final VoidCallback onEdit;
   final VoidCallback onCredentials;
@@ -281,16 +300,15 @@ class _AppCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final avatar = _avatarProvider(app.avatar, serverUrl);
     return Card(
       child: ListTile(
         contentPadding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-        leading: CircleAvatar(
+        leading: CachedAvatar(
+          repository: repository,
+          cacheScope: cacheScope,
+          avatarUri: _resolveAvatarUri(serverUrl, app.avatar),
+          name: app.name,
           backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
-          backgroundImage: avatar,
-          child: avatar == null
-              ? Text(app.name.isEmpty ? '?' : app.name.substring(0, 1))
-              : null,
         ),
         title: Row(
           children: [
@@ -353,16 +371,6 @@ class _AppCard extends StatelessWidget {
         'restricted' => '部分用户',
         _ => '仅我自己',
       };
-
-  ImageProvider<Object>? _avatarProvider(String value, String? serverUrl) {
-    if (value.trim().isEmpty) return null;
-    final parsed = Uri.tryParse(value);
-    if (parsed?.hasScheme == true) return NetworkImage(value);
-    final server = Uri.tryParse(serverUrl ?? '');
-    return server == null
-        ? null
-        : NetworkImage(server.resolve(value).toString());
-  }
 }
 
 class _AppFormInput {

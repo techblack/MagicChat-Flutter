@@ -7,6 +7,7 @@ import '../../data/repository.dart';
 import '../../data/contact_cache_store.dart';
 import '../../data/message_cache_store.dart';
 import '../../domain/models.dart';
+import '../shared/cached_avatar.dart';
 import 'applications_page.dart';
 import 'friend_management_dialog.dart';
 
@@ -113,7 +114,8 @@ class _ContactsPageState extends State<ContactsPage> {
                             MaterialPageRoute(
                                 builder: (_) => ApplicationsPage(
                                     repository: widget.repository,
-                                    serverUrl: widget.serverUrl))),
+                                    serverUrl: widget.serverUrl,
+                                    cacheScope: widget.cacheScope))),
                         icon: const Icon(Icons.smart_toy_outlined)),
                     IconButton(
                         tooltip: '刷新',
@@ -156,18 +158,15 @@ class _ContactsPageState extends State<ContactsPage> {
               const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          leading: CircleAvatar(
+          leading: CachedAvatar(
+              repository: widget.repository,
+              cacheScope: widget.cacheScope,
+              avatarUri: avatarUri,
+              name: contact.displayName,
               radius: 22,
               backgroundColor: contact.type == 'app'
                   ? Theme.of(context).colorScheme.secondaryContainer
-                  : Theme.of(context).colorScheme.primaryContainer,
-              backgroundImage:
-                  avatarUri == null ? null : NetworkImage(avatarUri.toString()),
-              child: avatarUri == null
-                  ? Text(contact.displayName.isEmpty
-                      ? '?'
-                      : contact.displayName.substring(0, 1))
-                  : null),
+                  : Theme.of(context).colorScheme.primaryContainer),
           title: Text(contact.displayName),
           subtitle: Text(
               contact.type == 'group'

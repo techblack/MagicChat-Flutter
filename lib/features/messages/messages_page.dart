@@ -63,6 +63,7 @@ class MessagesPage extends StatelessWidget {
                     child: _ConversationList(
                         repository: repository,
                         serverUrl: serverUrl,
+                        cacheScope: cacheScope,
                         realtimeStore: realtimeStore,
                         selectedId: selectedId,
                         onSelect: onSelect)),
@@ -170,11 +171,13 @@ class _ConversationList extends StatefulWidget {
   const _ConversationList(
       {required this.repository,
       this.serverUrl,
+      this.cacheScope,
       this.realtimeStore,
       required this.selectedId,
       required this.onSelect});
   final MagicChatRepository repository;
   final String? serverUrl;
+  final MessageCacheScope? cacheScope;
   final RealtimeStore? realtimeStore;
   final String? selectedId;
   final ValueChanged<String> onSelect;
@@ -258,18 +261,12 @@ class _ConversationListState extends State<_ConversationList> {
                   selected: c.id == widget.selectedId,
                   selectedTileColor:
                       Theme.of(context).colorScheme.primaryContainer,
-                  leading: CircleAvatar(
-                      radius: 23,
-                      backgroundImage:
-                          _resolveAssetUri(widget.serverUrl, c.avatar) == null
-                              ? null
-                              : NetworkImage(
-                                  _resolveAssetUri(widget.serverUrl, c.avatar)!
-                                      .toString()),
-                      child: c.avatar.isEmpty
-                          ? Text(
-                              c.title.isEmpty ? '?' : c.title.substring(0, 1))
-                          : null),
+                  leading: CachedAvatar(
+                      repository: widget.repository,
+                      cacheScope: widget.cacheScope,
+                      avatarUri: _resolveAssetUri(widget.serverUrl, c.avatar),
+                      name: c.title,
+                      radius: 23),
                   title: Text(c.title,
                       style: TextStyle(
                           fontWeight:
@@ -280,7 +277,8 @@ class _ConversationListState extends State<_ConversationList> {
                           : c.preview,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontWeight: hasUnread ? FontWeight.w600 : null)),
+                      style: TextStyle(
+                          fontWeight: hasUnread ? FontWeight.w600 : null)),
                   trailing: !hasUnread
                       ? null
                       : Row(mainAxisSize: MainAxisSize.min, children: [

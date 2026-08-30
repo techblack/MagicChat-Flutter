@@ -135,6 +135,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
     await prefs.remove('magicchat.server_url');
     await MessageCacheStore().clearAll();
     await ContactCacheStore().clearAll();
+    await LocalAssetCache().clearAll();
     await _realtime?.close();
     if (mounted) {
       setState(() {
@@ -164,6 +165,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
     await const SessionStore().clear();
     await MessageCacheStore().clearAll();
     await ContactCacheStore().clearAll();
+    await LocalAssetCache().clearAll();
     await prefs.setString('magicchat.server_url', normalized);
     if (mounted)
       setState(() {
@@ -624,6 +626,7 @@ class _AppShellState extends State<AppShell> {
           repository: _repository,
           realtimeStore: widget.realtimeStore,
           serverUrl: widget.serverUrl,
+          cacheScope: _messageCacheScope,
           onServerChanged: widget.onServerChanged,
           onAccountSwitch: widget.onAccountSwitch,
           onLogout: widget.onLogout,

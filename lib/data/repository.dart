@@ -58,6 +58,7 @@ abstract interface class MagicChatRepository {
       {String? replyToMessageId});
   Future<Uri?> attachmentUrl(String fileId);
   Future<Uint8List?> downloadAttachment(String fileId);
+  Future<Uint8List?> downloadResource(Uri uri);
   Future<void> sendImage(String conversationId, AttachmentUpload upload,
       {String caption = '', String? replyToMessageId});
   Future<void> sendVoice(String conversationId, AttachmentUpload upload,
@@ -473,6 +474,9 @@ class DemoRepository implements MagicChatRepository {
   Future<Uri?> attachmentUrl(String fileId) async => null;
   @override
   Future<Uint8List?> downloadAttachment(String fileId) async => null;
+
+  @override
+  Future<Uint8List?> downloadResource(Uri uri) async => null;
   @override
   Future<void> revokeMessage(String conversationId, String messageId) async {}
   @override
@@ -1671,6 +1675,20 @@ class HttpMagicChatRepository implements MagicChatRepository {
     final response = await _client.get(uri).timeout(requestTimeout);
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('附件下载失败（HTTP ${response.statusCode}）');
+    }
+    return response.bodyBytes;
+  }
+
+  @override
+  Future<Uint8List?> downloadResource(Uri uri) async {
+    final sameOrigin = uri.scheme == baseUri.scheme &&
+        uri.host == baseUri.host &&
+        uri.port == baseUri.port;
+    final response = await _client
+        .get(uri, headers: sameOrigin ? _sessionHeaders : const {})
+        .timeout(requestTimeout);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('资源下载失败（HTTP ${response.statusCode}）');
     }
     return response.bodyBytes;
   }

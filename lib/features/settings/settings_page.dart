@@ -11,8 +11,10 @@ import '../../data/repository.dart';
 import '../../data/session_store.dart';
 import '../../data/storage_service.dart';
 import '../../data/update_service.dart';
+import '../../data/message_cache_store.dart';
 import '../../domain/models.dart';
 import '../qr_scanner_page.dart';
+import '../shared/cached_avatar.dart';
 
 Uri? _resolveAssetUri(String? serverUrl, String value) {
   final parsed = Uri.tryParse(value);
@@ -27,6 +29,7 @@ class SettingsPage extends StatefulWidget {
       {required this.repository,
       this.realtimeStore,
       required this.serverUrl,
+      this.cacheScope,
       this.onServerChanged,
       this.onAccountSwitch,
       this.onLogout,
@@ -37,6 +40,7 @@ class SettingsPage extends StatefulWidget {
   final MagicChatRepository repository;
   final RealtimeStore? realtimeStore;
   final String? serverUrl;
+  final MessageCacheScope? cacheScope;
   final ValueChanged<String>? onServerChanged;
   final ValueChanged<StoredAccount>? onAccountSwitch;
   final ValueChanged<ThemeMode>? onThemeChanged;
@@ -373,19 +377,12 @@ class _SettingsPageState extends State<SettingsPage> {
               return ListTile(
                   leading: GestureDetector(
                       onTap: _pickAvatar,
-                      child: CircleAvatar(
-                          backgroundImage:
-                              _resolveAssetUri(widget.serverUrl, user.avatar) ==
-                                      null
-                                  ? null
-                                  : NetworkImage(_resolveAssetUri(
-                                          widget.serverUrl, user.avatar)!
-                                      .toString()),
-                          child: user.avatar.isEmpty
-                              ? Text(user.displayName.isEmpty
-                                  ? '?'
-                                  : user.displayName.substring(0, 1))
-                              : null)),
+                      child: CachedAvatar(
+                          repository: widget.repository,
+                          cacheScope: widget.cacheScope,
+                          avatarUri:
+                              _resolveAssetUri(widget.serverUrl, user.avatar),
+                          name: user.displayName)),
                   title: Text(user.displayName),
                   subtitle: Text(user.email),
                   trailing: const Icon(Icons.edit_outlined),

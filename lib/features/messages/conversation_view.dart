@@ -88,6 +88,23 @@ class _ConversationViewState extends State<ConversationView> {
       _conversation?.type == 'topic' ||
       _topicDetail?.conversation.type == 'topic';
 
+  /// 返回当前消息实际所属的会话类型。
+  ///
+  /// 话题消息本身的类型是 `topic`，需要沿用其父会话类型来决定头像
+  /// 点击行为（群聊进入私聊，私聊显示资料面板）。
+  String? get _conversationKind {
+    final conversation = _conversation ??
+        (widget.conversationId == null
+            ? null
+            : widget.realtimeStore?.conversations[widget.conversationId]);
+    if (conversation == null) return null;
+    if (conversation.type != 'topic') return conversation.type;
+    return conversation.topic?.parentConversationType ??
+        _topicDetail?.conversation.topic?.parentConversationType;
+  }
+
+  bool get _isGroupConversation => _conversationKind == 'group';
+
   bool _canForwardOrSelect(ChatMessage message) =>
       _forwardableMessageTypes.contains(message.contentType);
 
@@ -815,6 +832,19 @@ class _ConversationViewState extends State<ConversationView> {
     if (mounted) setState(() => _recording = false);
   }
 
+  Future<void> _openMemberConversation(Contact contact) async {
+    try {
+      final conversation =
+          await widget.repository.createDirectConversation(contact.id);
+      if (mounted) widget.onOpenConversation?.call(conversation.id);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('无法打开私聊：$error')));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final conversationId = widget.conversationId;
@@ -937,7 +967,11 @@ class _ConversationViewState extends State<ConversationView> {
                                   onOpenInternalLink: widget.onOpenInternalLink,
                                   onForwardMessage: (id) =>
                                       _showForwardDialog(conversationId, [id]),
-                                  contactsFuture: _contactsFuture),
+                                  contactsFuture: _contactsFuture,
+                                  isGroupConversation: _isGroupConversation,
+                                  onOpenMemberConversation:
+                                      _openMemberConversation,
+                                  cacheScope: widget.cacheScope),
                             ),
                           ))
                       .toList(),
@@ -1599,7 +1633,10 @@ class _MessageBubble extends StatelessWidget {
       this.onOpenTopic,
       this.onOpenInternalLink,
       this.onForwardMessage,
-      this.contactsFuture});
+      this.contactsFuture,
+      this.isGroupConversation = false,
+      this.onOpenMemberConversation,
+      this.cacheScope});
   final ChatMessage message;
   final MagicChatRepository repository;
   final String conversationId;
@@ -1609,8 +1646,12 @@ class _MessageBubble extends StatelessWidget {
   final ValueChanged<String>? onOpenInternalLink;
   final Future<void> Function(String messageId)? onForwardMessage;
   final Future<List<Contact>>? contactsFuture;
+  final bool isGroupConversation;
+  final Future<void> Function(Contact contact)? onOpenMemberConversation;
+  final MessageCacheScope? cacheScope;
 
-  Future<void> _showImageViewer(BuildContext context, Uri uri) async {
+  Future<void> _showImageViewer(BuildContext context, Uri? uri,
+      {Uint8List? bytes}) async {
     final fileId = message.rawBody['file_id'];
     final name = message.rawBody['name'];
     await showDialog<void>(
@@ -1626,10 +1667,15 @@ class _MessageBubble extends StatelessWidget {
                 maxScale: 6,
                 boundaryMargin: const EdgeInsets.all(80),
                 child: Center(
-                  child: Image.network(uri.toString(),
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => const Text('图片加载失败',
-                          style: TextStyle(color: Colors.white))),
+                  child: bytes != null
+                      ? Image.memory(bytes, fit: BoxFit.contain)
+                      : uri == null
+                          ? const Text('图片加载失败',
+                              style: TextStyle(color: Colors.white))
+                          : Image.network(uri.toString(),
+                              fit: BoxFit.contain,
+                              errorBuilder: (_, __, ___) => const Text('图片加载失败',
+                                  style: TextStyle(color: Colors.white))),
                 ),
               ),
             ),
@@ -1654,7 +1700,8 @@ class _MessageBubble extends StatelessWidget {
                         fileId,
                         name is String && name.trim().isNotEmpty
                             ? name.trim()
-                            : 'image-${message.id}.jpg'),
+                            : 'image-${message.id}.jpg',
+                        bytes: bytes),
                   ),
                 if (onForwardMessage != null)
                   IconButton(
@@ -1674,11 +1721,24 @@ class _MessageBubble extends StatelessWidget {
     );
   }
 
-  Future<void> _saveImage(
-      BuildContext context, String fileId, String fileName) async {
+  Future<void> _saveImage(BuildContext context, String fileId, String fileName,
+      {Uint8List? bytes}) async {
     try {
-      final bytes = await repository.downloadAttachment(fileId);
+      final key = _attachmentCacheKey(fileId);
+      if (bytes == null) {
+        try {
+          bytes = await LocalAssetCache().read(key);
+        } catch (_) {
+          bytes = null;
+        }
+      }
+      bytes ??= await repository.downloadAttachment(fileId);
       if (bytes == null || bytes.isEmpty) throw Exception('图片内容为空');
+      try {
+        await LocalAssetCache().write(key, bytes);
+      } catch (_) {
+        // 保存到用户选择的位置不依赖本地缓存目录可写。
+      }
       final path = await FilePicker.saveFile(
           dialogTitle: '保存图片', fileName: fileName, bytes: bytes);
       if (context.mounted && path != null) {
@@ -1689,6 +1749,36 @@ class _MessageBubble extends StatelessWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('保存图片失败：$error')));
+      }
+    }
+  }
+
+  String _attachmentCacheKey(String fileId) {
+    final scope = cacheScope;
+    final owner = scope == null ? '' : '${scope.serverUrl}|${scope.userId}|';
+    return 'attachment|$owner$fileId';
+  }
+
+  Future<void> _cacheAttachment(String fileId, Uri uri) async {
+    final cache = LocalAssetCache();
+    final key = _attachmentCacheKey(fileId);
+    try {
+      if (await cache.read(key) != null) return;
+    } catch (_) {
+      // 缓存不可读时继续从服务器获取附件。
+    }
+    Uint8List? bytes;
+    try {
+      bytes = await repository.downloadResource(uri);
+    } catch (_) {
+      bytes = null;
+    }
+    bytes ??= await repository.downloadAttachment(fileId);
+    if (bytes != null && bytes.isNotEmpty) {
+      try {
+        await cache.write(key, bytes);
+      } catch (_) {
+        // 外部打开仍可使用临时 URL。
       }
     }
   }
@@ -1758,9 +1848,40 @@ class _MessageBubble extends StatelessWidget {
                 final contactName = snapshot.hasData
                     ? _contactName(contact) ?? _nonIdAuthor
                     : '';
+                final avatarContact = contact ??
+                    (message.authorId == null
+                        ? null
+                        : Contact(
+                            id: message.authorId!,
+                            name: _nonIdAuthor,
+                          ));
+                final canOpenProfile = snapshot.hasData &&
+                    avatarContact != null &&
+                    (avatarContact.type == 'user' || contact == null);
                 return Row(mainAxisSize: MainAxisSize.min, children: [
-                  _avatar(
-                      context, contact, snapshot.hasData ? _nonIdAuthor : ''),
+                  Semantics(
+                    button: canOpenProfile,
+                    label: canOpenProfile
+                        ? '${avatarContact.displayName}的头像'
+                        : null,
+                    child: InkWell(
+                      key: ValueKey('message-avatar-${message.id}'),
+                      customBorder: const CircleBorder(),
+                      onTap: !canOpenProfile
+                          ? null
+                          : () {
+                              if (isGroupConversation &&
+                                  onOpenMemberConversation != null) {
+                                unawaited(
+                                    onOpenMemberConversation!(avatarContact));
+                              } else {
+                                _showContactPanel(context, avatarContact);
+                              }
+                            },
+                      child: _avatar(context, contact ?? avatarContact,
+                          snapshot.hasData ? _nonIdAuthor : ''),
+                    ),
+                  ),
                   if (contactName.isNotEmpty) ...[
                     const SizedBox(width: 6),
                     Text(contactName,
@@ -1888,75 +2009,73 @@ class _MessageBubble extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              FutureBuilder<Uri?>(
-                future: repository
-                    .attachmentUrl(message.rawBody['file_id'] as String),
-                builder: (context, snapshot) {
-                  final isImage = message.contentType == 'image';
-                  if (snapshot.hasError) {
-                    return isImage
-                        ? _imagePlaceholder(context, const Text('图片暂时无法加载'))
-                        : const Padding(
-                            padding: EdgeInsets.only(top: 8),
-                            child: Text('附件暂时无法加载'));
-                  }
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return isImage
-                        ? _imagePlaceholder(context,
-                            const CircularProgressIndicator(strokeWidth: 2))
-                        : const Padding(
-                            padding: EdgeInsets.only(top: 8),
-                            child: SizedBox(
-                                height: 40,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2)));
-                  }
-                  if (!snapshot.hasData) {
-                    return isImage
-                        ? _imagePlaceholder(context, const Text('图片暂时无法加载'))
-                        : const SizedBox(height: 40);
-                  }
-                  final uri = snapshot.data;
-                  if (uri == null) {
-                    return isImage
-                        ? _imagePlaceholder(context, const Text('图片暂时无法加载'))
-                        : const SizedBox(height: 40);
-                  }
-                  if (isImage) {
-                    return _imagePlaceholder(
-                        context,
-                        GestureDetector(
-                          onTap: () => _showImageViewer(context, uri),
-                          child: Image.network(uri.toString(),
-                              width: double.infinity,
-                              height: double.infinity,
-                              fit: BoxFit.contain,
-                              errorBuilder: (_, __, ___) =>
-                                  const Text('图片暂时无法加载')),
-                        ));
-                  }
-                  final name = message.rawBody['name'];
-                  final size = message.rawBody['size_bytes'];
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (name is String && name.trim().isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 6),
-                          child: Text(name.trim(),
-                              maxLines: 1, overflow: TextOverflow.ellipsis),
-                        ),
-                      TextButton.icon(
-                          onPressed: () => launchUrl(uri,
-                              mode: LaunchMode.externalApplication),
-                          icon: const Icon(Icons.download_outlined),
-                          label: Text(size is num
-                              ? '打开附件 · ${_formatAttachmentSize(size)}'
-                              : '打开附件')),
-                    ],
-                  );
-                },
-              ),
+              if (message.contentType == 'image')
+                _CachedConversationImage(
+                  repository: repository,
+                  cacheScope: cacheScope,
+                  fileId: message.rawBody['file_id'] as String,
+                  onTap: (data) =>
+                      _showImageViewer(context, data?.uri, bytes: data?.bytes),
+                )
+              else
+                FutureBuilder<Uri?>(
+                  future: repository
+                      .attachmentUrl(message.rawBody['file_id'] as String),
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      return const Padding(
+                          padding: EdgeInsets.only(top: 8),
+                          child: Text('附件暂时无法加载'));
+                    }
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Padding(
+                          padding: EdgeInsets.only(top: 8),
+                          child: SizedBox(
+                              height: 40,
+                              child:
+                                  CircularProgressIndicator(strokeWidth: 2)));
+                    }
+                    if (!snapshot.hasData) {
+                      return const SizedBox(height: 40);
+                    }
+                    final uri = snapshot.data;
+                    if (uri == null) {
+                      return const SizedBox(height: 40);
+                    }
+                    final name = message.rawBody['name'];
+                    final size = message.rawBody['size_bytes'];
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (name is String && name.trim().isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Text(name.trim(),
+                                maxLines: 1, overflow: TextOverflow.ellipsis),
+                          ),
+                        TextButton.icon(
+                            onPressed: () async {
+                              try {
+                                await _cacheAttachment(
+                                    message.rawBody['file_id'] as String, uri);
+                                if (!context.mounted) return;
+                                await launchUrl(uri,
+                                    mode: LaunchMode.externalApplication);
+                              } catch (error) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('附件加载失败：$error')));
+                                }
+                              }
+                            },
+                            icon: const Icon(Icons.download_outlined),
+                            label: Text(size is num
+                                ? '打开附件 · ${_formatAttachmentSize(size)}'
+                                : '打开附件')),
+                      ],
+                    );
+                  },
+                ),
               if (message.contentType == 'image' &&
                   message.rawBody['caption'] is String &&
                   (message.rawBody['caption'] as String).trim().isNotEmpty)
@@ -2112,27 +2231,79 @@ class _MessageBubble extends StatelessWidget {
     final uri =
         contact == null ? null : _resolveAssetUri(serverUrl, contact.avatar);
     final label = (_contactName(contact) ?? fallback).trim();
-    return CircleAvatar(
+    return CachedAvatar(
+        repository: repository,
+        cacheScope: cacheScope,
+        avatarUri: uri,
+        name: label,
         radius: 16,
-        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-        backgroundImage: uri == null ? null : NetworkImage(uri.toString()),
-        // 头像加载成功时不再叠加用户名首字，避免首字与图片重合。
-        child: uri != null
-            ? null
-            : label.isEmpty
-                ? const Icon(Icons.person_outline, size: 17)
-                : Text(label.characters.first));
+        backgroundColor: Theme.of(context).colorScheme.primaryContainer);
   }
 
-  Widget _imagePlaceholder(BuildContext context, Widget child) {
-    final available = MediaQuery.sizeOf(context).width - 100;
-    final width = available.clamp(180.0, 320.0).toDouble();
-    return Padding(
-      padding: const EdgeInsets.only(top: 8),
-      child: SizedBox(
-        width: width,
-        height: 240,
-        child: Center(child: child),
+  Future<void> _showContactPanel(BuildContext context, Contact contact) async {
+    final name = _contactName(contact) ?? contact.displayName;
+    final fields = <({String label, String value})>[
+      if (contact.name.trim().isNotEmpty && contact.name.trim() != name)
+        (label: '姓名', value: contact.name.trim()),
+      if (contact.nickname.trim().isNotEmpty && contact.nickname.trim() != name)
+        (label: '昵称', value: contact.nickname.trim()),
+      if (contact.email.trim().isNotEmpty)
+        (label: '邮箱', value: contact.email.trim()),
+      if (contact.phone.trim().isNotEmpty)
+        (label: '手机', value: contact.phone.trim()),
+    ];
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _avatar(context, contact, name),
+              const SizedBox(height: 10),
+              Text(name,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleLarge),
+              if (contact.id.trim().isNotEmpty && contact.id.trim() != name)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(contact.id,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color:
+                              Theme.of(context).colorScheme.onSurfaceVariant)),
+                ),
+              if (fields.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                ...fields.map((field) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(children: [
+                        SizedBox(
+                            width: 48,
+                            child: Text(field.label,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant))),
+                        const SizedBox(width: 12),
+                        Expanded(child: Text(field.value)),
+                      ]),
+                    )),
+              ],
+              const SizedBox(height: 12),
+              Text(contact.online ? '在线' : '离线',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: contact.online
+                          ? Colors.green.shade700
+                          : Theme.of(context).colorScheme.onSurfaceVariant)),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -2188,4 +2359,136 @@ class _MessageBubble extends StatelessWidget {
       }
     }
   }
+}
+
+class _CachedConversationImage extends StatefulWidget {
+  const _CachedConversationImage({
+    required this.repository,
+    required this.cacheScope,
+    required this.fileId,
+    required this.onTap,
+  });
+
+  final MagicChatRepository repository;
+  final MessageCacheScope? cacheScope;
+  final String fileId;
+  final ValueChanged<_CachedImageData?> onTap;
+
+  @override
+  State<_CachedConversationImage> createState() =>
+      _CachedConversationImageState();
+}
+
+class _CachedConversationImageState extends State<_CachedConversationImage> {
+  final _cache = LocalAssetCache();
+  Future<_CachedImageData?>? _future;
+
+  String get _cacheKey {
+    final scope = widget.cacheScope;
+    final owner = scope == null ? '' : '${scope.serverUrl}|${scope.userId}|';
+    return 'attachment|$owner${widget.fileId}';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _CachedConversationImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.fileId != widget.fileId ||
+        oldWidget.cacheScope != widget.cacheScope) {
+      _future = _load();
+    }
+  }
+
+  Future<_CachedImageData?> _load() async {
+    Uint8List? cached;
+    try {
+      cached = await _cache.read(_cacheKey);
+    } catch (_) {
+      cached = null;
+    }
+    if (cached != null) return _CachedImageData(bytes: cached);
+    Uri? uri;
+    try {
+      uri = await widget.repository.attachmentUrl(widget.fileId);
+    } catch (_) {
+      uri = null;
+    }
+    Uint8List? bytes;
+    if (uri != null) {
+      try {
+        bytes = await widget.repository.downloadResource(uri);
+      } catch (_) {
+        bytes = null;
+      }
+    }
+    if (bytes == null) {
+      try {
+        bytes = await widget.repository.downloadAttachment(widget.fileId);
+      } catch (_) {
+        bytes = null;
+      }
+    }
+    if (bytes != null && bytes.isNotEmpty) {
+      try {
+        await _cache.write(_cacheKey, bytes);
+      } catch (_) {
+        // 图片已经在内存中，缓存目录不可写不阻断当前消息显示。
+      }
+    }
+    return _CachedImageData(bytes: bytes, uri: uri);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final available = MediaQuery.sizeOf(context).width - 100;
+    final width = available.clamp(180.0, 320.0).toDouble();
+    return FutureBuilder<_CachedImageData?>(
+      future: _future,
+      builder: (context, snapshot) {
+        final data = snapshot.data;
+        final bytes = data?.bytes;
+        final child = snapshot.connectionState == ConnectionState.waiting
+            ? const CircularProgressIndicator(strokeWidth: 2)
+            : data == null || bytes == null
+                ? GestureDetector(
+                    onTap: () => widget.onTap(null),
+                    child: data?.uri == null
+                        ? const Text('图片暂时无法加载')
+                        : Image.network(data!.uri.toString(),
+                            width: width,
+                            height: 240,
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, __, ___) =>
+                                const Text('图片暂时无法加载')))
+                : GestureDetector(
+                    onTap: () => widget.onTap(data),
+                    child: Image.memory(bytes,
+                        width: width,
+                        height: 240,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const Text('图片暂时无法加载')),
+                  );
+        return Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: SizedBox(
+            width: width,
+            height: 240,
+            child: Center(child: child),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CachedImageData {
+  const _CachedImageData({required this.bytes, this.uri});
+
+  final Uint8List? bytes;
+  final Uri? uri;
 }
