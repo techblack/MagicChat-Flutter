@@ -298,7 +298,57 @@ class _LoginPageState extends State<LoginPage> {
   final _code = TextEditingController();
   bool _busy = false;
   bool _codeMode = false;
+  bool _infoLoading = false;
+  ClientAppInfo? _appInfo;
   String? _error;
+  int _infoGeneration = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadAppInfo());
+  }
+
+  Future<void> _loadAppInfo() async {
+    final server = _server.text.trim();
+    if (server.isEmpty || _infoLoading) return;
+    final generation = ++_infoGeneration;
+    setState(() => _infoLoading = true);
+    try {
+      final info = await AuthService().fetchClientInfo(serverUrl: server);
+      if (!mounted ||
+          generation != _infoGeneration ||
+          _server.text.trim() != server) return;
+      setState(() {
+        _appInfo = info;
+        if (!info.passwordLoginEnabled && info.emailCodeLoginEnabled) {
+          _codeMode = true;
+        } else if (!info.emailCodeLoginEnabled) {
+          _codeMode = false;
+        }
+      });
+    } catch (_) {
+      // 连接失败时保留密码登录，便于用户修正地址后重试。
+    } finally {
+      if (mounted) {
+        final changedWhileLoading =
+            generation != _infoGeneration && _server.text.trim() != server;
+        setState(() => _infoLoading = false);
+        if (changedWhileLoading) unawaited(_loadAppInfo());
+      }
+    }
+  }
+
+  void _onServerChanged(String value) {
+    _infoGeneration++;
+    if (_appInfo == null && _error == null && !_codeMode) return;
+    setState(() {
+      _appInfo = null;
+      _error = null;
+      _codeMode = false;
+    });
+  }
+
   @override
   void dispose() {
     _server.dispose();
@@ -350,9 +400,22 @@ class _LoginPageState extends State<LoginPage> {
                             const SizedBox(height: 24),
                             TextField(
                                 controller: _server,
-                                decoration: const InputDecoration(
+                                decoration: InputDecoration(
                                     labelText: '服务器地址',
-                                    prefixIcon: Icon(Icons.dns))),
+                                    prefixIcon: Icon(Icons.dns),
+                                    suffixIcon: IconButton(
+                                        tooltip: '读取登录能力',
+                                        onPressed:
+                                            _infoLoading ? null : _loadAppInfo,
+                                        icon: _infoLoading
+                                            ? const SizedBox.square(
+                                                dimension: 18,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                        strokeWidth: 2))
+                                            : const Icon(Icons.refresh))),
+                                onChanged: _onServerChanged,
+                                onEditingComplete: _loadAppInfo),
                             const SizedBox(height: 12),
                             TextField(
                                 controller: _email,
@@ -360,16 +423,19 @@ class _LoginPageState extends State<LoginPage> {
                                 decoration:
                                     const InputDecoration(labelText: '邮箱')),
                             const SizedBox(height: 8),
-                            Align(
-                                alignment: Alignment.centerRight,
-                                child: TextButton(
-                                    onPressed: _busy
-                                        ? null
-                                        : () => setState(
-                                            () => _codeMode = !_codeMode),
-                                    child: Text(
-                                        _codeMode ? '使用密码登录' : '使用邮箱验证码登录'))),
-                            if (_codeMode) ...[
+                            if (_appInfo?.emailCodeLoginEnabled == true &&
+                                _appInfo?.passwordLoginEnabled == true)
+                              Align(
+                                  alignment: Alignment.centerRight,
+                                  child: TextButton(
+                                      onPressed: _busy
+                                          ? null
+                                          : () => setState(
+                                              () => _codeMode = !_codeMode),
+                                      child: Text(
+                                          _codeMode ? '使用密码登录' : '使用邮箱验证码登录'))),
+                            if (_codeMode &&
+                                _appInfo?.emailCodeLoginEnabled == true) ...[
                               TextField(
                                   controller: _code,
                                   keyboardType: TextInputType.number,
@@ -401,7 +467,7 @@ class _LoginPageState extends State<LoginPage> {
                                                   }
                                                 },
                                           child: const Text('发送')))),
-                            ] else
+                            ] else if (_appInfo?.passwordLoginEnabled != false)
                               TextField(
                                   controller: _password,
                                   obscureText: true,
@@ -419,7 +485,13 @@ class _LoginPageState extends State<LoginPage> {
                             SizedBox(
                                 width: double.infinity,
                                 child: FilledButton(
-                                    onPressed: _busy
+                                    onPressed: _busy ||
+                                            (_codeMode &&
+                                                _appInfo?.emailCodeLoginEnabled !=
+                                                    true) ||
+                                            (!_codeMode &&
+                                                _appInfo?.passwordLoginEnabled ==
+                                                    false)
                                         ? null
                                         : () async {
                                             setState(() {
@@ -488,6 +560,10 @@ class _AppShellState extends State<AppShell> {
   String? _currentUserId;
   int _index = 0;
   String? _selectedConversation;
+  String? _focusMessageId;
+  int? _focusMessageSequence;
+  String? _focusContactId;
+  String? _focusProjectId;
   final _conversationHistory = <String>[];
   final _contactCacheStore = ContactCacheStore();
   StreamSubscription<Map<String, dynamic>>? _realtimeSubscription;
@@ -606,21 +682,40 @@ class _AppShellState extends State<AppShell> {
           realtimeStore: widget.realtimeStore,
           cacheScope: _messageCacheScope,
           selectedId: _selectedConversation,
+          focusMessageId: _focusMessageId,
+          focusMessageSequence: _focusMessageSequence,
           onSelect: _selectConversationFromList,
           onOpenConversation: _openConversation,
           onBack: _backConversation,
-          onOpenInternalLink: _openInternalMessageLink),
+          onOpenInternalLink: _openInternalMessageLink,
+          onMessageFocused: () {
+            if (mounted) {
+              setState(() {
+                _focusMessageId = null;
+                _focusMessageSequence = null;
+              });
+            }
+          }),
       ContactsPage(
           repository: _repository,
           realtimeStore: widget.realtimeStore,
           serverUrl: widget.serverUrl,
           cacheScope: _messageCacheScope,
+          initialContactId: _focusContactId,
+          onInitialContactOpened: () {
+            if (mounted) setState(() => _focusContactId = null);
+          },
           onOpenConversation: (id) {
+            _focusContactId = null;
             _selectConversationFromList(id);
             if (mounted) setState(() => _index = 0);
           }),
       ProjectsPage(
           repository: _repository,
+          initialProjectId: _focusProjectId,
+          onInitialProjectOpened: () {
+            if (mounted) setState(() => _focusProjectId = null);
+          },
           documentCollaborationFactory: documentCollaborationFactory),
       SettingsPage(
           repository: _repository,
@@ -699,6 +794,8 @@ class _AppShellState extends State<AppShell> {
     if (!mounted) return;
     setState(() {
       _conversationHistory.clear();
+      _focusMessageId = null;
+      _focusMessageSequence = null;
       _selectedConversation = id.isEmpty ? null : id;
       if (id.isNotEmpty) _index = 0;
     });
@@ -707,12 +804,30 @@ class _AppShellState extends State<AppShell> {
   void _openConversation(String id) {
     if (!mounted || id.isEmpty) return;
     setState(() {
+      _focusMessageId = null;
+      _focusMessageSequence = null;
       if (_selectedConversation != null &&
           _selectedConversation != id &&
           !_conversationHistory.contains(_selectedConversation)) {
         _conversationHistory.add(_selectedConversation!);
       }
       _selectedConversation = id;
+      _index = 0;
+    });
+  }
+
+  void _openMessageFromSearch(
+      String conversationId, String messageId, int? messageSequence) {
+    if (!mounted || conversationId.isEmpty || messageId.isEmpty) return;
+    setState(() {
+      _focusMessageId = messageId;
+      _focusMessageSequence = messageSequence;
+      if (_selectedConversation != null &&
+          _selectedConversation != conversationId &&
+          !_conversationHistory.contains(_selectedConversation)) {
+        _conversationHistory.add(_selectedConversation!);
+      }
+      _selectedConversation = conversationId;
       _index = 0;
     });
   }
@@ -761,8 +876,19 @@ class _AppShellState extends State<AppShell> {
       builder: (dialogContext) => GlobalSearchDialog(
         repository: _repository,
         onOpenConversation: _selectConversationFromList,
-        onOpenProject: (_) => setState(() => _index = 2),
-        onOpenContact: (_) => setState(() => _index = 1),
+        onOpenMessage: _openMessageFromSearch,
+        onOpenProject: (id) {
+          setState(() {
+            _focusProjectId = id;
+            _index = 2;
+          });
+        },
+        onOpenContact: (contact) {
+          setState(() {
+            _focusContactId = contact.id;
+            _index = 1;
+          });
+        },
       ),
     );
   }

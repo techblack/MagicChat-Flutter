@@ -107,6 +107,7 @@ class GlobalSearchDialog extends StatefulWidget {
   const GlobalSearchDialog({
     required this.repository,
     required this.onOpenConversation,
+    this.onOpenMessage,
     this.onOpenProject,
     this.onOpenContact,
     super.key,
@@ -114,6 +115,9 @@ class GlobalSearchDialog extends StatefulWidget {
 
   final MagicChatRepository repository;
   final ValueChanged<String> onOpenConversation;
+  final void Function(
+          String conversationId, String messageId, int? messageSequence)?
+      onOpenMessage;
   final ValueChanged<String>? onOpenProject;
   final ValueChanged<Contact>? onOpenContact;
 
@@ -164,8 +168,14 @@ class _GlobalSearchDialogState extends State<GlobalSearchDialog> {
       case GlobalSearchResultType.conversation:
         widget.onOpenConversation(result.conversation!.id);
       case GlobalSearchResultType.message:
-        // 保持原消息搜索行为：直接切换到消息所属会话。
-        widget.onOpenConversation(result.message!.conversationId);
+        final message = result.message!;
+        final openMessage = widget.onOpenMessage;
+        if (openMessage != null) {
+          openMessage(message.conversationId, message.message.id,
+              message.message.sequence);
+        } else {
+          widget.onOpenConversation(message.conversationId);
+        }
       case GlobalSearchResultType.project:
         widget.onOpenProject?.call(result.project!.id);
       case GlobalSearchResultType.contact:

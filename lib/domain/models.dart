@@ -452,7 +452,8 @@ class ChatMessage {
       this.reactions = const [],
       this.choice,
       this.replyTo,
-      this.topic});
+      this.topic,
+      this.editableText});
   final String id;
   final String? conversationId;
   final int? sequence;
@@ -466,6 +467,7 @@ class ChatMessage {
   final MessageChoiceState? choice;
   final MessageReply? replyTo;
   final MessageTopic? topic;
+  final String? editableText;
 }
 
 /// A message list that preserves the server's history-window metadata while

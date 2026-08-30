@@ -26,6 +26,8 @@ class ContactsPage extends StatefulWidget {
       this.realtimeStore,
       this.serverUrl,
       this.cacheScope,
+      this.initialContactId,
+      this.onInitialContactOpened,
       this.onOpenConversation,
       super.key});
 
@@ -33,6 +35,8 @@ class ContactsPage extends StatefulWidget {
   final RealtimeStore? realtimeStore;
   final String? serverUrl;
   final MessageCacheScope? cacheScope;
+  final String? initialContactId;
+  final VoidCallback? onInitialContactOpened;
   final ValueChanged<String>? onOpenConversation;
 
   @override
@@ -43,6 +47,7 @@ class _ContactsPageState extends State<ContactsPage> {
   final _searchController = TextEditingController();
   final _contactCacheStore = ContactCacheStore();
   Future<ContactDirectory>? _directoryFuture;
+  String? _openedInitialContactId;
 
   @override
   void initState() {
@@ -70,6 +75,38 @@ class _ContactsPageState extends State<ContactsPage> {
     });
   }
 
+  void _openInitialContact(ContactDirectory directory) {
+    final id = widget.initialContactId;
+    if (id == null || id.isEmpty || id == _openedInitialContactId) return;
+    Contact? contact;
+    for (final item in directory.contacts) {
+      if (item.id == id) {
+        contact = item;
+        break;
+      }
+    }
+    if (contact == null) return;
+    final target = contact;
+    _openedInitialContactId = id;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        unawaited(_openConversation(target).whenComplete(() {
+          widget.onInitialContactOpened?.call();
+        }));
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant ContactsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialContactId == null) _openedInitialContactId = null;
+    if (oldWidget.initialContactId != widget.initialContactId &&
+        _directoryFuture != null) {
+      unawaited(_directoryFuture!.then(_openInitialContact));
+    }
+  }
+
   Future<ContactDirectory> _loadDirectory() async {
     final directory = await widget.repository
         .contactDirectory(keyword: _searchController.text.trim());
@@ -89,6 +126,7 @@ class _ContactsPageState extends State<ContactsPage> {
         future: _directoryFuture,
         builder: (context, snapshot) {
           final directory = snapshot.data;
+          if (directory != null) _openInitialContact(directory);
           return Column(children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),

@@ -11,6 +11,9 @@ class MessagesPage extends StatelessWidget {
       this.onOpenConversation,
       this.onBack,
       this.onOpenInternalLink,
+      this.focusMessageId,
+      this.focusMessageSequence,
+      this.onMessageFocused,
       super.key});
   final MagicChatRepository repository;
   final String? serverUrl;
@@ -21,6 +24,9 @@ class MessagesPage extends StatelessWidget {
   final ValueChanged<String>? onOpenConversation;
   final VoidCallback? onBack;
   final ValueChanged<String>? onOpenInternalLink;
+  final String? focusMessageId;
+  final int? focusMessageSequence;
+  final VoidCallback? onMessageFocused;
   @override
   Widget build(BuildContext context) =>
       LayoutBuilder(builder: (context, constraints) {
@@ -49,8 +55,11 @@ class MessagesPage extends StatelessWidget {
                 realtimeStore: realtimeStore,
                 cacheScope: cacheScope,
                 conversationId: selectedId,
+                focusMessageId: focusMessageId,
+                focusMessageSequence: focusMessageSequence,
                 onOpenConversation: onOpenConversation ?? onSelect,
                 onOpenInternalLink: onOpenInternalLink,
+                onMessageFocused: onMessageFocused,
               ),
             ),
           ]);
@@ -82,8 +91,11 @@ class MessagesPage extends StatelessWidget {
                     realtimeStore: realtimeStore,
                     cacheScope: cacheScope,
                     conversationId: selectedId,
+                    focusMessageId: focusMessageId,
+                    focusMessageSequence: focusMessageSequence,
                     onOpenConversation: onOpenConversation ?? onSelect,
-                    onOpenInternalLink: onOpenInternalLink))
+                    onOpenInternalLink: onOpenInternalLink,
+                    onMessageFocused: onMessageFocused))
         ]);
       });
 
@@ -229,6 +241,13 @@ class _ConversationListState extends State<_ConversationList> {
   Widget build(BuildContext context) => FutureBuilder<List<ChatConversation>>(
       future: _future,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(
+              child: TextButton.icon(
+                  onPressed: () => setState(_reload),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('会话加载失败，点击重试')));
+        }
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
@@ -244,14 +263,42 @@ class _ConversationListState extends State<_ConversationList> {
                 return _conversationFilters(context);
               }
               if (conversations.isEmpty) {
-                return const Padding(
-                    padding: EdgeInsets.all(32),
-                    child: Center(child: Text('没有匹配的会话')));
+                final colors = Theme.of(context).colorScheme;
+                return Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Center(
+                        child:
+                            Column(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.forum_outlined,
+                          color: colors.outline, size: 36),
+                      const SizedBox(height: 10),
+                      Text('没有匹配的会话',
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodyMedium
+                              ?.copyWith(color: colors.onSurfaceVariant)),
+                    ])));
               }
               final c = conversations.elementAt(i - 1);
               final mentionUnread = c.lastMentionedSeq > c.lastReadSeq;
               final choiceUnread = c.lastChoiceSeq > c.lastReadSeq;
               final hasUnread = c.unread > 0 || mentionUnread || choiceUnread;
+              final titleStyle = TextStyle(
+                  fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w500);
+              final subtitleStyle =
+                  TextStyle(fontWeight: hasUnread ? FontWeight.w600 : null);
+              final statusIcons = <Widget>[
+                if (c.pinned)
+                  const Padding(
+                      padding: EdgeInsets.only(left: 6),
+                      child:
+                          Icon(Icons.push_pin, semanticLabel: '已置顶', size: 16)),
+                if (c.muted)
+                  const Padding(
+                      padding: EdgeInsets.only(left: 4),
+                      child: Icon(Icons.notifications_off,
+                          semanticLabel: '消息免打扰', size: 16)),
+              ];
               return ListTile(
                   minVerticalPadding: 10,
                   contentPadding:
@@ -267,18 +314,26 @@ class _ConversationListState extends State<_ConversationList> {
                       avatarUri: _resolveAssetUri(widget.serverUrl, c.avatar),
                       name: c.title,
                       radius: 23),
-                  title: Text(c.title,
-                      style: TextStyle(
-                          fontWeight:
-                              hasUnread ? FontWeight.w700 : FontWeight.w500)),
+                  title: statusIcons.isEmpty
+                      ? Text(c.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: titleStyle)
+                      : Row(children: [
+                          Expanded(
+                              child: Text(c.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: titleStyle)),
+                          ...statusIcons,
+                        ]),
                   subtitle: Text(
                       c.announcement.isNotEmpty
                           ? '公告：${c.announcement}'
                           : c.preview,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontWeight: hasUnread ? FontWeight.w600 : null)),
+                      style: subtitleStyle),
                   trailing: !hasUnread
                       ? null
                       : Row(mainAxisSize: MainAxisSize.min, children: [

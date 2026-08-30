@@ -6,15 +6,21 @@ class ConversationView extends StatefulWidget {
       this.realtimeStore,
       this.cacheScope,
       required this.conversationId,
+      this.focusMessageId,
+      this.focusMessageSequence,
       this.onOpenConversation,
       this.onOpenInternalLink,
+      this.onMessageFocused,
       super.key});
   final MagicChatRepository repository;
   final RealtimeStore? realtimeStore;
   final MessageCacheScope? cacheScope;
   final String? conversationId;
+  final String? focusMessageId;
+  final int? focusMessageSequence;
   final ValueChanged<String>? onOpenConversation;
   final ValueChanged<String>? onOpenInternalLink;
+  final VoidCallback? onMessageFocused;
   @override
   State<ConversationView> createState() => _ConversationViewState();
 }
@@ -35,6 +41,7 @@ class _ConversationViewState extends State<ConversationView> {
   };
 
   final _controller = TextEditingController();
+  final _composerFocusNode = FocusNode();
   final _scrollController = ScrollController();
   final _voiceRecorder = VoiceRecorder();
   Future<List<ChatMessage>>? _messagesFuture;
@@ -63,6 +70,13 @@ class _ConversationViewState extends State<ConversationView> {
   ChatConversation? _conversation;
   TopicDetail? _topicDetail;
   bool _canSend = true;
+  final _messageKeys = <String, GlobalKey>{};
+  int _pendingNewMessageCount = 0;
+  final _seenRealtimeMessageIds = <String>{};
+  String? _focusedMessageId;
+  String? _highlightedMessageId;
+  bool _historyMode = false;
+  Timer? _highlightTimer;
 
   bool get _topicArchived =>
       _conversation?.topic?.archived == true ||
@@ -116,16 +130,27 @@ class _ConversationViewState extends State<ConversationView> {
   @override
   void initState() {
     super.initState();
+    _historyMode = widget.focusMessageId != null;
     _messagesFuture = _loadMessages();
     _contactsFuture = _loadConversationContacts();
+    _seenRealtimeMessageIds.addAll(_realtimeConversationMessages());
     _scrollController.addListener(_onScroll);
     _controller.addListener(_persistDraft);
     widget.realtimeStore?.addListener(_onRealtimeChanged);
     _readRetryTimer = Timer.periodic(const Duration(seconds: 20), (_) {
       final id = widget.conversationId;
-      if (id != null) _requestLatestRead(id);
+      if (id != null && !_historyMode) _requestLatestRead(id);
     });
     unawaited(_restoreDraft());
+  }
+
+  Iterable<String> _realtimeConversationMessages() {
+    final id = widget.conversationId;
+    if (id == null) return const <String>[];
+    return widget.realtimeStore?.messages.values
+            .where((message) => message.conversationId == id)
+            .map((message) => message.id) ??
+        const <String>[];
   }
 
   String? get _draftKey => widget.conversationId == null
@@ -305,6 +330,9 @@ class _ConversationViewState extends State<ConversationView> {
           ? Map<String, dynamic>.from(value['raw_body'] as Map)
           : const {},
       text: '${value['text'] ?? ''}',
+      editableText: value['editable_text'] is String
+          ? value['editable_text'] as String
+          : null,
       mine: value['mine'] == true,
       choice: parseMessageChoiceState(choice),
       replyTo: reply is Map<String, dynamic> && reply['id'] is String
@@ -360,6 +388,8 @@ class _ConversationViewState extends State<ConversationView> {
                   'content_type': message.contentType,
                   'raw_body': message.rawBody,
                   'text': message.text,
+                  if (message.editableText != null)
+                    'editable_text': message.editableText,
                   'mine': message.mine,
                   if (message.choice != null)
                     'choice': {
@@ -409,6 +439,16 @@ class _ConversationViewState extends State<ConversationView> {
   Future<List<ChatMessage>> _loadMessages() async {
     final id = widget.conversationId;
     if (id == null) return const [];
+    final targetSequence = _historyMode ? widget.focusMessageSequence : null;
+    if (targetSequence != null) {
+      final history = await widget.repository
+          .messages(id, beforeSeq: targetSequence + 26, limit: 50);
+      _messagePage = history is MessagePage ? history : null;
+      _hasMoreOlder = _messagePage?.hasMoreBefore ?? true;
+      _lastOlderBeforeSeq = null;
+      unawaited(_refreshMessageSnapshots(id, history));
+      return history;
+    }
     final cached = await _readCachedMessages(id);
     if (cached.isNotEmpty) unawaited(_refreshMessages(id));
     if (cached.isNotEmpty) return cached;
@@ -508,6 +548,7 @@ class _ConversationViewState extends State<ConversationView> {
         contentType: message.contentType,
         rawBody: message.rawBody,
         mine: message.mine,
+        editableText: message.editableText,
         choice: choice == null
             ? message.choice
             : choice.status == 'active'
@@ -542,12 +583,26 @@ class _ConversationViewState extends State<ConversationView> {
   void _onRealtimeChanged() {
     final id = widget.conversationId;
     final current = id == null ? null : widget.realtimeStore?.conversations[id];
-    if (!mounted || current == null) return;
-    final canSend = current.canSend && current.topic?.archived != true;
-    final cancelRecording = _recording && !canSend;
+    if (!mounted) return;
+    final incomingIds = _realtimeConversationMessages()
+        .where((messageId) => !_seenRealtimeMessageIds.contains(messageId))
+        .toList(growable: false);
+    _seenRealtimeMessageIds.addAll(incomingIds);
+    final shouldShowNewMessages = incomingIds.isNotEmpty &&
+        (_historyMode || (_positionedConversationId == id && !_isAtBottom()));
+    if (current == null && !shouldShowNewMessages) return;
+    final canSend = current == null
+        ? _canSend
+        : current.canSend && current.topic?.archived != true;
+    final cancelRecording = current != null && _recording && !canSend;
     setState(() {
-      _conversation = current;
-      _canSend = current.canSend;
+      if (current != null) {
+        _conversation = current;
+        _canSend = current.canSend;
+      }
+      if (shouldShowNewMessages) {
+        _pendingNewMessageCount += incomingIds.length;
+      }
       if (!canSend) _replyTo = null;
     });
     if (cancelRecording) unawaited(_cancelRecording());
@@ -597,7 +652,7 @@ class _ConversationViewState extends State<ConversationView> {
 
   Future<void> _onScroll() async {
     final id = widget.conversationId;
-    if (id != null) _requestLatestRead(id);
+    if (id != null && !_historyMode) _requestLatestRead(id);
     if (_loadingOlder ||
         !_hasMoreOlder ||
         !_scrollController.hasClients ||
@@ -662,7 +717,8 @@ class _ConversationViewState extends State<ConversationView> {
 
   void _scheduleLatestPosition(
       String conversationId, List<ChatMessage> messages) {
-    if (!_initialPositionPending ||
+    if (_historyMode ||
+        !_initialPositionPending ||
         _positionedConversationId == conversationId ||
         _positioningConversationId == conversationId) return;
     if (messages.isEmpty) return;
@@ -729,6 +785,55 @@ class _ConversationViewState extends State<ConversationView> {
         cached.map((message) => cachedById[message.id] ?? message).toList());
   }
 
+  GlobalKey _messageKey(String id) =>
+      _messageKeys.putIfAbsent(id, GlobalKey.new);
+
+  void _scheduleFocusMessage(
+      String conversationId, List<ChatMessage> messages) {
+    final targetId = widget.focusMessageId;
+    if (targetId == null || targetId.isEmpty || _focusedMessageId == targetId) {
+      return;
+    }
+    if (!messages.any((message) => message.id == targetId)) return;
+    _focusedMessageId = targetId;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted || widget.conversationId != conversationId) return;
+      final targetContext = _messageKeys[targetId]?.currentContext;
+      if (targetContext == null) return;
+      setState(() => _highlightedMessageId = targetId);
+      await Scrollable.ensureVisible(targetContext,
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+          alignment: .35);
+      _highlightTimer?.cancel();
+      _highlightTimer = Timer(const Duration(seconds: 2), () {
+        if (mounted && _highlightedMessageId == targetId) {
+          setState(() => _highlightedMessageId = null);
+        }
+      });
+    });
+  }
+
+  Future<void> _jumpToLatest(String conversationId) async {
+    if (conversationId.isEmpty) return;
+    _historyMode = false;
+    _highlightTimer?.cancel();
+    _olderMessages.clear();
+    _messageKeys.clear();
+    _focusedMessageId = null;
+    _highlightedMessageId = null;
+    _positioningConversationId = null;
+    _positionedConversationId = null;
+    _positionGeneration++;
+    _initialPositionPending = true;
+    _userScrolledDuringInitialPosition = false;
+    setState(() {
+      _pendingNewMessageCount = 0;
+      _messagesFuture = _loadMessages();
+    });
+    widget.onMessageFocused?.call();
+  }
+
   @override
   void didUpdateWidget(covariant ConversationView oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -737,6 +842,7 @@ class _ConversationViewState extends State<ConversationView> {
       widget.realtimeStore?.addListener(_onRealtimeChanged);
     }
     if (oldWidget.conversationId != widget.conversationId) {
+      _highlightTimer?.cancel();
       if (_recording) unawaited(_cancelRecording());
       _olderMessages.clear();
       _hasMoreOlder = true;
@@ -748,6 +854,14 @@ class _ConversationViewState extends State<ConversationView> {
       _positionGeneration++;
       _initialPositionPending = true;
       _userScrolledDuringInitialPosition = false;
+      _pendingNewMessageCount = 0;
+      _focusedMessageId = null;
+      _highlightedMessageId = null;
+      _historyMode = widget.focusMessageId != null;
+      _messageKeys.clear();
+      _seenRealtimeMessageIds
+        ..clear()
+        ..addAll(_realtimeConversationMessages());
       _replyTo = null;
       _conversation = null;
       _topicDetail = null;
@@ -769,7 +883,30 @@ class _ConversationViewState extends State<ConversationView> {
       _positionGeneration++;
       _initialPositionPending = true;
       _userScrolledDuringInitialPosition = false;
+      _pendingNewMessageCount = 0;
+      _focusedMessageId = null;
+      _highlightedMessageId = null;
+      _messageKeys.clear();
+      _seenRealtimeMessageIds
+        ..clear()
+        ..addAll(_realtimeConversationMessages());
       _contactsFuture = _loadConversationContacts();
+    }
+    if (oldWidget.conversationId == widget.conversationId &&
+        oldWidget.focusMessageId != widget.focusMessageId) {
+      _highlightTimer?.cancel();
+      _focusedMessageId = null;
+      _highlightedMessageId = null;
+      if (widget.focusMessageId != null) {
+        _historyMode = true;
+        _olderMessages.clear();
+        _messageKeys.clear();
+        _positionGeneration++;
+        _initialPositionPending = true;
+        _messagesFuture = _loadMessages();
+      } else if (_historyMode) {
+        unawaited(_jumpToLatest(widget.conversationId ?? ''));
+      }
     }
   }
 
@@ -777,9 +914,11 @@ class _ConversationViewState extends State<ConversationView> {
   void dispose() {
     widget.realtimeStore?.removeListener(_onRealtimeChanged);
     _readRetryTimer?.cancel();
+    _highlightTimer?.cancel();
     _persistDraft();
     _controller.removeListener(_persistDraft);
     _controller.dispose();
+    _composerFocusNode.dispose();
     _scrollController.dispose();
     _voiceRecorder.dispose();
     super.dispose();
@@ -848,7 +987,7 @@ class _ConversationViewState extends State<ConversationView> {
   @override
   Widget build(BuildContext context) {
     final conversationId = widget.conversationId;
-    if (conversationId == null) return const Center(child: Text('选择一个会话开始聊天'));
+    if (conversationId == null) return const _ConversationEmptyState();
     final canSend = _conversationCanSend(conversationId);
     return Column(
       children: [
@@ -886,98 +1025,156 @@ class _ConversationViewState extends State<ConversationView> {
             ]),
           ),
         Expanded(
-          child: FutureBuilder<List<ChatMessage>>(
-            future: _messagesFuture,
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final realtimeMessages = widget.realtimeStore?.messages.values
-                  .where((message) =>
-                      message.id.isNotEmpty &&
-                      message.conversationId == conversationId)
-                  .toList();
-              final messages =
-                  realtimeMessages == null || realtimeMessages.isEmpty
-                      ? snapshot.data!
-                      : [...snapshot.data!, ...realtimeMessages];
-              final byId = <String, ChatMessage>{};
-              for (final message in [..._olderMessages, ...messages]) {
-                byId[message.id] = message;
-              }
-              final allMessages = byId.values.toList()
-                ..sort((left, right) {
-                  final leftSeq = left.sequence;
-                  final rightSeq = right.sequence;
-                  if (leftSeq == null && rightSeq == null) return 0;
-                  if (leftSeq == null) return 1;
-                  if (rightSeq == null) return -1;
-                  return leftSeq.compareTo(rightSeq);
-                });
-              _visibleMessages = allMessages;
-              _scheduleLatestPosition(conversationId, allMessages);
-              return NotificationListener<UserScrollNotification>(
-                onNotification: (notification) {
-                  if (_initialPositionPending &&
-                      notification.direction != ScrollDirection.idle) {
-                    _userScrolledDuringInitialPosition = true;
+          child: Stack(
+            children: [
+              FutureBuilder<List<ChatMessage>>(
+                future: _messagesFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return _ConversationLoadError(
+                        onRetry: () => setState(() {
+                              _messagesFuture = _loadMessages();
+                            }));
                   }
-                  return false;
+                  if (!snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final historyIds = <String>{
+                    for (final message in _olderMessages) message.id,
+                    for (final message in snapshot.data!) message.id,
+                  };
+                  final realtimeMessages = widget.realtimeStore?.messages.values
+                      .where((message) =>
+                          message.id.isNotEmpty &&
+                          message.conversationId == conversationId &&
+                          (!_historyMode || historyIds.contains(message.id)))
+                      .toList();
+                  final messages =
+                      realtimeMessages == null || realtimeMessages.isEmpty
+                          ? snapshot.data!
+                          : [...snapshot.data!, ...realtimeMessages];
+                  final byId = <String, ChatMessage>{};
+                  for (final message in [..._olderMessages, ...messages]) {
+                    byId[message.id] = message;
+                  }
+                  final allMessages = byId.values.toList()
+                    ..sort((left, right) {
+                      final leftSeq = left.sequence;
+                      final rightSeq = right.sequence;
+                      if (leftSeq == null && rightSeq == null) return 0;
+                      if (leftSeq == null) return 1;
+                      if (rightSeq == null) return -1;
+                      return leftSeq.compareTo(rightSeq);
+                    });
+                  _visibleMessages = allMessages;
+                  _scheduleLatestPosition(conversationId, allMessages);
+                  _scheduleFocusMessage(conversationId, allMessages);
+                  if (allMessages.isEmpty) {
+                    return const _ConversationEmptyState();
+                  }
+                  return NotificationListener<UserScrollNotification>(
+                    onNotification: (notification) {
+                      if (_initialPositionPending &&
+                          notification.direction != ScrollDirection.idle) {
+                        _userScrolledDuringInitialPosition = true;
+                      }
+                      return false;
+                    },
+                    child: ListView(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.fromLTRB(8, 16, 8, 12),
+                      children: allMessages
+                          .map((message) => Align(
+                                key: _messageKey(message.id),
+                                alignment: message.contentType == 'system_event'
+                                    ? Alignment.center
+                                    : message.mine
+                                        ? Alignment.centerRight
+                                        : Alignment.centerLeft,
+                                child: GestureDetector(
+                                  onTap: _selectedMessageIds.isEmpty ||
+                                          !_canForwardOrSelect(message)
+                                      ? null
+                                      : () => setState(() {
+                                            if (!_selectedMessageIds
+                                                .remove(message.id)) {
+                                              if (_selectedMessageIds.length >=
+                                                  _maxSelectedMessages) return;
+                                              _selectedMessageIds
+                                                  .add(message.id);
+                                            }
+                                          }),
+                                  onLongPress: () {
+                                    if (_selectedMessageIds.isNotEmpty) {
+                                      if (!_canForwardOrSelect(message)) return;
+                                      if (_selectedMessageIds.length >=
+                                          _maxSelectedMessages) return;
+                                      setState(() =>
+                                          _selectedMessageIds.add(message.id));
+                                    } else if (_hasMessageActions(message)) {
+                                      _showMessageActions(
+                                          conversationId, message);
+                                    }
+                                  },
+                                  child: AnimatedContainer(
+                                      duration:
+                                          const Duration(milliseconds: 180),
+                                      padding: _highlightedMessageId == message.id
+                                          ? const EdgeInsets.all(2)
+                                          : EdgeInsets.zero,
+                                      decoration: _highlightedMessageId == message.id
+                                          ? BoxDecoration(
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .primaryContainer
+                                                  .withValues(alpha: .65),
+                                              borderRadius:
+                                                  BorderRadius.circular(18))
+                                          : null,
+                                      child: _MessageBubble(
+                                          message: message,
+                                          repository: widget.repository,
+                                          conversationId: conversationId,
+                                          canReact:
+                                              _topicIsOpen(conversationId),
+                                          canRespond: canSend,
+                                          onOpenTopic:
+                                              widget.onOpenConversation,
+                                          onOpenInternalLink:
+                                              widget.onOpenInternalLink,
+                                          onForwardMessage: (id) => _showForwardDialog(
+                                              conversationId, [id]),
+                                          contactsFuture: _contactsFuture,
+                                          isGroupConversation:
+                                              _isGroupConversation,
+                                          onOpenMemberConversation:
+                                              _openMemberConversation,
+                                          onReeditMessage: _reeditMessage,
+                                          cacheScope: widget.cacheScope)),
+                                ),
+                              ))
+                          .toList(),
+                    ),
+                  );
                 },
-                child: ListView(
-                  controller: _scrollController,
-                  padding: const EdgeInsets.fromLTRB(8, 16, 8, 12),
-                  children: allMessages
-                      .map((message) => Align(
-                            alignment: message.contentType == 'system_event'
-                                ? Alignment.center
-                                : message.mine
-                                    ? Alignment.centerRight
-                                    : Alignment.centerLeft,
-                            child: GestureDetector(
-                              onTap: _selectedMessageIds.isEmpty ||
-                                      !_canForwardOrSelect(message)
-                                  ? null
-                                  : () => setState(() {
-                                        if (!_selectedMessageIds
-                                            .remove(message.id)) {
-                                          if (_selectedMessageIds.length >=
-                                              _maxSelectedMessages) return;
-                                          _selectedMessageIds.add(message.id);
-                                        }
-                                      }),
-                              onLongPress: () {
-                                if (_selectedMessageIds.isNotEmpty) {
-                                  if (!_canForwardOrSelect(message)) return;
-                                  if (_selectedMessageIds.length >=
-                                      _maxSelectedMessages) return;
-                                  setState(() =>
-                                      _selectedMessageIds.add(message.id));
-                                } else if (_hasMessageActions(message)) {
-                                  _showMessageActions(conversationId, message);
-                                }
-                              },
-                              child: _MessageBubble(
-                                  message: message,
-                                  repository: widget.repository,
-                                  conversationId: conversationId,
-                                  canReact: _topicIsOpen(conversationId),
-                                  canRespond: canSend,
-                                  onOpenTopic: widget.onOpenConversation,
-                                  onOpenInternalLink: widget.onOpenInternalLink,
-                                  onForwardMessage: (id) =>
-                                      _showForwardDialog(conversationId, [id]),
-                                  contactsFuture: _contactsFuture,
-                                  isGroupConversation: _isGroupConversation,
-                                  onOpenMemberConversation:
-                                      _openMemberConversation,
-                                  cacheScope: widget.cacheScope),
-                            ),
-                          ))
-                      .toList(),
-                ),
-              );
-            },
+              ),
+              if (_historyMode || _pendingNewMessageCount > 0)
+                Positioned(
+                    right: 16,
+                    bottom: 12,
+                    child: Semantics(
+                      button: true,
+                      label: '回到最新消息',
+                      child: FilledButton.icon(
+                          onPressed: () => _jumpToLatest(conversationId),
+                          icon: const Icon(Icons.arrow_downward, size: 18),
+                          label: Text(_historyMode
+                              ? _pendingNewMessageCount > 0
+                                  ? '返回最新 · $_pendingNewMessageCount 条新消息'
+                                  : '返回最新消息'
+                              : '新消息 $_pendingNewMessageCount')),
+                    )),
+            ],
           ),
         ),
         SafeArea(
@@ -1017,6 +1214,7 @@ class _ConversationViewState extends State<ConversationView> {
                   Expanded(
                       child: TextField(
                           controller: _controller,
+                          focusNode: _composerFocusNode,
                           readOnly: !canSend,
                           minLines: 1,
                           maxLines: 5,
@@ -1201,6 +1399,14 @@ class _ConversationViewState extends State<ConversationView> {
       await widget.repository.revokeMessage(conversationId, message.id);
     }
     if (mounted) setState(_selectedMessageIds.clear);
+  }
+
+  void _reeditMessage(ChatMessage message) {
+    final text = message.editableText;
+    if (text == null || text.isEmpty) return;
+    _controller.value = TextEditingValue(
+        text: text, selection: TextSelection.collapsed(offset: text.length));
+    _composerFocusNode.requestFocus();
   }
 
   Future<void> _pickMention() async {
@@ -1623,6 +1829,62 @@ class _ConversationViewState extends State<ConversationView> {
   }
 }
 
+class _ConversationEmptyState extends StatelessWidget {
+  const _ConversationEmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.forum_outlined, size: 42, color: colors.primary),
+            const SizedBox(height: 12),
+            Text('暂无消息',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    )),
+            const SizedBox(height: 4),
+            Text('发送第一条消息，开始这段对话',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: colors.onSurfaceVariant,
+                    )),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ConversationLoadError extends StatelessWidget {
+  const _ConversationLoadError({required this.onRetry});
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.cloud_off_outlined, size: 40, color: colors.outline),
+          const SizedBox(height: 10),
+          Text('消息加载失败', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 6),
+          TextButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('重试')),
+        ]),
+      ),
+    );
+  }
+}
+
 class _MessageBubble extends StatelessWidget {
   const _MessageBubble(
       {required this.message,
@@ -1636,6 +1898,7 @@ class _MessageBubble extends StatelessWidget {
       this.contactsFuture,
       this.isGroupConversation = false,
       this.onOpenMemberConversation,
+      this.onReeditMessage,
       this.cacheScope});
   final ChatMessage message;
   final MagicChatRepository repository;
@@ -1648,6 +1911,7 @@ class _MessageBubble extends StatelessWidget {
   final Future<List<Contact>>? contactsFuture;
   final bool isGroupConversation;
   final Future<void> Function(Contact contact)? onOpenMemberConversation;
+  final ValueChanged<ChatMessage>? onReeditMessage;
   final MessageCacheScope? cacheScope;
 
   Future<void> _showImageViewer(BuildContext context, Uri? uri,
@@ -1902,10 +2166,28 @@ class _MessageBubble extends StatelessWidget {
             if (prefix != null) const SizedBox(width: 6),
             Flexible(
                 child: revoked
-                    ? Text(message.text,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: colors.onSurfaceVariant,
-                            fontStyle: FontStyle.italic))
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                            Text(message.text,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.copyWith(
+                                        color: colors.onSurfaceVariant,
+                                        fontStyle: FontStyle.italic)),
+                            if (message.mine && message.editableText != null)
+                              TextButton.icon(
+                                  onPressed: onReeditMessage == null
+                                      ? null
+                                      : () => onReeditMessage!(message),
+                                  icon:
+                                      const Icon(Icons.edit_outlined, size: 16),
+                                  label: const Text('重新编辑'),
+                                  style: TextButton.styleFrom(
+                                      visualDensity: VisualDensity.compact,
+                                      padding: EdgeInsets.zero)),
+                          ])
                     : message.contentType == 'unsupported'
                         ? Text('暂不支持查看该消息',
                             style: Theme.of(context)
@@ -1916,8 +2198,12 @@ class _MessageBubble extends StatelessWidget {
                             ? MarkdownBody(
                                 data: message.text,
                                 styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-                                    p: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                        color: mine ? colors.onPrimary : null),
+                                    p: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                            color:
+                                                mine ? colors.onPrimary : null),
                                     a: Theme.of(context)
                                         .textTheme
                                         .bodyMedium

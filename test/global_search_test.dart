@@ -30,7 +30,10 @@ class _SearchRepository extends DemoRepository {
             conversationId: 'conversation-engineering',
             conversationName: '工程群',
             message: ChatMessage(
-                id: 'message-release', author: 'Alice', text: 'Release Ready')),
+                id: 'message-release',
+                sequence: 42,
+                author: 'Alice',
+                text: 'Release Ready')),
       ];
 }
 
@@ -72,8 +75,9 @@ void main() {
         isEmpty);
   });
 
-  testWidgets('综合搜索加载本地索引并保持消息跳转', (tester) async {
+  testWidgets('综合搜索加载本地索引并携带消息定位信息', (tester) async {
     final opened = <String>[];
+    final openedMessages = <String>[];
     await tester.binding.setSurfaceSize(const Size(1000, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     tester.view.devicePixelRatio = 1;
@@ -83,6 +87,8 @@ void main() {
         body: GlobalSearchDialog(
           repository: _SearchRepository(),
           onOpenConversation: opened.add,
+          onOpenMessage: (conversationId, messageId, messageSequence) =>
+              openedMessages.add('$conversationId:$messageId:$messageSequence'),
         ),
       ),
     ));
@@ -101,6 +107,7 @@ void main() {
     await tester.tap(find.byKey(
         const ValueKey('message:conversation-engineering:message-release')));
     await tester.pumpAndSettle();
-    expect(opened, ['conversation-engineering']);
+    expect(opened, isEmpty);
+    expect(openedMessages, ['conversation-engineering:message-release:42']);
   });
 }

@@ -14,8 +14,14 @@ typedef DocumentCollaborationFactory = DocumentCollaborationSession? Function(
 
 class ProjectsPage extends StatefulWidget {
   const ProjectsPage(
-      {required this.repository, this.documentCollaborationFactory, super.key});
+      {required this.repository,
+      this.initialProjectId,
+      this.onInitialProjectOpened,
+      this.documentCollaborationFactory,
+      super.key});
   final MagicChatRepository repository;
+  final String? initialProjectId;
+  final VoidCallback? onInitialProjectOpened;
   final DocumentCollaborationFactory? documentCollaborationFactory;
 
   @override
@@ -26,6 +32,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
   late Future<List<Project>> _projects;
   final _searchController = TextEditingController();
   String _search = '';
+  String? _openedInitialProjectId;
 
   MagicChatRepository get repository => widget.repository;
 
@@ -37,6 +44,37 @@ class _ProjectsPageState extends State<ProjectsPage> {
 
   void _reloadProjects() {
     setState(() => _projects = repository.projects());
+  }
+
+  void _openInitialProject(List<Project> projects) {
+    final id = widget.initialProjectId;
+    if (id == null || id.isEmpty || id == _openedInitialProjectId) return;
+    Project? project;
+    for (final item in projects) {
+      if (item.id == id) {
+        project = item;
+        break;
+      }
+    }
+    if (project == null) return;
+    final target = project;
+    _openedInitialProjectId = id;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        unawaited(_showTasks(context, target).whenComplete(() {
+          widget.onInitialProjectOpened?.call();
+        }));
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant ProjectsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialProjectId == null) _openedInitialProjectId = null;
+    if (oldWidget.initialProjectId != widget.initialProjectId) {
+      unawaited(_projects.then(_openInitialProject));
+    }
   }
 
   @override
@@ -65,6 +103,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
               if (!snapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
               }
+              _openInitialProject(snapshot.data!);
               final keyword = _search.trim().toLowerCase();
               final projects = keyword.isEmpty
                   ? snapshot.data!

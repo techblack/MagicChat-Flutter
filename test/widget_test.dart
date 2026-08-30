@@ -1,8 +1,35 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import 'package:magicchat_client/main.dart';
+import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/data/repository.dart';
+import 'package:magicchat_client/domain/models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+class _HistoryRepository extends DemoRepository {
+  final messageRequests = <int?>[];
+
+  @override
+  Future<List<ChatConversation>> conversations() async => const [
+        ChatConversation(id: 'history', title: '历史会话', type: 'group'),
+      ];
+
+  @override
+  Future<List<ChatMessage>> messages(String conversationId,
+      {int? beforeSeq, int limit = 50}) async {
+    messageRequests.add(beforeSeq);
+    final end = beforeSeq == null ? 30 : beforeSeq - 1;
+    final start = end - limit + 1 > 1 ? end - limit + 1 : 1;
+    return List.generate(
+        end - start + 1,
+        (index) => ChatMessage(
+            id: 'history-${start + index}',
+            conversationId: conversationId,
+            sequence: start + index,
+            author: '成员',
+            text: '历史消息 ${start + index}'));
+  }
+}
 
 void main() {
   testWidgets('显示跨端导航入口', (tester) async {
@@ -31,5 +58,68 @@ void main() {
     await tester.pumpWidget(page());
     await tester.pumpAndSettle();
     expect(find.text('稍后发送'), findsOneWidget);
+  });
+
+  testWidgets('阅读历史时提示新消息并可回到最新', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = RealtimeStore();
+    store.conversations['history'] =
+        const ChatConversation(id: 'history', title: '历史会话', type: 'group');
+    await tester.binding.setSurfaceSize(const Size(500, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: ConversationView(
+                repository: _HistoryRepository(),
+                realtimeStore: store,
+                conversationId: 'history'))));
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(ListView), const Offset(0, 420));
+    await tester.pumpAndSettle();
+    store.apply({
+      'cursor': 1,
+      'event': 'message.created',
+      'payload': {
+        'id': 'incoming-1',
+        'conversation_id': 'history',
+        'seq': 31,
+        'sender': {'id': 'user-1', 'name': 'Alice'},
+        'body': {'type': 'text', 'content': '新到消息'},
+      },
+    });
+    await tester.pump();
+
+    expect(find.text('新消息 1'), findsOneWidget);
+    await tester.tap(find.text('新消息 1'));
+    await tester.pumpAndSettle();
+    expect(find.text('新消息 1'), findsNothing);
+  });
+
+  testWidgets('搜索历史消息按目标序号加载并可返回最新', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = _HistoryRepository();
+    var returnedToLatest = false;
+    await tester.binding.setSurfaceSize(const Size(500, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: ConversationView(
+                repository: repository,
+                conversationId: 'history',
+                focusMessageId: 'history-10',
+                focusMessageSequence: 10,
+                onMessageFocused: () => returnedToLatest = true))));
+    await tester.pumpAndSettle();
+
+    expect(repository.messageRequests, [36]);
+    expect(find.text('历史消息 10'), findsOneWidget);
+    expect(find.text('返回最新消息'), findsOneWidget);
+
+    await tester.tap(find.text('返回最新消息'));
+    await tester.pumpAndSettle();
+    expect(repository.messageRequests, [36, null]);
+    expect(returnedToLatest, isTrue);
+    expect(find.text('返回最新消息'), findsNothing);
   });
 }

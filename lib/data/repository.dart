@@ -1378,6 +1378,10 @@ class HttpMagicChatRepository implements MagicChatRepository {
       Map<String, dynamic> item, String conversationId) {
     final content = MessageContent.fromEnvelope(item['body'],
         revokedAt: item['revoked_at']);
+    final editableBody = item['editable_body'];
+    final editableText = editableBody is Map<String, dynamic>
+        ? MessageContent.parse(editableBody).text
+        : null;
     final sender = item['sender'];
     final senderId = sender is Map<String, dynamic> ? sender['id'] : null;
     final senderName = sender is Map<String, dynamic> ? sender['name'] : null;
@@ -1398,6 +1402,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
         contentType: content.type,
         rawBody: content.raw,
         text: content.text,
+        editableText: editableText,
         choice: parseMessageChoiceState(item['choice']),
         replyTo: _replyFromJson(item['reply_to']),
         topic: _topicFromJson(item['topic']),
@@ -1606,8 +1611,14 @@ class HttpMagicChatRepository implements MagicChatRepository {
               message is! Map<String, dynamic>) {
             return null;
           }
-          final body = MessageContent.parse(message['body']);
+          final body = MessageContent.fromEnvelope(message['body'],
+              revokedAt: message['revoked_at']);
+          final editableBody = message['editable_body'];
+          final editableText = editableBody is Map<String, dynamic>
+              ? MessageContent.parse(editableBody).text
+              : null;
           final sender = message['sender'];
+          final senderName = message['sender_name'];
           final name = sender is Map<String, dynamic> ? sender['name'] : null;
           final nickname =
               sender is Map<String, dynamic> ? sender['nickname'] : null;
@@ -1616,20 +1627,24 @@ class HttpMagicChatRepository implements MagicChatRepository {
           final conversationName = conversation['name'];
           final chat = ChatMessage(
               id: '${message['id'] ?? ''}',
+              sequence: (message['seq'] as num?)?.toInt(),
               authorId: sender is Map<String, dynamic> && sender['id'] is String
                   ? sender['id'] as String
                   : null,
               author: nickname is String && nickname.trim().isNotEmpty
                   ? nickname.trim()
-                  : name is String && name.trim().isNotEmpty
-                      ? name.trim()
-                      : senderId is String && senderId.trim().isNotEmpty
-                          ? senderId
-                          : '成员',
+                  : senderName is String && senderName.trim().isNotEmpty
+                      ? senderName.trim()
+                      : name is String && name.trim().isNotEmpty
+                          ? name.trim()
+                          : senderId is String && senderId.trim().isNotEmpty
+                              ? senderId
+                              : '成员',
               conversationId: conversationId is String ? conversationId : null,
               contentType: body.type,
               rawBody: body.raw,
               text: body.text,
+              editableText: editableText,
               replyTo: _replyFromJson(message['reply_to']));
           return conversationId is String && conversationName is String
               ? MessageSearchResult(
