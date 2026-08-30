@@ -698,7 +698,10 @@ class ForwardMessagesResult {
 
 class MessageReply {
   const MessageReply(
-      {required this.id, required this.author, required this.text, this.authorId});
+      {required this.id,
+      required this.author,
+      required this.text,
+      this.authorId});
 
   final String id;
   final String author;
