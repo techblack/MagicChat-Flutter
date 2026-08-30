@@ -1,22 +1,37 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../data/realtime_store.dart';
 import '../../data/repository.dart';
+import '../../data/contact_cache_store.dart';
+import '../../data/message_cache_store.dart';
 import '../../domain/models.dart';
 import 'applications_page.dart';
 import 'friend_management_dialog.dart';
+
+Uri? _contactAvatarUri(String? serverUrl, String value) {
+  if (value.trim().isEmpty) return null;
+  final parsed = Uri.tryParse(value);
+  if (parsed == null) return null;
+  if (parsed.hasScheme) return parsed;
+  final server = Uri.tryParse(serverUrl ?? '');
+  return server?.resolve(value);
+}
 
 class ContactsPage extends StatefulWidget {
   const ContactsPage(
       {required this.repository,
       this.realtimeStore,
       this.serverUrl,
+      this.cacheScope,
       this.onOpenConversation,
       super.key});
 
   final MagicChatRepository repository;
   final RealtimeStore? realtimeStore;
   final String? serverUrl;
+  final MessageCacheScope? cacheScope;
   final ValueChanged<String>? onOpenConversation;
 
   @override
@@ -25,13 +40,23 @@ class ContactsPage extends StatefulWidget {
 
 class _ContactsPageState extends State<ContactsPage> {
   final _searchController = TextEditingController();
+  final _contactCacheStore = ContactCacheStore();
   Future<ContactDirectory>? _directoryFuture;
 
   @override
   void initState() {
     super.initState();
     widget.realtimeStore?.addListener(_onRealtimeChanged);
+    unawaited(_primeCachedContacts());
     _load();
+  }
+
+  Future<void> _primeCachedContacts() async {
+    final cached = await _contactCacheStore.read(widget.cacheScope);
+    if (!mounted) return;
+    for (final contact in cached) {
+      widget.realtimeStore?.contacts[contact.id] = contact;
+    }
   }
 
   void _onRealtimeChanged() {
@@ -40,9 +65,15 @@ class _ContactsPageState extends State<ContactsPage> {
 
   void _load() {
     setState(() {
-      _directoryFuture = widget.repository
-          .contactDirectory(keyword: _searchController.text.trim());
+      _directoryFuture = _loadDirectory();
     });
+  }
+
+  Future<ContactDirectory> _loadDirectory() async {
+    final directory = await widget.repository
+        .contactDirectory(keyword: _searchController.text.trim());
+    await _contactCacheStore.write(widget.cacheScope, directory.contacts);
+    return directory;
   }
 
   @override
@@ -119,6 +150,7 @@ class _ContactsPageState extends State<ContactsPage> {
         final raw = contacts[index];
         final contact = widget.realtimeStore?.contacts[raw.id] ?? raw;
         widget.realtimeStore?.contacts[contact.id] = contact;
+        final avatarUri = _contactAvatarUri(widget.serverUrl, contact.avatar);
         return ListTile(
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -129,9 +161,13 @@ class _ContactsPageState extends State<ContactsPage> {
               backgroundColor: contact.type == 'app'
                   ? Theme.of(context).colorScheme.secondaryContainer
                   : Theme.of(context).colorScheme.primaryContainer,
-              child: Text(contact.displayName.isEmpty
-                  ? '?'
-                  : contact.displayName.substring(0, 1))),
+              backgroundImage:
+                  avatarUri == null ? null : NetworkImage(avatarUri.toString()),
+              child: avatarUri == null
+                  ? Text(contact.displayName.isEmpty
+                      ? '?'
+                      : contact.displayName.substring(0, 1))
+                  : null),
           title: Text(contact.displayName),
           subtitle: Text(
               contact.type == 'group'

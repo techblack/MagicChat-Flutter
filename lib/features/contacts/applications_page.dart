@@ -280,68 +280,73 @@ class _AppCard extends StatelessWidget {
   final VoidCallback onDelete;
 
   @override
-  Widget build(BuildContext context) => Card(
-        child: ListTile(
-          contentPadding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-          leading: CircleAvatar(
-            backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
-            backgroundImage: _avatarProvider(app.avatar, serverUrl),
-            child: Text(app.name.isEmpty ? '?' : app.name.substring(0, 1)),
-          ),
-          title: Row(
-            children: [
-              Flexible(child: Text(app.name, overflow: TextOverflow.ellipsis)),
-              const SizedBox(width: 8),
-              Chip(
-                label: Text(app.enabled ? '已启用' : '已停用'),
-                visualDensity: VisualDensity.compact,
-                side: BorderSide.none,
-                backgroundColor: app.enabled
-                    ? Colors.green.withValues(alpha: .12)
-                    : Theme.of(context).colorScheme.surfaceContainerHighest,
-              ),
-            ],
-          ),
-          subtitle: Text(
-            app.description.isEmpty
-                ? '访问范围：${_visibilityLabel(app.visibility)}'
-                : '${app.description}\n访问范围：${_visibilityLabel(app.visibility)}',
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-          ),
-          isThreeLine: app.description.isNotEmpty,
-          trailing: PopupMenuButton<String>(
-            enabled: !busy,
-            onSelected: (value) {
-              switch (value) {
-                case 'credentials':
-                  onCredentials();
-                case 'edit':
-                  onEdit();
-                case 'toggle':
-                  onToggle();
-                case 'avatar':
-                  onAvatar();
-                case 'delete':
-                  onDelete();
-              }
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'credentials',
-                child: Text('查看接入信息'),
-              ),
-              const PopupMenuItem(value: 'edit', child: Text('编辑资料')),
-              PopupMenuItem(
-                value: 'toggle',
-                child: Text(app.enabled ? '停用应用' : '启用应用'),
-              ),
-              const PopupMenuItem(value: 'avatar', child: Text('更换头像')),
-              const PopupMenuItem(value: 'delete', child: Text('删除应用')),
-            ],
-          ),
+  Widget build(BuildContext context) {
+    final avatar = _avatarProvider(app.avatar, serverUrl);
+    return Card(
+      child: ListTile(
+        contentPadding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+        leading: CircleAvatar(
+          backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+          backgroundImage: avatar,
+          child: avatar == null
+              ? Text(app.name.isEmpty ? '?' : app.name.substring(0, 1))
+              : null,
         ),
-      );
+        title: Row(
+          children: [
+            Flexible(child: Text(app.name, overflow: TextOverflow.ellipsis)),
+            const SizedBox(width: 8),
+            Chip(
+              label: Text(app.enabled ? '已启用' : '已停用'),
+              visualDensity: VisualDensity.compact,
+              side: BorderSide.none,
+              backgroundColor: app.enabled
+                  ? Colors.green.withValues(alpha: .12)
+                  : Theme.of(context).colorScheme.surfaceContainerHighest,
+            ),
+          ],
+        ),
+        subtitle: Text(
+          app.description.isEmpty
+              ? '访问范围：${_visibilityLabel(app.visibility)}'
+              : '${app.description}\n访问范围：${_visibilityLabel(app.visibility)}',
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+        ),
+        isThreeLine: app.description.isNotEmpty,
+        trailing: PopupMenuButton<String>(
+          enabled: !busy,
+          onSelected: (value) {
+            switch (value) {
+              case 'credentials':
+                onCredentials();
+              case 'edit':
+                onEdit();
+              case 'toggle':
+                onToggle();
+              case 'avatar':
+                onAvatar();
+              case 'delete':
+                onDelete();
+            }
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(
+              value: 'credentials',
+              child: Text('查看接入信息'),
+            ),
+            const PopupMenuItem(value: 'edit', child: Text('编辑资料')),
+            PopupMenuItem(
+              value: 'toggle',
+              child: Text(app.enabled ? '停用应用' : '启用应用'),
+            ),
+            const PopupMenuItem(value: 'avatar', child: Text('更换头像')),
+            const PopupMenuItem(value: 'delete', child: Text('删除应用')),
+          ],
+        ),
+      ),
+    );
+  }
 
   String _visibilityLabel(String value) => switch (value) {
         'public' => '所有人',

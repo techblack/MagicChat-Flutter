@@ -76,9 +76,13 @@ class TopicReplyPreview extends StatelessWidget {
 
   String _senderName(TopicSourceSender sender, Map<String, Contact> contacts) {
     final contact = contacts[sender.id];
-    if (contact?.name.isNotEmpty == true) return contact!.name;
-    if (sender.name.isNotEmpty) return sender.name;
-    return sender.type == 'app' ? '应用' : '用户';
+    if (contact != null &&
+        contact.displayName.trim().isNotEmpty &&
+        contact.displayName.trim() != contact.id.trim()) {
+      return contact.displayName.trim();
+    }
+    if (sender.name.trim().isNotEmpty) return sender.name.trim();
+    return sender.type == 'app' ? '应用' : '成员';
   }
 }
 

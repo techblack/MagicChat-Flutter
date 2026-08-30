@@ -15,6 +15,29 @@ class RealtimeStore extends ChangeNotifier {
     currentUserId = id;
   }
 
+  void markConversationRead(ConversationReadResult result) {
+    final current = conversations[result.conversationId];
+    if (current == null) return;
+    conversations[result.conversationId] = ChatConversation(
+        id: current.id,
+        title: current.title,
+        preview: current.preview,
+        announcement: current.announcement,
+        isPublic: current.isPublic,
+        avatar: current.avatar,
+        unread: result.unreadCount,
+        pinned: current.pinned,
+        muted: current.muted,
+        lastMessageSeq: current.lastMessageSeq,
+        lastReadSeq: result.lastReadSeq,
+        lastMentionedSeq: current.lastMentionedSeq,
+        lastChoiceSeq: current.lastChoiceSeq,
+        members: current.members,
+        canSend: current.canSend,
+        topic: current.topic);
+    notifyListeners();
+  }
+
   void apply(Map<String, dynamic> envelope) {
     final value = envelope['cursor'];
     if (value is num && value.toInt() <= cursor) return;
@@ -153,21 +176,36 @@ class RealtimeStore extends ChangeNotifier {
         revokedAt: payload['revoked_at']);
     final sender = payload['sender'];
     final name = sender is Map<String, dynamic> ? sender['name'] : null;
+    final nickname = sender is Map<String, dynamic> ? sender['nickname'] : null;
     final senderId = sender is Map<String, dynamic> ? sender['id'] : null;
     final conversationId = payload['conversation_id'];
     final reply = payload['reply_to'];
     final replySender = reply is Map<String, dynamic> ? reply['sender'] : null;
-    final replyName =
-        replySender is Map<String, dynamic> && replySender['name'] is String
-            ? replySender['name'] as String
+    final replyNickname =
+        replySender is Map<String, dynamic> ? replySender['nickname'] : null;
+    final replyNameValue =
+        replySender is Map<String, dynamic> ? replySender['name'] : null;
+    final replySenderId =
+        replySender is Map<String, dynamic> ? replySender['id'] : null;
+    final replyName = replyNickname is String && replyNickname.trim().isNotEmpty
+        ? replyNickname.trim()
+        : replyNameValue is String && replyNameValue.trim().isNotEmpty
+            ? replyNameValue.trim()
             : '用户';
     final rawTopic = payload['topic'];
     final topic = rawTopic is Map<String, dynamic>
         ? MessageTopic.fromJson(rawTopic)
         : previous?.topic;
     final sequence = (payload['seq'] as num?)?.toInt() ?? previous?.sequence;
-    final author =
-        name is String && name.isNotEmpty ? name : previous?.author ?? '用户';
+    final author = nickname is String && nickname.trim().isNotEmpty
+        ? nickname.trim()
+        : name is String && name.trim().isNotEmpty
+            ? name.trim()
+            : previous?.author != null && previous!.author.trim().isNotEmpty
+                ? previous.author
+                : senderId is String && senderId.trim().isNotEmpty
+                    ? senderId
+                    : '成员';
     final resolvedSenderId = senderId is String ? senderId : previous?.authorId;
     final resolvedConversationId =
         conversationId is String ? conversationId : previous?.conversationId;
@@ -177,6 +215,7 @@ class RealtimeStore extends ChangeNotifier {
             ? MessageReply(
                 id: reply['id'] as String,
                 author: replyName,
+                authorId: replySenderId is String ? replySenderId : null,
                 text: reply['summary'] is String &&
                         (reply['summary'] as String).isNotEmpty
                     ? reply['summary'] as String

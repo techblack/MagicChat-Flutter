@@ -195,7 +195,9 @@ String? parseInternalMessagePath(String value) {
 String formatMentionText(
     String content, Iterable<({String id, String name})> contacts) {
   final names = {
-    for (final contact in contacts) contact.id.toLowerCase(): contact.name
+    for (final contact in contacts)
+      if (contact.name.trim().isNotEmpty)
+        contact.id.toLowerCase(): contact.name.trim()
   };
   return content.replaceAllMapped(RegExp(r'\{\(@(user|app)/([^}]+)\)\}'),
       (match) {
@@ -203,6 +205,6 @@ String formatMentionText(
     final id = match.group(2)!.toLowerCase();
     if (type == 'user' && id == 'all') return '@所有人';
     final name = names[id];
-    return '@${name?.isNotEmpty == true ? name : type == 'app' ? '应用' : '用户'}';
+    return '@${name?.isNotEmpty == true ? name : type == 'app' ? '应用' : '成员'}';
   });
 }

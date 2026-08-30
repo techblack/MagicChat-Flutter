@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'message_cache_store.dart';
+import 'contact_cache_store.dart';
 
 class StorageInfo {
   const StorageInfo({required this.path, required this.bytes});
@@ -18,6 +19,7 @@ class StorageService {
       : _messageCacheStore = messageCacheStore ?? MessageCacheStore();
 
   final MessageCacheStore _messageCacheStore;
+  final ContactCacheStore _contactCacheStore = ContactCacheStore();
 
   Future<Directory> _cacheDirectory() async => getTemporaryDirectory();
   Future<StorageInfo> inspect() async {
@@ -27,6 +29,7 @@ class StorageService {
 
   Future<void> clearCache() async {
     await _messageCacheStore.clearAll();
+    await _contactCacheStore.clearAll();
     final directory = await _cacheDirectory();
     if (!directory.existsSync()) return;
     for (final entity in directory.listSync()) {

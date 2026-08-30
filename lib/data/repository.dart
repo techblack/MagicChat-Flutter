@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import '../domain/models.dart';
 import '../domain/message_content.dart';
@@ -47,12 +48,14 @@ abstract interface class MagicChatRepository {
       {String? replyToMessageId});
   Future<bool> setConversationPinned(String conversationId, bool pinned);
   Future<bool> setConversationMuted(String conversationId, bool muted);
-  Future<void> markConversationRead(String conversationId, int upToSeq);
+  Future<ConversationReadResult> markConversationRead(
+      String conversationId, int upToSeq);
   Future<List<MessageSearchResult>> searchMessages(String keyword);
   Future<void> revokeMessage(String conversationId, String messageId);
   Future<void> sendFile(String conversationId, AttachmentUpload upload,
       {String? replyToMessageId});
   Future<Uri?> attachmentUrl(String fileId);
+  Future<Uint8List?> downloadAttachment(String fileId);
   Future<void> sendImage(String conversationId, AttachmentUpload upload,
       {String caption = '', String? replyToMessageId});
   Future<void> sendVoice(String conversationId, AttachmentUpload upload,
@@ -452,7 +455,10 @@ class DemoRepository implements MagicChatRepository {
   Future<bool> setConversationMuted(String conversationId, bool muted) async =>
       muted;
   @override
-  Future<void> markConversationRead(String conversationId, int upToSeq) async {}
+  Future<ConversationReadResult> markConversationRead(
+          String conversationId, int upToSeq) async =>
+      ConversationReadResult(
+          conversationId: conversationId, lastReadSeq: upToSeq, unreadCount: 0);
 
   @override
   Future<List<MessageSearchResult>> searchMessages(String keyword) async =>
@@ -463,6 +469,8 @@ class DemoRepository implements MagicChatRepository {
       {String? replyToMessageId}) async {}
   @override
   Future<Uri?> attachmentUrl(String fileId) async => null;
+  @override
+  Future<Uint8List?> downloadAttachment(String fileId) async => null;
   @override
   Future<void> revokeMessage(String conversationId, String messageId) async {}
   @override
@@ -1202,15 +1210,21 @@ class HttpMagicChatRepository implements MagicChatRepository {
   List<Contact> _membersFromJson(Object? value) => value is List
       ? value
           .whereType<Map<String, dynamic>>()
-          .where((item) => item['id'] is String && item['name'] is String)
+          .where((item) =>
+              item['id'] is String && (item['id'] as String).trim().isNotEmpty)
           .map((item) => Contact(
               id: item['id'] as String,
-              name: item['name'] as String,
+              name: item['name'] is String ? item['name'] as String : '',
               online: item['online'] == true,
               type: item['type'] == 'app' ? 'app' : 'user',
               role: item['role'] == 'owner' || item['role'] == 'admin'
                   ? item['role'] as String
-                  : 'member'))
+                  : 'member',
+              nickname:
+                  item['nickname'] is String ? item['nickname'] as String : '',
+              email: item['email'] is String ? item['email'] as String : '',
+              phone: item['phone'] is String ? item['phone'] as String : '',
+              avatar: item['avatar'] is String ? item['avatar'] as String : ''))
           .toList()
       : const [];
 
@@ -1356,13 +1370,21 @@ class HttpMagicChatRepository implements MagicChatRepository {
     final content = MessageContent.fromEnvelope(item['body'],
         revokedAt: item['revoked_at']);
     final sender = item['sender'];
-    final senderName = sender is Map<String, dynamic> ? sender['name'] : null;
     final senderId = sender is Map<String, dynamic> ? sender['id'] : null;
+    final senderName = sender is Map<String, dynamic> ? sender['name'] : null;
+    final senderNickname =
+        sender is Map<String, dynamic> ? sender['nickname'] : null;
     return ChatMessage(
         id: '${item['id'] ?? ''}',
         sequence: (item['seq'] as num?)?.toInt(),
         authorId: senderId is String ? senderId : null,
-        author: '${senderName ?? '用户'}',
+        author: senderNickname is String && senderNickname.trim().isNotEmpty
+            ? senderNickname.trim()
+            : senderName is String && senderName.trim().isNotEmpty
+                ? senderName.trim()
+                : senderId is String && senderId.trim().isNotEmpty
+                    ? senderId
+                    : '成员',
         conversationId: conversationId,
         contentType: content.type,
         rawBody: content.raw,
@@ -1494,13 +1516,19 @@ class HttpMagicChatRepository implements MagicChatRepository {
   MessageReply? _replyFromJson(Object? value) {
     if (value is! Map<String, dynamic> || value['id'] is! String) return null;
     final sender = value['sender'];
-    final name = sender is Map<String, dynamic> && sender['name'] is String
-        ? sender['name'] as String
-        : '用户';
+    final nickname = sender is Map<String, dynamic> ? sender['nickname'] : null;
+    final name = sender is Map<String, dynamic> ? sender['name'] : null;
+    final senderId = sender is Map<String, dynamic> ? sender['id'] : null;
+    final author = nickname is String && nickname.trim().isNotEmpty
+        ? nickname.trim()
+        : name is String && name.trim().isNotEmpty
+            ? name.trim()
+            : '用户';
     final summary = value['summary'];
     return MessageReply(
         id: value['id'] as String,
-        author: name,
+        author: author,
+        authorId: senderId is String ? senderId : null,
         text: summary is String && summary.isNotEmpty ? summary : '[消息]');
   }
 
@@ -1540,10 +1568,17 @@ class HttpMagicChatRepository implements MagicChatRepository {
   }
 
   @override
-  Future<void> markConversationRead(String conversationId, int upToSeq) async {
-    await _request('POST',
+  Future<ConversationReadResult> markConversationRead(
+      String conversationId, int upToSeq) async {
+    final data = _data(await _request('POST',
         '/api/client/conversations/${Uri.encodeComponent(conversationId)}/read',
-        body: {'up_to_seq': upToSeq});
+        body: {'up_to_seq': upToSeq}));
+    return ConversationReadResult(
+        conversationId: data['conversation_id'] is String
+            ? data['conversation_id'] as String
+            : conversationId,
+        lastReadSeq: (data['last_read_seq'] as num?)?.toInt() ?? upToSeq,
+        unreadCount: (data['unread_count'] as num?)?.toInt() ?? 0);
   }
 
   @override
@@ -1565,6 +1600,9 @@ class HttpMagicChatRepository implements MagicChatRepository {
           final body = MessageContent.parse(message['body']);
           final sender = message['sender'];
           final name = sender is Map<String, dynamic> ? sender['name'] : null;
+          final nickname =
+              sender is Map<String, dynamic> ? sender['nickname'] : null;
+          final senderId = sender is Map<String, dynamic> ? sender['id'] : null;
           final conversationId = conversation['id'];
           final conversationName = conversation['name'];
           final chat = ChatMessage(
@@ -1572,7 +1610,13 @@ class HttpMagicChatRepository implements MagicChatRepository {
               authorId: sender is Map<String, dynamic> && sender['id'] is String
                   ? sender['id'] as String
                   : null,
-              author: name is String ? name : '用户',
+              author: nickname is String && nickname.trim().isNotEmpty
+                  ? nickname.trim()
+                  : name is String && name.trim().isNotEmpty
+                      ? name.trim()
+                      : senderId is String && senderId.trim().isNotEmpty
+                          ? senderId
+                          : '成员',
               conversationId: conversationId is String ? conversationId : null,
               contentType: body.type,
               rawBody: body.raw,
@@ -1613,6 +1657,17 @@ class HttpMagicChatRepository implements MagicChatRepository {
     final value = urls.first;
     final url = value is Map<String, dynamic> ? value['url'] : null;
     return url is String && Uri.tryParse(url) != null ? Uri.parse(url) : null;
+  }
+
+  @override
+  Future<Uint8List?> downloadAttachment(String fileId) async {
+    final uri = await attachmentUrl(fileId);
+    if (uri == null) return null;
+    final response = await _client.get(uri).timeout(requestTimeout);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('附件下载失败（HTTP ${response.statusCode}）');
+    }
+    return response.bodyBytes;
   }
 
   @override

@@ -53,12 +53,21 @@ class ChatConversation {
     final members = rawMembers is List
         ? rawMembers
             .whereType<Map<String, dynamic>>()
-            .where((item) => item['id'] is String && item['name'] is String)
+            .where((item) =>
+                item['id'] is String &&
+                (item['id'] as String).trim().isNotEmpty)
             .map((item) => Contact(
                 id: item['id'] as String,
-                name: item['name'] as String,
+                name: item['name'] is String ? item['name'] as String : '',
                 avatar:
                     item['avatar'] is String ? item['avatar'] as String : '',
+                nickname: item['nickname'] is String
+                    ? item['nickname'] as String
+                    : '',
+                email: item['email'] is String ? item['email'] as String : '',
+                phone: item['phone'] is String ? item['phone'] as String : '',
+                role:
+                    item['role'] is String ? item['role'] as String : 'member',
                 type: item['type'] == 'app' ? 'app' : 'user'))
             .toList(growable: false)
         : const <Contact>[];
@@ -90,6 +99,18 @@ class ChatConversation {
           : null,
     );
   }
+}
+
+class ConversationReadResult {
+  const ConversationReadResult({
+    required this.conversationId,
+    required this.lastReadSeq,
+    required this.unreadCount,
+  });
+
+  final String conversationId;
+  final int lastReadSeq;
+  final int unreadCount;
 }
 
 class TopicSourceSender {
@@ -677,11 +698,12 @@ class ForwardMessagesResult {
 
 class MessageReply {
   const MessageReply(
-      {required this.id, required this.author, required this.text});
+      {required this.id, required this.author, required this.text, this.authorId});
 
   final String id;
   final String author;
   final String text;
+  final String? authorId;
 }
 
 /// 消息对应的话题摘要，附加在父会话中的来源消息上。
@@ -1035,7 +1057,39 @@ class Contact {
   final int memberCount;
   final String visibility;
 
-  String get displayName => nickname.isEmpty ? name : nickname;
+  String get displayName {
+    final preferred = nickname.trim();
+    if (preferred.isNotEmpty) return preferred;
+    final fallback = name.trim();
+    return fallback.isNotEmpty ? fallback : id;
+  }
+
+  Contact copyWith({
+    String? name,
+    bool? online,
+    String? type,
+    String? role,
+    String? nickname,
+    String? email,
+    String? phone,
+    String? avatar,
+    bool? joined,
+    int? memberCount,
+    String? visibility,
+  }) =>
+      Contact(
+          id: id,
+          name: name ?? this.name,
+          online: online ?? this.online,
+          type: type ?? this.type,
+          role: role ?? this.role,
+          nickname: nickname ?? this.nickname,
+          email: email ?? this.email,
+          phone: phone ?? this.phone,
+          avatar: avatar ?? this.avatar,
+          joined: joined ?? this.joined,
+          memberCount: memberCount ?? this.memberCount,
+          visibility: visibility ?? this.visibility);
 }
 
 class ContactDirectory {

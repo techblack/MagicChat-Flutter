@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,6 +16,7 @@ import 'data/platform_connector_selector.dart';
 import 'data/realtime.dart';
 import 'data/realtime_store.dart';
 import 'data/message_cache_store.dart';
+import 'data/contact_cache_store.dart';
 import 'data/document_collaboration.dart';
 import 'data/push_service.dart';
 import 'data/local_notification_service.dart';
@@ -168,6 +170,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
     }
     await prefs.remove('magicchat.server_url');
     await MessageCacheStore().clearAll();
+    await ContactCacheStore().clearAll();
     await _realtime?.close();
     if (mounted) {
       setState(() {
@@ -196,6 +199,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
     await _realtime?.close();
     await const SessionStore().clear();
     await MessageCacheStore().clearAll();
+    await ContactCacheStore().clearAll();
     await prefs.setString('magicchat.server_url', normalized);
     if (mounted)
       setState(() {
@@ -517,6 +521,8 @@ class _AppShellState extends State<AppShell> {
   String? _currentUserId;
   int _index = 0;
   String? _selectedConversation;
+  final _conversationHistory = <String>[];
+  final _contactCacheStore = ContactCacheStore();
   StreamSubscription<Map<String, dynamic>>? _realtimeSubscription;
   final _notifications = const LocalNotificationService();
 
@@ -528,6 +534,7 @@ class _AppShellState extends State<AppShell> {
     if (realtime != null && store != null) {
       unawaited(widget.repository.currentUser().then((user) {
         store.setCurrentUserId(user.id);
+        unawaited(_rememberCurrentUser(user));
         if (mounted) setState(() => _currentUserId = user.id);
       }).catchError((_) {}));
       _realtimeSubscription = realtime.events.listen((event) {
@@ -538,10 +545,26 @@ class _AppShellState extends State<AppShell> {
     }
     if (realtime == null || store == null) {
       unawaited(widget.repository.currentUser().then((user) {
+        unawaited(_rememberCurrentUser(user));
         if (mounted) setState(() => _currentUserId = user.id);
       }).catchError((_) {}));
     }
     _resolveNotificationRoute();
+  }
+
+  Future<void> _rememberCurrentUser(CurrentUser user) async {
+    final server = widget.serverUrl?.trim();
+    if (server == null || server.isEmpty || user.id.trim().isEmpty) return;
+    await _contactCacheStore
+        .write(MessageCacheScope(serverUrl: server, userId: user.id), [
+      Contact(
+          id: user.id,
+          name: user.name,
+          nickname: user.nickname,
+          email: user.email,
+          phone: user.phone,
+          avatar: user.avatar),
+    ]);
   }
 
   Future<void> _notifyIncomingMessage(Map<String, dynamic> event) async {
@@ -578,7 +601,7 @@ class _AppShellState extends State<AppShell> {
           serverUrl: widget.serverUrl!,
           sessionToken: token,
           routeToken: routeToken);
-      if (mounted) setState(() => _selectedConversation = route.conversationId);
+      if (mounted) _selectConversationFromList(route.conversationId);
     } catch (_) {
       // 通知路由失效时保留正常首页，不阻断主应用启动。
     }
@@ -615,17 +638,19 @@ class _AppShellState extends State<AppShell> {
           realtimeStore: widget.realtimeStore,
           cacheScope: _messageCacheScope,
           selectedId: _selectedConversation,
-          onSelect: (id) =>
-              setState(() => _selectedConversation = id.isEmpty ? null : id),
+          onSelect: _selectConversationFromList,
+          onOpenConversation: _openConversation,
+          onBack: _backConversation,
           onOpenInternalLink: _openInternalMessageLink),
       ContactsPage(
           repository: _repository,
           realtimeStore: widget.realtimeStore,
           serverUrl: widget.serverUrl,
-          onOpenConversation: (id) => setState(() {
-                _selectedConversation = id;
-                _index = 0;
-              })),
+          cacheScope: _messageCacheScope,
+          onOpenConversation: (id) {
+            _selectConversationFromList(id);
+            if (mounted) setState(() => _index = 0);
+          }),
       ProjectsPage(
           repository: _repository,
           documentCollaborationFactory: documentCollaborationFactory),
@@ -657,42 +682,89 @@ class _AppShellState extends State<AppShell> {
           selectedIcon: Icon(Icons.settings),
           label: '设置'),
     ];
-    return Scaffold(
-      appBar: AppBar(
-          title: const Text('MagicChat',
-              style:
-                  TextStyle(fontWeight: FontWeight.w700, letterSpacing: -.2)),
-          actions: [
-            IconButton(
-                onPressed: () => _showSearch(context),
-                icon: const Icon(Icons.search),
-                tooltip: '搜索')
-          ]),
-      body: Row(children: [
-        if (wide)
-          NavigationRail(
-              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-              useIndicator: true,
-              selectedIndex: _index,
-              onDestinationSelected: (i) => setState(() => _index = i),
-              labelType: NavigationRailLabelType.all,
-              destinations: destinations
-                  .map((d) => NavigationRailDestination(
-                      icon: d.icon,
-                      selectedIcon: d.selectedIcon,
-                      label: Text(d.label)))
-                  .toList()),
-        Expanded(child: pages[_index])
-      ]),
-      bottomNavigationBar: wide
-          ? null
-          : NavigationBar(
-              backgroundColor: Theme.of(context).colorScheme.surface,
-              elevation: 0,
-              selectedIndex: _index,
-              onDestinationSelected: (i) => setState(() => _index = i),
-              destinations: destinations),
+    return PopScope<void>(
+      canPop: _selectedConversation == null && _index == 0,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) _handleSystemBack();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+            title: const Text('MagicChat',
+                style:
+                    TextStyle(fontWeight: FontWeight.w700, letterSpacing: -.2)),
+            actions: [
+              IconButton(
+                  onPressed: () => _showSearch(context),
+                  icon: const Icon(Icons.search),
+                  tooltip: '搜索')
+            ]),
+        body: Row(children: [
+          if (wide)
+            NavigationRail(
+                backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+                useIndicator: true,
+                selectedIndex: _index,
+                onDestinationSelected: (i) => setState(() => _index = i),
+                labelType: NavigationRailLabelType.all,
+                destinations: destinations
+                    .map((d) => NavigationRailDestination(
+                        icon: d.icon,
+                        selectedIcon: d.selectedIcon,
+                        label: Text(d.label)))
+                    .toList()),
+          Expanded(child: IndexedStack(index: _index, children: pages))
+        ]),
+        bottomNavigationBar: wide
+            ? null
+            : NavigationBar(
+                backgroundColor: Theme.of(context).colorScheme.surface,
+                elevation: 0,
+                selectedIndex: _index,
+                onDestinationSelected: (i) => setState(() => _index = i),
+                destinations: destinations),
+      ),
     );
+  }
+
+  void _selectConversationFromList(String id) {
+    if (!mounted) return;
+    setState(() {
+      _conversationHistory.clear();
+      _selectedConversation = id.isEmpty ? null : id;
+      if (id.isNotEmpty) _index = 0;
+    });
+  }
+
+  void _openConversation(String id) {
+    if (!mounted || id.isEmpty) return;
+    setState(() {
+      if (_selectedConversation != null &&
+          _selectedConversation != id &&
+          !_conversationHistory.contains(_selectedConversation)) {
+        _conversationHistory.add(_selectedConversation!);
+      }
+      _selectedConversation = id;
+      _index = 0;
+    });
+  }
+
+  void _backConversation() {
+    if (!mounted) return;
+    setState(() {
+      if (_conversationHistory.isNotEmpty) {
+        _selectedConversation = _conversationHistory.removeLast();
+      } else {
+        _selectedConversation = null;
+      }
+    });
+  }
+
+  void _handleSystemBack() {
+    if (_index != 0) {
+      setState(() => _index = 0);
+    } else if (_selectedConversation != null) {
+      _backConversation();
+    }
   }
 
   MessageCacheScope? get _messageCacheScope {
@@ -719,10 +791,7 @@ class _AppShellState extends State<AppShell> {
       context: context,
       builder: (dialogContext) => GlobalSearchDialog(
         repository: _repository,
-        onOpenConversation: (id) => setState(() {
-          _selectedConversation = id;
-          _index = 0;
-        }),
+        onOpenConversation: _selectConversationFromList,
         onOpenProject: (_) => setState(() => _index = 2),
         onOpenContact: (_) => setState(() => _index = 1),
       ),
@@ -738,6 +807,8 @@ class MessagesPage extends StatelessWidget {
       this.cacheScope,
       required this.selectedId,
       required this.onSelect,
+      this.onOpenConversation,
+      this.onBack,
       this.onOpenInternalLink,
       super.key});
   final MagicChatRepository repository;
@@ -746,6 +817,8 @@ class MessagesPage extends StatelessWidget {
   final MessageCacheScope? cacheScope;
   final String? selectedId;
   final ValueChanged<String> onSelect;
+  final ValueChanged<String>? onOpenConversation;
+  final VoidCallback? onBack;
   final ValueChanged<String>? onOpenInternalLink;
   @override
   Widget build(BuildContext context) =>
@@ -761,7 +834,7 @@ class MessagesPage extends StatelessWidget {
                 child: Row(children: [
                   IconButton(
                     tooltip: '返回会话列表',
-                    onPressed: () => onSelect(''),
+                    onPressed: onBack ?? () => onSelect(''),
                     icon: const Icon(Icons.arrow_back),
                   ),
                   const Text('聊天',
@@ -775,7 +848,7 @@ class MessagesPage extends StatelessWidget {
                 realtimeStore: realtimeStore,
                 cacheScope: cacheScope,
                 conversationId: selectedId,
-                onOpenConversation: onSelect,
+                onOpenConversation: onOpenConversation ?? onSelect,
                 onOpenInternalLink: onOpenInternalLink,
               ),
             ),
@@ -798,7 +871,7 @@ class MessagesPage extends StatelessWidget {
                       realtimeStore: realtimeStore,
                       cacheScope: cacheScope,
                       conversationId: selectedId,
-                      onOpenConversation: onSelect,
+                      onOpenConversation: onOpenConversation ?? onSelect,
                       onOpenInternalLink: onOpenInternalLink))
           ]),
           Positioned(
@@ -1020,8 +1093,14 @@ class _ConversationListState extends State<_ConversationList> {
                   onTap: () async {
                     widget.onSelect(c.id);
                     if (hasUnread && c.lastMessageSeq > c.lastReadSeq) {
-                      await widget.repository
-                          .markConversationRead(c.id, c.lastMessageSeq);
+                      try {
+                        final result = await widget.repository
+                            .markConversationRead(c.id, c.lastMessageSeq);
+                        widget.realtimeStore?.markConversationRead(result);
+                        if (mounted) setState(_reload);
+                      } catch (_) {
+                        // 打开会话不应被已读接口失败阻断。
+                      }
                     }
                   },
                   onLongPress: () => _showConversationActions(context, c));
@@ -1355,8 +1434,17 @@ class _ConversationViewState extends State<ConversationView> {
   bool _hasMoreOlder = true;
   int? _lastOlderBeforeSeq;
   int _lastReadSequence = 0;
+  bool _readInFlight = false;
+  int? _pendingReadSequence;
+  Timer? _readRetryTimer;
+  String? _positioningConversationId;
+  String? _positionedConversationId;
+  int _positionGeneration = 0;
+  bool _initialPositionPending = true;
+  bool _userScrolledDuringInitialPosition = false;
   final _selectedMessageIds = <String>{};
   List<ChatMessage> _visibleMessages = const [];
+  final _contactCacheStore = ContactCacheStore();
   MessageReply? _replyTo;
   ChatConversation? _conversation;
   TopicDetail? _topicDetail;
@@ -1402,6 +1490,10 @@ class _ConversationViewState extends State<ConversationView> {
     _scrollController.addListener(_onScroll);
     _controller.addListener(_persistDraft);
     widget.realtimeStore?.addListener(_onRealtimeChanged);
+    _readRetryTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      final id = widget.conversationId;
+      if (id != null) _requestLatestRead(id);
+    });
     unawaited(_restoreDraft());
   }
 
@@ -1435,6 +1527,39 @@ class _ConversationViewState extends State<ConversationView> {
   }
 
   Future<List<Contact>> _loadConversationContacts() async {
+    final cached = await _contactCacheStore.read(widget.cacheScope);
+    if (cached.isNotEmpty) {
+      unawaited(_refreshConversationContacts());
+      return cached;
+    }
+    return _fetchConversationContacts();
+  }
+
+  Future<void> _refreshConversationContacts() async {
+    final conversationId = widget.conversationId;
+    try {
+      final fresh = await _fetchConversationContacts();
+      if (!mounted ||
+          conversationId == null ||
+          widget.conversationId != conversationId) {
+        return;
+      }
+      final keepBottom =
+          _positionedConversationId == conversationId && _isAtBottom();
+      final offset = _scrollController.hasClients
+          ? _scrollController.position.pixels
+          : 0.0;
+      setState(() => _contactsFuture = Future.value(fresh));
+      if (keepBottom) {
+        _correctLatestPosition(conversationId,
+            force: true, expectedOffset: offset);
+      }
+    } catch (_) {
+      // 保留本地资料，网络刷新失败不影响消息显示。
+    }
+  }
+
+  Future<List<Contact>> _fetchConversationContacts() async {
     final results = await Future.wait([
       widget.repository.contacts(),
       widget.repository.conversations(),
@@ -1449,7 +1574,20 @@ class _ConversationViewState extends State<ConversationView> {
         if (conversation.id == id) {
           selected = conversation;
           for (final member in conversation.members) {
-            contacts[member.id] = member;
+            final previous = contacts[member.id];
+            contacts[member.id] = previous == null
+                ? member
+                : previous.copyWith(
+                    name: member.name.trim().isNotEmpty ? member.name : null,
+                    nickname: member.nickname.trim().isNotEmpty
+                        ? member.nickname
+                        : null,
+                    avatar:
+                        member.avatar.trim().isNotEmpty ? member.avatar : null,
+                    email: member.email.trim().isNotEmpty ? member.email : null,
+                    phone: member.phone.trim().isNotEmpty ? member.phone : null,
+                    role: member.role,
+                    type: member.type);
           }
           break;
         }
@@ -1461,6 +1599,32 @@ class _ConversationViewState extends State<ConversationView> {
         unawaited(_loadTopicDetail(id));
       }
     }
+    final memberUserIds = contacts.values
+        .where((contact) => contact.type == 'user')
+        .map((contact) => contact.id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (memberUserIds.isNotEmpty) {
+      try {
+        final resolved = await widget.repository.resolveUsers(memberUserIds);
+        for (final user in resolved) {
+          final previous = contacts[user.id];
+          contacts[user.id] = previous == null
+              ? user
+              : previous.copyWith(
+                  name: user.name.isNotEmpty ? user.name : null,
+                  nickname: user.nickname.isNotEmpty ? user.nickname : null,
+                  avatar: user.avatar.isNotEmpty ? user.avatar : null,
+                  email: user.email.isNotEmpty ? user.email : null,
+                  phone: user.phone.isNotEmpty ? user.phone : null,
+                  online: user.online);
+        }
+      } catch (_) {
+        // 成员资料补全失败时仍保留消息接口返回的 ID/名称。
+      }
+    }
+    await _contactCacheStore.write(widget.cacheScope, contacts.values);
     return contacts.values.toList();
   }
 
@@ -1494,11 +1658,15 @@ class _ConversationViewState extends State<ConversationView> {
     final choice = value['choice'];
     final reply = value['reply_to'];
     final rawTopic = value['topic'];
+    final authorId =
+        value['author_id'] is String ? value['author_id'] as String : null;
+    final cachedAuthor = '${value['author'] ?? ''}'.trim();
     return ChatMessage(
       id: value['id'] as String,
-      author: '${value['author'] ?? '用户'}',
-      authorId:
-          value['author_id'] is String ? value['author_id'] as String : null,
+      author: cachedAuthor.isEmpty || cachedAuthor == '用户'
+          ? authorId ?? '成员'
+          : cachedAuthor,
+      authorId: authorId,
       conversationId: value['conversation_id'] as String?,
       sequence: (value['sequence'] as num?)?.toInt(),
       contentType: '${value['content_type'] ?? 'text'}',
@@ -1511,7 +1679,10 @@ class _ConversationViewState extends State<ConversationView> {
       replyTo: reply is Map<String, dynamic> && reply['id'] is String
           ? MessageReply(
               id: reply['id'] as String,
-              author: '${reply['author'] ?? '用户'}',
+              author: '${reply['author'] ?? '成员'}',
+              authorId: reply['author_id'] is String
+                  ? reply['author_id'] as String
+                  : null,
               text: '${reply['text'] ?? '[消息]'}')
           : null,
       topic: rawTopic is Map<String, dynamic>
@@ -1575,6 +1746,7 @@ class _ConversationViewState extends State<ConversationView> {
                       : {
                           'id': message.replyTo!.id,
                           'author': message.replyTo!.author,
+                          'author_id': message.replyTo!.authorId,
                           'text': message.replyTo!.text,
                         },
                   if (message.topic != null) 'topic': message.topic!.toJson(),
@@ -1621,6 +1793,9 @@ class _ConversationViewState extends State<ConversationView> {
   }
 
   Future<void> _refreshMessages(String id) async {
+    final keepBottom = _positionedConversationId == id && _isAtBottom();
+    final offset =
+        _scrollController.hasClients ? _scrollController.position.pixels : 0.0;
     final fresh = await widget.repository.messages(id);
     _messagePage = fresh is MessagePage ? fresh : null;
     _hasMoreOlder = _messagePage?.hasMoreBefore ?? true;
@@ -1635,6 +1810,9 @@ class _ConversationViewState extends State<ConversationView> {
     setState(() {
       _messagesFuture = Future.value(merged);
     });
+    if (keepBottom) {
+      _correctLatestPosition(id, force: true, expectedOffset: offset);
+    }
     unawaited(_refreshMessageSnapshots(id, merged));
   }
 
@@ -1713,6 +1891,10 @@ class _ConversationViewState extends State<ConversationView> {
 
   Future<void> _refreshMessageSnapshots(
       String conversationId, List<ChatMessage> messages) async {
+    final keepBottom =
+        _positionedConversationId == conversationId && _isAtBottom();
+    final offset =
+        _scrollController.hasClients ? _scrollController.position.pixels : 0.0;
     final updated = await _applyMessageSnapshots(conversationId, messages);
     if (!mounted || widget.conversationId != conversationId) return;
     await _cacheMessages(conversationId, updated);
@@ -1720,6 +1902,10 @@ class _ConversationViewState extends State<ConversationView> {
     setState(() {
       _messagesFuture = Future.value(updated);
     });
+    if (keepBottom) {
+      _correctLatestPosition(conversationId,
+          force: true, expectedOffset: offset);
+    }
   }
 
   void _onRealtimeChanged() {
@@ -1736,7 +1922,8 @@ class _ConversationViewState extends State<ConversationView> {
     if (cancelRecording) unawaited(_cancelRecording());
   }
 
-  void _markLatestRead(List<ChatMessage> messages, String conversationId) {
+  void _requestLatestRead(String conversationId, [List<ChatMessage>? source]) {
+    final messages = source ?? _visibleMessages;
     final latest = messages
         .where((message) => message.sequence != null)
         .fold<int>(0, (value, message) => max(value, message.sequence!));
@@ -1746,16 +1933,44 @@ class _ConversationViewState extends State<ConversationView> {
                 _scrollController.position.pixels <
             48;
     if (!atBottom) return;
-    _lastReadSequence = latest;
-    unawaited(widget.repository.markConversationRead(conversationId, latest));
+    _pendingReadSequence = max(_pendingReadSequence ?? 0, latest);
+    if (_readInFlight) return;
+    unawaited(_flushRead(conversationId));
+  }
+
+  Future<void> _flushRead(String conversationId) async {
+    final pending = _pendingReadSequence;
+    if (pending == null || pending <= _lastReadSequence || _readInFlight)
+      return;
+    _readInFlight = true;
+    try {
+      final result =
+          await widget.repository.markConversationRead(conversationId, pending);
+      if (!mounted || widget.conversationId != conversationId) return;
+      _lastReadSequence = max(_lastReadSequence, result.lastReadSeq);
+      if (_pendingReadSequence != null &&
+          _pendingReadSequence! <= _lastReadSequence) {
+        _pendingReadSequence = null;
+      }
+      widget.realtimeStore?.markConversationRead(result);
+    } catch (_) {
+      // 定时器或下一次滚动会重试失败的已读请求。
+    } finally {
+      _readInFlight = false;
+      final next = _pendingReadSequence;
+      if (mounted && next != null && next > _lastReadSequence) {
+        unawaited(_flushRead(conversationId));
+      }
+    }
   }
 
   Future<void> _onScroll() async {
+    final id = widget.conversationId;
+    if (id != null) _requestLatestRead(id);
     if (_loadingOlder ||
         !_hasMoreOlder ||
         !_scrollController.hasClients ||
         _scrollController.position.pixels > 24) return;
-    final id = widget.conversationId;
     if (id == null || !mounted) return;
     final snapshot = await _messagesFuture;
     if (snapshot == null || snapshot.isEmpty) return;
@@ -1771,6 +1986,8 @@ class _ConversationViewState extends State<ConversationView> {
         first!.sequence! <= 1 ||
         _lastOlderBeforeSeq == first.sequence) return;
     _lastOlderBeforeSeq = first.sequence;
+    final anchorOffset = _scrollController.position.pixels;
+    final anchorMaxExtent = _scrollController.position.maxScrollExtent;
     setState(() => _loadingOlder = true);
     try {
       final olderPage = await widget.repository
@@ -1790,12 +2007,72 @@ class _ConversationViewState extends State<ConversationView> {
         _olderMessages.insertAll(0, added);
         unawaited(_cacheMessages(id, [..._olderMessages, ...snapshot]));
         setState(() {});
+        if (added.isNotEmpty) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted ||
+                widget.conversationId != id ||
+                !_scrollController.hasClients) return;
+            final currentOffset = _scrollController.position.pixels;
+            if ((currentOffset - anchorOffset).abs() > 24) return;
+            final delta =
+                _scrollController.position.maxScrollExtent - anchorMaxExtent;
+            final target = (anchorOffset + delta)
+                .clamp(0.0, _scrollController.position.maxScrollExtent);
+            _scrollController.jumpTo(target.toDouble());
+          });
+        }
         if (added.isNotEmpty)
           unawaited(_refreshOlderMessageSnapshots(id, added));
       }
     } finally {
       if (mounted) setState(() => _loadingOlder = false);
     }
+  }
+
+  void _scheduleLatestPosition(
+      String conversationId, List<ChatMessage> messages) {
+    if (!_initialPositionPending ||
+        _positionedConversationId == conversationId ||
+        _positioningConversationId == conversationId) return;
+    if (messages.isEmpty) return;
+    _positioningConversationId = conversationId;
+    final generation = _positionGeneration;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          widget.conversationId != conversationId ||
+          generation != _positionGeneration) return;
+      _positioningConversationId = null;
+      _initialPositionPending = false;
+      _positionedConversationId = conversationId;
+      if (!_userScrolledDuringInitialPosition && _scrollController.hasClients) {
+        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+      }
+      _requestLatestRead(conversationId, messages);
+    });
+  }
+
+  bool _isAtBottom() =>
+      !_scrollController.hasClients ||
+      _scrollController.position.maxScrollExtent -
+              _scrollController.position.pixels <
+          48;
+
+  void _correctLatestPosition(String conversationId,
+      {bool force = false, double? expectedOffset}) {
+    final generation = _positionGeneration;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          widget.conversationId != conversationId ||
+          generation != _positionGeneration) return;
+      final unchanged = expectedOffset == null ||
+          (_scrollController.hasClients &&
+              (_scrollController.position.pixels - expectedOffset).abs() < 4);
+      if (_scrollController.hasClients &&
+          unchanged &&
+          (force || _isAtBottom())) {
+        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+      }
+    });
   }
 
   Future<void> _refreshOlderMessageSnapshots(
@@ -1834,6 +2111,12 @@ class _ConversationViewState extends State<ConversationView> {
       _hasMoreOlder = true;
       _lastOlderBeforeSeq = null;
       _lastReadSequence = 0;
+      _pendingReadSequence = null;
+      _positioningConversationId = null;
+      _positionedConversationId = null;
+      _positionGeneration++;
+      _initialPositionPending = true;
+      _userScrolledDuringInitialPosition = false;
       _replyTo = null;
       _conversation = null;
       _topicDetail = null;
@@ -1850,12 +2133,19 @@ class _ConversationViewState extends State<ConversationView> {
       _lastOlderBeforeSeq = null;
       _messagePage = null;
       _messagesFuture = _loadMessages();
+      _positioningConversationId = null;
+      _positionedConversationId = null;
+      _positionGeneration++;
+      _initialPositionPending = true;
+      _userScrolledDuringInitialPosition = false;
+      _contactsFuture = _loadConversationContacts();
     }
   }
 
   @override
   void dispose() {
     widget.realtimeStore?.removeListener(_onRealtimeChanged);
+    _readRetryTimer?.cancel();
     _persistDraft();
     _controller.removeListener(_persistDraft);
     _controller.dispose();
@@ -1967,59 +2257,77 @@ class _ConversationViewState extends State<ConversationView> {
                   realtimeMessages == null || realtimeMessages.isEmpty
                       ? snapshot.data!
                       : [...snapshot.data!, ...realtimeMessages];
-              final allMessages = [..._olderMessages, ...messages]
-                  .fold<List<ChatMessage>>([], (result, message) {
-                if (!result.any((item) => item.id == message.id))
-                  result.add(message);
-                return result;
-              });
+              final byId = <String, ChatMessage>{};
+              for (final message in [..._olderMessages, ...messages]) {
+                byId[message.id] = message;
+              }
+              final allMessages = byId.values.toList()
+                ..sort((left, right) {
+                  final leftSeq = left.sequence;
+                  final rightSeq = right.sequence;
+                  if (leftSeq == null && rightSeq == null) return 0;
+                  if (leftSeq == null) return 1;
+                  if (rightSeq == null) return -1;
+                  return leftSeq.compareTo(rightSeq);
+                });
               _visibleMessages = allMessages;
-              _markLatestRead(allMessages, conversationId);
-              return ListView(
-                controller: _scrollController,
-                padding: const EdgeInsets.fromLTRB(8, 16, 8, 12),
-                children: allMessages
-                    .map((message) => Align(
-                          alignment: message.contentType == 'system_event'
-                              ? Alignment.center
-                              : message.mine
-                                  ? Alignment.centerRight
-                                  : Alignment.centerLeft,
-                          child: GestureDetector(
-                            onTap: _selectedMessageIds.isEmpty ||
-                                    !_canForwardOrSelect(message)
-                                ? null
-                                : () => setState(() {
-                                      if (!_selectedMessageIds
-                                          .remove(message.id)) {
-                                        if (_selectedMessageIds.length >=
-                                            _maxSelectedMessages) return;
-                                        _selectedMessageIds.add(message.id);
-                                      }
-                                    }),
-                            onLongPress: () {
-                              if (_selectedMessageIds.isNotEmpty) {
-                                if (!_canForwardOrSelect(message)) return;
-                                if (_selectedMessageIds.length >=
-                                    _maxSelectedMessages) return;
-                                setState(
-                                    () => _selectedMessageIds.add(message.id));
-                              } else if (_hasMessageActions(message)) {
-                                _showMessageActions(conversationId, message);
-                              }
-                            },
-                            child: _MessageBubble(
-                                message: message,
-                                repository: widget.repository,
-                                conversationId: conversationId,
-                                canReact: _topicIsOpen(conversationId),
-                                canRespond: canSend,
-                                onOpenTopic: widget.onOpenConversation,
-                                onOpenInternalLink: widget.onOpenInternalLink,
-                                contactsFuture: _contactsFuture),
-                          ),
-                        ))
-                    .toList(),
+              _scheduleLatestPosition(conversationId, allMessages);
+              return NotificationListener<UserScrollNotification>(
+                onNotification: (notification) {
+                  if (_initialPositionPending &&
+                      notification.direction != ScrollDirection.idle) {
+                    _userScrolledDuringInitialPosition = true;
+                  }
+                  return false;
+                },
+                child: ListView(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.fromLTRB(8, 16, 8, 12),
+                  children: allMessages
+                      .map((message) => Align(
+                            alignment: message.contentType == 'system_event'
+                                ? Alignment.center
+                                : message.mine
+                                    ? Alignment.centerRight
+                                    : Alignment.centerLeft,
+                            child: GestureDetector(
+                              onTap: _selectedMessageIds.isEmpty ||
+                                      !_canForwardOrSelect(message)
+                                  ? null
+                                  : () => setState(() {
+                                        if (!_selectedMessageIds
+                                            .remove(message.id)) {
+                                          if (_selectedMessageIds.length >=
+                                              _maxSelectedMessages) return;
+                                          _selectedMessageIds.add(message.id);
+                                        }
+                                      }),
+                              onLongPress: () {
+                                if (_selectedMessageIds.isNotEmpty) {
+                                  if (!_canForwardOrSelect(message)) return;
+                                  if (_selectedMessageIds.length >=
+                                      _maxSelectedMessages) return;
+                                  setState(() =>
+                                      _selectedMessageIds.add(message.id));
+                                } else if (_hasMessageActions(message)) {
+                                  _showMessageActions(conversationId, message);
+                                }
+                              },
+                              child: _MessageBubble(
+                                  message: message,
+                                  repository: widget.repository,
+                                  conversationId: conversationId,
+                                  canReact: _topicIsOpen(conversationId),
+                                  canRespond: canSend,
+                                  onOpenTopic: widget.onOpenConversation,
+                                  onOpenInternalLink: widget.onOpenInternalLink,
+                                  onForwardMessage: (id) =>
+                                      _showForwardDialog(conversationId, [id]),
+                                  contactsFuture: _contactsFuture),
+                            ),
+                          ))
+                      .toList(),
+                ),
               );
             },
           ),
@@ -2056,8 +2364,61 @@ class _ConversationViewState extends State<ConversationView> {
                           icon: const Icon(Icons.close, size: 18)),
                     ]),
                   ),
-                Row(
-                  children: [
+                // 输入框单独占一行，操作按钮放到下一行，窄屏不会再被挤压。
+                Row(children: [
+                  Expanded(
+                      child: TextField(
+                          controller: _controller,
+                          readOnly: !canSend,
+                          minLines: 1,
+                          maxLines: 5,
+                          textInputAction: TextInputAction.newline,
+                          decoration: InputDecoration(
+                              hintText: canSend ? '输入消息…' : '话题已关闭',
+                              isDense: true))),
+                  const SizedBox(width: 6),
+                  IconButton.filled(
+                    icon: const Icon(Icons.send_rounded),
+                    style: IconButton.styleFrom(
+                        minimumSize: const Size(46, 46),
+                        shape: const CircleBorder()),
+                    tooltip: '发送',
+                    onPressed: !canSend
+                        ? null
+                        : () async {
+                            final text = _controller.text.trim();
+                            if (text.isEmpty) return;
+                            try {
+                              await widget.repository.sendMessage(
+                                  conversationId, text,
+                                  replyToMessageId: _replyTo?.id);
+                              _controller.clear();
+                              if (mounted) setState(() => _replyTo = null);
+                              final key = _draftKey;
+                              if (key != null) {
+                                final prefs =
+                                    await SharedPreferences.getInstance();
+                                await prefs.remove(key);
+                              }
+                              if (mounted) setState(() {});
+                            } catch (error) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('发送消息失败：$error')));
+                              }
+                            }
+                          },
+                  ),
+                ]),
+                const SizedBox(height: 2),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Wrap(spacing: 0, runSpacing: 0, children: [
+                    IconButton(
+                      icon: const Icon(Icons.emoji_emotions_outlined),
+                      tooltip: '选择表情',
+                      onPressed: canSend ? _showEmojiPicker : null,
+                    ),
                     IconButton(
                       icon: const Icon(Icons.folder_outlined),
                       tooltip: '历史附件',
@@ -2103,55 +2464,7 @@ class _ConversationViewState extends State<ConversationView> {
                           ? null
                           : () => _toggleVoice(conversationId),
                     ),
-                    Expanded(
-                        child: TextField(
-                            controller: _controller,
-                            readOnly: !canSend,
-                            minLines: 1,
-                            maxLines: 5,
-                            textInputAction: TextInputAction.newline,
-                            decoration: InputDecoration(
-                                hintText: canSend ? '输入消息…' : '话题已关闭',
-                                prefixIcon: IconButton(
-                                  tooltip: '选择表情',
-                                  icon: Icon(Icons.emoji_emotions_outlined),
-                                  onPressed: canSend ? _showEmojiPicker : null,
-                                ),
-                                isDense: true))),
-                    const SizedBox(width: 6),
-                    IconButton.filled(
-                      icon: const Icon(Icons.send_rounded),
-                      style: IconButton.styleFrom(
-                          minimumSize: const Size(46, 46),
-                          shape: const CircleBorder()),
-                      tooltip: '发送',
-                      onPressed: !canSend
-                          ? null
-                          : () async {
-                              final text = _controller.text.trim();
-                              if (text.isEmpty) return;
-                              try {
-                                await widget.repository.sendMessage(
-                                    conversationId, text,
-                                    replyToMessageId: _replyTo?.id);
-                                _controller.clear();
-                                if (mounted) setState(() => _replyTo = null);
-                                final key = _draftKey;
-                                if (key != null) {
-                                  final prefs =
-                                      await SharedPreferences.getInstance();
-                                  await prefs.remove(key);
-                                }
-                                if (mounted) setState(() {});
-                              } catch (error) {
-                                if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('发送消息失败：$error')));
-                                }
-                              }
-                            },
-                    ),
-                  ],
+                  ]),
                 ),
               ],
             ),
@@ -2438,7 +2751,10 @@ class _ConversationViewState extends State<ConversationView> {
     } else if (action == 'reply' && _topicIsOpen(conversationId)) {
       if (mounted) {
         setState(() => _replyTo = MessageReply(
-            id: message.id, author: message.author, text: message.text));
+            id: message.id,
+            author: message.author,
+            authorId: message.authorId,
+            text: message.text));
       }
     } else if (action == 'revoke' && _topicIsOpen(conversationId)) {
       await _confirmRevoke(conversationId, message);
@@ -2668,6 +2984,7 @@ class _MessageBubble extends StatelessWidget {
       this.canRespond = true,
       this.onOpenTopic,
       this.onOpenInternalLink,
+      this.onForwardMessage,
       this.contactsFuture});
   final ChatMessage message;
   final MagicChatRepository repository;
@@ -2676,7 +2993,91 @@ class _MessageBubble extends StatelessWidget {
   final bool canRespond;
   final ValueChanged<String>? onOpenTopic;
   final ValueChanged<String>? onOpenInternalLink;
+  final Future<void> Function(String messageId)? onForwardMessage;
   final Future<List<Contact>>? contactsFuture;
+
+  Future<void> _showImageViewer(BuildContext context, Uri uri) async {
+    final fileId = message.rawBody['file_id'];
+    final name = message.rawBody['name'];
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (dialogContext) => Dialog.fullscreen(
+        backgroundColor: Colors.black,
+        child: SafeArea(
+          child: Stack(children: [
+            Positioned.fill(
+              child: InteractiveViewer(
+                minScale: .25,
+                maxScale: 6,
+                boundaryMargin: const EdgeInsets.all(80),
+                child: Center(
+                  child: Image.network(uri.toString(),
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => const Text('图片加载失败',
+                          style: TextStyle(color: Colors.white))),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 4,
+              left: 4,
+              right: 4,
+              child: Row(children: [
+                IconButton(
+                    tooltip: '关闭',
+                    color: Colors.white,
+                    onPressed: () => Navigator.pop(dialogContext),
+                    icon: const Icon(Icons.close)),
+                const Spacer(),
+                if (fileId is String && fileId.isNotEmpty)
+                  IconButton(
+                    tooltip: '保存图片',
+                    color: Colors.white,
+                    icon: const Icon(Icons.download_outlined),
+                    onPressed: () => _saveImage(
+                        context,
+                        fileId,
+                        name is String && name.trim().isNotEmpty
+                            ? name.trim()
+                            : 'image-${message.id}.jpg'),
+                  ),
+                if (onForwardMessage != null)
+                  IconButton(
+                    tooltip: '转发图片',
+                    color: Colors.white,
+                    icon: const Icon(Icons.forward_outlined),
+                    onPressed: () async {
+                      Navigator.pop(dialogContext);
+                      await onForwardMessage!(message.id);
+                    },
+                  ),
+              ]),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _saveImage(
+      BuildContext context, String fileId, String fileName) async {
+    try {
+      final bytes = await repository.downloadAttachment(fileId);
+      if (bytes == null || bytes.isEmpty) throw Exception('图片内容为空');
+      final path = await FilePicker.saveFile(
+          dialogTitle: '保存图片', fileName: fileName, bytes: bytes);
+      if (context.mounted && path != null) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('图片已保存')));
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('保存图片失败：$error')));
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2734,41 +3135,41 @@ class _MessageBubble extends StatelessWidget {
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         if (!revoked && message.replyTo != null)
-          Container(
-            width: double.infinity,
-            margin: const EdgeInsets.only(bottom: 6),
-            padding: const EdgeInsets.fromLTRB(8, 5, 8, 5),
-            decoration: BoxDecoration(
-              color: mine
-                  ? colors.onPrimary.withValues(alpha: .16)
-                  : colors.primary.withValues(alpha: .08),
-              border: Border(left: BorderSide(color: colors.primary, width: 3)),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              '回复 ${message.replyTo!.author}：${message.replyTo!.text}',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: mine ? colors.onPrimary : colors.onSurfaceVariant),
-            ),
-          ),
+          _replyPreview(context, message.replyTo!, mine, colors),
+        if (mine)
+          FutureBuilder<List<Contact>>(
+              future: contactsFuture,
+              builder: (context, snapshot) {
+                final contact = _findContact(snapshot.data);
+                return Align(
+                    alignment: Alignment.centerRight,
+                    child: _avatar(context, contact,
+                        snapshot.hasData ? _nonIdAuthor : ''));
+              }),
         if (!mine)
           FutureBuilder<List<Contact>>(
               future: contactsFuture,
               builder: (context, snapshot) {
-                final contactName = message.authorId == null
-                    ? null
-                    : snapshot.data
-                        ?.where((contact) => contact.id == message.authorId)
-                        .map((contact) => contact.name)
-                        .firstOrNull;
-                return Text(
-                    contactName?.isNotEmpty == true
-                        ? contactName!
-                        : message.author,
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: colors.primary, fontWeight: FontWeight.w600));
+                final contact = _findContact(snapshot.data);
+                final contactName = snapshot.hasData
+                    ? _contactName(contact) ?? _nonIdAuthor
+                    : '';
+                return Row(mainAxisSize: MainAxisSize.min, children: [
+                  _avatar(
+                      context, contact, snapshot.hasData ? _nonIdAuthor : ''),
+                  if (contactName.isNotEmpty) ...[
+                    const SizedBox(width: 6),
+                    Text(contactName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context)
+                            .textTheme
+                            .labelMedium
+                            ?.copyWith(
+                                color: colors.primary,
+                                fontWeight: FontWeight.w600)),
+                  ],
+                ]);
               }),
         if (!hasVoicePlayer)
           Row(mainAxisSize: MainAxisSize.min, children: [
@@ -2859,7 +3260,7 @@ class _MessageBubble extends StatelessWidget {
                                                   message.text,
                                                   contacts.map((c) => (
                                                         id: c.id,
-                                                        name: c.name
+                                                        name: c.displayName
                                                       ))),
                                               style: TextStyle(
                                                   color: mine
@@ -2887,25 +3288,35 @@ class _MessageBubble extends StatelessWidget {
                 future: repository
                     .attachmentUrl(message.rawBody['file_id'] as String),
                 builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Text('图片暂时无法加载'));
+                  }
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2)));
+                  }
+                  if (!snapshot.hasData) return const SizedBox.shrink();
                   final uri = snapshot.data;
                   if (uri == null) return const SizedBox.shrink();
                   if (message.contentType == 'image') {
                     return Padding(
                       padding: const EdgeInsets.only(top: 8),
                       child: GestureDetector(
-                        onTap: () => showDialog<void>(
-                          context: context,
-                          builder: (context) => Dialog(
-                            child: InteractiveViewer(
-                                child: Image.network(uri.toString(),
-                                    fit: BoxFit.contain)),
-                          ),
-                        ),
+                        onTap: () => _showImageViewer(context, uri),
                         child: ConstrainedBox(
                             constraints: const BoxConstraints(
                                 maxWidth: 320, maxHeight: 240),
                             child: Image.network(uri.toString(),
-                                fit: BoxFit.contain)),
+                                fit: BoxFit.contain,
+                                errorBuilder: (_, __, ___) => const Padding(
+                                    padding: EdgeInsets.all(12),
+                                    child: Text('图片暂时无法加载')))),
                       ),
                     );
                   }
@@ -2956,7 +3367,7 @@ class _MessageBubble extends StatelessWidget {
                                   (snapshot.data ?? const <Contact>[]).map(
                                       (contact) => (
                                             id: contact.id,
-                                            name: contact.name
+                                            name: contact.displayName
                                           ))),
                               style: TextStyle(
                                   color: mine ? colors.onPrimary : null))),
@@ -3018,6 +3429,84 @@ class _MessageBubble extends StatelessWidget {
                       .toList()))
       ]),
     );
+  }
+
+  Contact? _findContact(List<Contact>? contacts) {
+    final id = message.authorId;
+    if (id == null || contacts == null) return null;
+    for (final contact in contacts) {
+      if (contact.id == id) return contact;
+    }
+    return null;
+  }
+
+  String? _contactName(Contact? contact) {
+    if (contact == null) return null;
+    final name = contact.displayName.trim();
+    if (name.isEmpty || name == contact.id.trim()) return null;
+    return name;
+  }
+
+  Widget _replyPreview(
+      BuildContext context, MessageReply reply, bool mine, ColorScheme colors) {
+    Widget content(Contact? contact) {
+      final fallback = reply.author.trim();
+      final author = _contactName(contact) ??
+          (fallback == reply.authorId || fallback == '用户' || fallback == '成员'
+              ? ''
+              : fallback);
+      final prefix = author.isEmpty ? '回复' : '回复 $author';
+      return Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.fromLTRB(8, 5, 8, 5),
+        decoration: BoxDecoration(
+          color: mine
+              ? colors.onPrimary.withValues(alpha: .16)
+              : colors.primary.withValues(alpha: .08),
+          border: Border(left: BorderSide(color: colors.primary, width: 3)),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text('$prefix：${reply.text}',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: mine ? colors.onPrimary : colors.onSurfaceVariant)),
+      );
+    }
+
+    final future = contactsFuture;
+    if (future == null) return content(null);
+    return FutureBuilder<List<Contact>>(
+        future: future,
+        builder: (context, snapshot) => content(_findContact(snapshot.data)));
+  }
+
+  String get _nonIdAuthor {
+    final author = message.author.trim();
+    return message.authorId != null &&
+            (author == message.authorId || author == '用户' || author == '成员')
+        ? ''
+        : author;
+  }
+
+  Widget _avatar(BuildContext context, Contact? contact, String fallback) {
+    final serverUrl = repository is HttpMagicChatRepository
+        ? (repository as HttpMagicChatRepository).baseUri.toString()
+        : null;
+    final uri =
+        contact == null ? null : _resolveAssetUri(serverUrl, contact.avatar);
+    final label = (_contactName(contact) ?? fallback).trim();
+    return CircleAvatar(
+        radius: 16,
+        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+        backgroundImage: uri == null ? null : NetworkImage(uri.toString()),
+        // 头像加载成功时不再叠加用户名首字，避免首字与图片重合。
+        child: uri != null
+            ? null
+            : label.isEmpty
+                ? const Icon(Icons.person_outline, size: 17)
+                : Text(label.characters.first));
   }
 
   Future<void> _showReactionUsers(
