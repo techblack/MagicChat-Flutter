@@ -160,6 +160,27 @@ void main() {
             containsPair('priority', 1))));
   });
 
+  testWidgets('项目任务标签筛选透传服务端参数', (tester) async {
+    final repository = _PagedProjectRepository();
+    await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(
+            colorScheme:
+                ColorScheme.fromSeed(seedColor: const Color(0xFF6750A4)),
+            useMaterial3: true),
+        home: Scaffold(body: ProjectsPage(repository: repository))));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('客户端迭代'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+        find.byWidgetPredicate((widget) =>
+            widget is TextField && widget.decoration?.hintText == '按标签筛选'),
+        '发布');
+    await tester.pumpAndSettle();
+
+    expect(repository.requests, contains(containsPair('label', '发布')));
+  });
+
   testWidgets('项目任务加载失败可重试', (tester) async {
     final repository = _RetryProjectRepository();
     await tester.binding.setSurfaceSize(const Size(1000, 800));
@@ -344,11 +365,13 @@ class _PagedProjectRepository extends _ProjectRepository {
       {String? cursor,
       int limit = 100,
       String keyword = '',
+      String label = '',
       List<String> statuses = const [],
       List<int> priorities = const []}) async {
     cursors.add(cursor);
     requests.add({
       'keyword': keyword,
+      'label': label,
       'status': statuses.isEmpty ? '' : statuses.first,
       'priority': priorities.isEmpty ? 0 : priorities.first,
     });
@@ -376,6 +399,7 @@ class _RetryProjectRepository extends _ProjectRepository {
       {String? cursor,
       int limit = 100,
       String keyword = '',
+      String label = '',
       List<String> statuses = const [],
       List<int> priorities = const []}) async {
     attempts += 1;

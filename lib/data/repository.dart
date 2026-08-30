@@ -110,6 +110,7 @@ abstract interface class MagicChatRepository {
       {String? cursor,
       int limit = 100,
       String keyword = '',
+      String label = '',
       List<String> statuses = const [],
       List<int> priorities = const []});
   Future<List<ProjectTask>> tasks(String projectId);
@@ -716,6 +717,7 @@ class DemoRepository implements MagicChatRepository {
       {String? cursor,
       int limit = 100,
       String keyword = '',
+      String label = '',
       List<String> statuses = const [],
       List<int> priorities = const []}) async {
     final values = await tasks(projectId);
@@ -2055,6 +2057,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
       {String? cursor,
       int limit = 100,
       String keyword = '',
+      String label = '',
       List<String> statuses = const [],
       List<int> priorities = const []}) async {
     final normalizedStatuses = statuses
@@ -2067,6 +2070,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
       'limit': '$limit',
       if (cursor != null && cursor.trim().isNotEmpty) 'cursor': cursor.trim(),
       if (keyword.trim().isNotEmpty) 'keyword': keyword.trim(),
+      if (label.trim().isNotEmpty) 'label': label.trim(),
       if (normalizedStatuses.isNotEmpty) 'status': normalizedStatuses,
       if (normalizedPriorities.isNotEmpty) 'priority': normalizedPriorities,
     }).query;

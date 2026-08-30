@@ -347,7 +347,10 @@ class _ProjectsPageState extends State<ProjectsPage> {
   }
 
   Future<List<ProjectTask>> _loadProjectTasks(String projectId,
-      {String keyword = '', String status = '', int priority = 0}) async {
+      {String keyword = '',
+      String label = '',
+      String status = '',
+      int priority = 0}) async {
     final tasks = <ProjectTask>[];
     String? cursor;
     do {
@@ -355,6 +358,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
           cursor: cursor,
           limit: 100,
           keyword: keyword,
+          label: label,
           statuses: status.isEmpty ? const [] : [status],
           priorities: priority == 0 ? const [] : [priority]);
       tasks.addAll(page.tasks);
@@ -369,6 +373,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
 
   Future<void> _showTasks(BuildContext context, Project project) async {
     var keyword = '';
+    var label = '';
     var status = '';
     var priority = 0;
     await showModalBottomSheet<void>(
@@ -380,7 +385,10 @@ class _ProjectsPageState extends State<ProjectsPage> {
             height: MediaQuery.sizeOf(context).height * .7,
             child: FutureBuilder<List<ProjectTask>>(
               future: _loadProjectTasks(project.id,
-                  keyword: keyword, status: status, priority: priority),
+                  keyword: keyword,
+                  label: label,
+                  status: status,
+                  priority: priority),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return Center(
@@ -414,17 +422,22 @@ class _ProjectsPageState extends State<ProjectsPage> {
                     ),
                     Padding(
                         padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                        child: Row(children: [
-                          Expanded(
-                              child: TextField(
-                                  decoration: const InputDecoration(
-                                      prefixIcon: Icon(Icons.search),
-                                      hintText: '搜索任务',
-                                      isDense: true),
-                                  onChanged: (value) => setFilterState(
-                                      () => keyword = value.trim()))),
-                          const SizedBox(width: 8),
-                          SizedBox(
+                        child: LayoutBuilder(builder: (context, constraints) {
+                          final search = TextField(
+                              decoration: const InputDecoration(
+                                  prefixIcon: Icon(Icons.search),
+                                  hintText: '搜索任务',
+                                  isDense: true),
+                              onChanged: (value) =>
+                                  setFilterState(() => keyword = value.trim()));
+                          final labelFilter = TextField(
+                              decoration: const InputDecoration(
+                                  prefixIcon: Icon(Icons.label_outline),
+                                  hintText: '按标签筛选',
+                                  isDense: true),
+                              onChanged: (value) =>
+                                  setFilterState(() => label = value.trim()));
+                          final statusFilter = SizedBox(
                               width: 120,
                               child: DropdownButtonFormField<String>(
                                   initialValue: status,
@@ -446,9 +459,8 @@ class _ProjectsPageState extends State<ProjectsPage> {
                                         value: 'canceled', child: Text('已取消')),
                                   ],
                                   onChanged: (value) => setFilterState(
-                                      () => status = value ?? ''))),
-                          const SizedBox(width: 8),
-                          SizedBox(
+                                      () => status = value ?? '')));
+                          final priorityFilter = SizedBox(
                               width: 100,
                               child: DropdownButtonFormField<int>(
                                   initialValue: priority,
@@ -467,8 +479,30 @@ class _ProjectsPageState extends State<ProjectsPage> {
                                         value: 3, child: Text('低')),
                                   ],
                                   onChanged: (value) => setFilterState(
-                                      () => priority = value ?? 0))),
-                        ])),
+                                      () => priority = value ?? 0)));
+                          if (constraints.maxWidth >= 720) {
+                            return Row(children: [
+                              Expanded(child: search),
+                              const SizedBox(width: 8),
+                              Expanded(child: labelFilter),
+                              const SizedBox(width: 8),
+                              statusFilter,
+                              const SizedBox(width: 8),
+                              priorityFilter,
+                            ]);
+                          }
+                          return Column(children: [
+                            search,
+                            const SizedBox(height: 8),
+                            Row(children: [
+                              Expanded(child: labelFilter),
+                              const SizedBox(width: 8),
+                              statusFilter,
+                              const SizedBox(width: 8),
+                              priorityFilter,
+                            ])
+                          ]);
+                        })),
                     const TabBar(isScrollable: true, tabs: [
                       Tab(text: '列表'),
                       Tab(text: '看板'),
@@ -1086,28 +1120,32 @@ class _ProjectsPageState extends State<ProjectsPage> {
       BuildContext context, Project project, List<ProjectTask> tasks) {
     const statuses = ['todo', 'in_progress', 'done', 'canceled'];
     return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.all(12),
-      child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: statuses.map((status) {
-            final items = tasks.where((task) => task.status == status).toList();
-            return SizedBox(
-                width: 230,
-                child: Card(
-                    child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(_statusLabel(status),
-                                  style:
-                                      Theme.of(context).textTheme.titleMedium),
-                              const Divider(),
-                              ...items.map(
-                                  (task) => _taskTile(context, project, task)),
-                            ]))));
-          }).toList()),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: statuses.map((status) {
+              final items =
+                  tasks.where((task) => task.status == status).toList();
+              return SizedBox(
+                  width: 230,
+                  child: Card(
+                      child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(_statusLabel(status),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium),
+                                const Divider(),
+                                ...items.map((task) =>
+                                    _taskTile(context, project, task)),
+                              ]))));
+            }).toList()),
+      ),
     );
   }
 
