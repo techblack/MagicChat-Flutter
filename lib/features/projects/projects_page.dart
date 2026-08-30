@@ -1208,28 +1208,172 @@ class _ProjectsPageState extends State<ProjectsPage> {
   }
 
   Future<void> _createTask(BuildContext context, Project project) async {
-    final controller = TextEditingController();
-    final title = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('新建任务'),
-        content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(labelText: '任务标题')),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context), child: const Text('取消')),
-          FilledButton(
-              onPressed: () => Navigator.pop(context, controller.text.trim()),
-              child: const Text('创建')),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (title == null || title.isEmpty || !context.mounted) return;
-    await repository.createTask(project.id, title);
-    if (context.mounted) Navigator.pop(context);
+    List<ProjectMember> members;
+    try {
+      members = await repository.projectMembers(project.id);
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('项目成员加载失败：$error')));
+      }
+      return;
+    }
+    if (!context.mounted) return;
+    final titleController = TextEditingController();
+    final descriptionController = TextEditingController();
+    final startController = TextEditingController();
+    final dueController = TextEditingController();
+    final labelsController = TextEditingController();
+    final reminderController = TextEditingController();
+    var priority = 2;
+    var assigneeUserId = '';
+    var reminderMode = 'once';
+    var reminderFrequency = 'daily';
+    final result = await showDialog<ProjectTaskUpdate>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+              builder: (dialogContext, setDialogState) => AlertDialog(
+                title: const Text('新建任务'),
+                content: SingleChildScrollView(
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  TextField(
+                      controller: titleController,
+                      autofocus: true,
+                      maxLength: 240,
+                      decoration: const InputDecoration(labelText: '任务标题')),
+                  TextField(
+                      controller: descriptionController,
+                      minLines: 2,
+                      maxLines: 4,
+                      decoration: const InputDecoration(
+                          labelText: '描述', hintText: '支持 Markdown')),
+                  DropdownButtonFormField<int>(
+                      initialValue: priority,
+                      decoration: const InputDecoration(labelText: '优先级'),
+                      items: const [
+                        DropdownMenuItem(value: 1, child: Text('低')),
+                        DropdownMenuItem(value: 2, child: Text('中')),
+                        DropdownMenuItem(value: 3, child: Text('高'))
+                      ],
+                      onChanged: (value) =>
+                          setDialogState(() => priority = value ?? priority)),
+                  DropdownButtonFormField<String>(
+                      initialValue: assigneeUserId,
+                      decoration: const InputDecoration(labelText: '负责人'),
+                      items: [
+                        const DropdownMenuItem(value: '', child: Text('未分配')),
+                        ...members.map((member) => DropdownMenuItem(
+                            value: member.id,
+                            child: Text(member.email.isEmpty
+                                ? member.displayName
+                                : '${member.displayName} · ${member.email}')))
+                      ],
+                      onChanged: (value) =>
+                          setDialogState(() => assigneeUserId = value ?? '')),
+                  TextField(
+                      controller: startController,
+                      decoration:
+                          const InputDecoration(labelText: '开始日期（YYYY-MM-DD）')),
+                  TextField(
+                      controller: dueController,
+                      decoration:
+                          const InputDecoration(labelText: '截止日期（YYYY-MM-DD）')),
+                  TextField(
+                      controller: labelsController,
+                      decoration: const InputDecoration(labelText: '标签（逗号分隔）')),
+                  TextField(
+                      controller: reminderController,
+                      decoration: const InputDecoration(
+                          labelText: '一次性提醒时间（ISO-8601，可选）')),
+                  DropdownButtonFormField<String>(
+                      initialValue: reminderMode,
+                      decoration: const InputDecoration(labelText: '提醒模式'),
+                      items: const [
+                        DropdownMenuItem(value: 'once', child: Text('一次性')),
+                        DropdownMenuItem(value: 'recurring', child: Text('周期性'))
+                      ],
+                      onChanged: (value) => setDialogState(
+                          () => reminderMode = value ?? reminderMode)),
+                  if (reminderMode == 'recurring')
+                    DropdownButtonFormField<String>(
+                        initialValue: reminderFrequency,
+                        decoration: const InputDecoration(labelText: '重复频率'),
+                        items: const [
+                          DropdownMenuItem(value: 'daily', child: Text('每天')),
+                          DropdownMenuItem(value: 'weekly', child: Text('每周')),
+                          DropdownMenuItem(value: 'monthly', child: Text('每月'))
+                        ],
+                        onChanged: (value) => setDialogState(() =>
+                            reminderFrequency = value ?? reminderFrequency))
+                ])),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      child: const Text('取消')),
+                  FilledButton(
+                      onPressed: () {
+                        final title = titleController.text.trim();
+                        if (title.isEmpty) return;
+                        Navigator.pop(
+                            dialogContext,
+                            ProjectTaskUpdate(
+                                title: title,
+                                description: descriptionController.text.trim(),
+                                status: 'todo',
+                                priority: priority,
+                                startDate: startController.text.trim().isEmpty
+                                    ? null
+                                    : startController.text.trim(),
+                                dueDate: dueController.text.trim().isEmpty
+                                    ? null
+                                    : dueController.text.trim(),
+                                labels: labelsController.text
+                                    .split(',')
+                                    .map((value) => value.trim())
+                                    .where((value) => value.isNotEmpty)
+                                    .toList(),
+                                assigneeUserId: assigneeUserId.isEmpty
+                                    ? null
+                                    : assigneeUserId,
+                                reminder: reminderController.text.trim().isEmpty
+                                    ? null
+                                    : {
+                                        'mode': reminderMode,
+                                        'timezone': 'Asia/Shanghai',
+                                        if (reminderMode == 'once')
+                                          'at': reminderController.text.trim(),
+                                        if (reminderMode == 'recurring')
+                                          'frequency': reminderFrequency
+                                      }));
+                      },
+                      child: const Text('创建'))
+                ],
+              ),
+            ));
+    titleController.dispose();
+    descriptionController.dispose();
+    startController.dispose();
+    dueController.dispose();
+    labelsController.dispose();
+    reminderController.dispose();
+    if (result == null || !context.mounted) return;
+    try {
+      await repository.createTask(project.id, result.title,
+          description: result.description,
+          status: result.status,
+          priority: result.priority,
+          startDate: result.startDate,
+          dueDate: result.dueDate,
+          labels: result.labels,
+          assigneeUserId: result.assigneeUserId,
+          reminder: result.reminder);
+      if (context.mounted) Navigator.pop(context);
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('创建任务失败：$error')));
+      }
+    }
   }
 
   Future<void> _addComment(

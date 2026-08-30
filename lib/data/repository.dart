@@ -126,7 +126,15 @@ abstract interface class MagicChatRepository {
   Future<void> deleteDocument(String documentId);
   Future<void> moveDocument(String documentId,
       {String? parentId, int index = 0});
-  Future<ProjectTask> createTask(String projectId, String title);
+  Future<ProjectTask> createTask(String projectId, String title,
+      {String description = '',
+      String status = 'todo',
+      int priority = 2,
+      String? startDate,
+      String? dueDate,
+      List<String> labels = const [],
+      String? assigneeUserId,
+      Map<String, dynamic>? reminder});
   Future<ProjectTask> updateTaskStatus(
       String projectId, String taskId, String status);
   Future<ProjectTask> updateTask(
@@ -784,12 +792,28 @@ class DemoRepository implements MagicChatRepository {
       {String? parentId, int index = 0}) async {}
 
   @override
-  Future<ProjectTask> createTask(String projectId, String title) async =>
+  Future<ProjectTask> createTask(String projectId, String title,
+          {String description = '',
+          String status = 'todo',
+          int priority = 2,
+          String? startDate,
+          String? dueDate,
+          List<String> labels = const [],
+          String? assigneeUserId,
+          Map<String, dynamic>? reminder}) async =>
       ProjectTask(
           id: DateTime.now().toIso8601String(),
           projectId: projectId,
           title: title,
-          status: 'todo');
+          status: status,
+          priority: priority,
+          description: description,
+          startDate: startDate,
+          dueDate: dueDate,
+          labels: labels,
+          assignee:
+              assigneeUserId == null ? null : ProjectUser(id: assigneeUserId),
+          reminder: reminder);
 
   @override
   Future<ProjectTask> updateTaskStatus(
@@ -2198,10 +2222,28 @@ class HttpMagicChatRepository implements MagicChatRepository {
   }
 
   @override
-  Future<ProjectTask> createTask(String projectId, String title) async {
+  Future<ProjectTask> createTask(String projectId, String title,
+      {String description = '',
+      String status = 'todo',
+      int priority = 2,
+      String? startDate,
+      String? dueDate,
+      List<String> labels = const [],
+      String? assigneeUserId,
+      Map<String, dynamic>? reminder}) async {
     final data = _data(await _request(
         'POST', '/api/client/projects/${Uri.encodeComponent(projectId)}/tasks',
-        body: {'title': title}));
+        body: {
+          'title': title,
+          'description': description,
+          'status': status,
+          'priority': priority,
+          'start_date': startDate,
+          'due_date': dueDate,
+          'labels': labels,
+          'assignee_user_id': assigneeUserId,
+          'reminder': reminder,
+        }));
     return _taskFromJson(data);
   }
 

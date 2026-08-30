@@ -208,6 +208,68 @@ void main() {
     });
   });
 
+  test('创建任务透传完整字段', () async {
+    late http.Request request;
+    final repository = HttpMagicChatRepository(
+        serverUrl: 'https://chat.example.com',
+        sessionToken: 'test-token',
+        client: MockClient((value) async {
+          request = value;
+          return _jsonResponse({
+            'data': {
+              'id': 'task-1',
+              'project_id': 'project-1',
+              'title': '发布检查',
+              'description': '**核对清单**',
+              'status': 'todo',
+              'priority': 3,
+              'start_date': '2026-09-01',
+              'due_date': '2026-09-02',
+              'labels': ['发布', '冒烟'],
+              'assignee': {'id': 'member-1'},
+              'reminder': {
+                'mode': 'once',
+                'timezone': 'Asia/Shanghai',
+                'at': '2026-09-01T01:30:00Z'
+              }
+            }
+          });
+        }));
+
+    final task = await repository.createTask('project-1', '发布检查',
+        description: '**核对清单**',
+        priority: 3,
+        startDate: '2026-09-01',
+        dueDate: '2026-09-02',
+        labels: ['发布', '冒烟'],
+        assigneeUserId: 'member-1',
+        reminder: {
+          'mode': 'once',
+          'timezone': 'Asia/Shanghai',
+          'at': '2026-09-01T09:30:00+08:00'
+        });
+
+    expect(request.method, 'POST');
+    expect(request.url.path, '/api/client/projects/project-1/tasks');
+    expect(jsonDecode(request.body), {
+      'title': '发布检查',
+      'description': '**核对清单**',
+      'status': 'todo',
+      'priority': 3,
+      'start_date': '2026-09-01',
+      'due_date': '2026-09-02',
+      'labels': ['发布', '冒烟'],
+      'assignee_user_id': 'member-1',
+      'reminder': {
+        'mode': 'once',
+        'timezone': 'Asia/Shanghai',
+        'at': '2026-09-01T09:30:00+08:00'
+      }
+    });
+    expect(task.assigneeUserId, 'member-1');
+    expect(task.labels, ['发布', '冒烟']);
+  });
+
   test('任务分页按筛选条件请求并解析游标', () async {
     late http.Request request;
     final repository = HttpMagicChatRepository(

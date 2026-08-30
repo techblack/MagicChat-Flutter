@@ -160,6 +160,72 @@ void main() {
             containsPair('priority', 1))));
   });
 
+  testWidgets('新建任务提交完整字段', (tester) async {
+    final repository = _CreateTaskRepository();
+    await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(
+            colorScheme:
+                ColorScheme.fromSeed(seedColor: const Color(0xFF6750A4)),
+            useMaterial3: true),
+        home: Scaffold(body: ProjectsPage(repository: repository))));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('客户端迭代'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('新建任务'));
+    await tester.pumpAndSettle();
+
+    Future<void> enter(String label, String value) async {
+      await tester.enterText(
+          find.byWidgetPredicate((widget) =>
+              widget is TextField && widget.decoration?.labelText == label),
+          value);
+    }
+
+    await enter('任务标题', '发布检查');
+    await enter('描述', '**核对清单**');
+    await enter('开始日期（YYYY-MM-DD）', '2026-09-01');
+    await enter('截止日期（YYYY-MM-DD）', '2026-09-02');
+    await enter('标签（逗号分隔）', '发布, 冒烟');
+    await enter('一次性提醒时间（ISO-8601，可选）', '2026-09-01T09:30:00+08:00');
+
+    final priorityField = find
+        .byWidgetPredicate((widget) =>
+            widget is DropdownButtonFormField<int> &&
+            widget.decoration?.labelText == '优先级')
+        .last;
+    await tester.ensureVisible(priorityField);
+    await tester.tap(priorityField);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('高').last);
+    await tester.pumpAndSettle();
+
+    final assigneeField = find
+        .byWidgetPredicate((widget) =>
+            widget is DropdownButtonFormField<String> &&
+            widget.decoration?.labelText == '负责人')
+        .last;
+    await tester.ensureVisible(assigneeField);
+    await tester.tap(assigneeField);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('负责人').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('创建').last);
+    await tester.pumpAndSettle();
+
+    expect(repository.createdTitle, '发布检查');
+    expect(repository.createdDescription, '**核对清单**');
+    expect(repository.createdPriority, 3);
+    expect(repository.createdStartDate, '2026-09-01');
+    expect(repository.createdDueDate, '2026-09-02');
+    expect(repository.createdLabels, ['发布', '冒烟']);
+    expect(repository.createdAssigneeUserId, 'member-1');
+    expect(repository.createdReminder, {
+      'mode': 'once',
+      'timezone': 'Asia/Shanghai',
+      'at': '2026-09-01T09:30:00+08:00'
+    });
+  });
+
   testWidgets('项目任务标签筛选透传服务端参数', (tester) async {
     final repository = _PagedProjectRepository();
     await tester.pumpWidget(MaterialApp(
@@ -411,5 +477,42 @@ class _RetryProjectRepository extends _ProjectRepository {
           title: '重试后任务',
           status: 'todo')
     ]);
+  }
+}
+
+class _CreateTaskRepository extends _ProjectRepository {
+  String? createdTitle;
+  String? createdDescription;
+  int? createdPriority;
+  String? createdStartDate;
+  String? createdDueDate;
+  List<String> createdLabels = const [];
+  String? createdAssigneeUserId;
+  Map<String, dynamic>? createdReminder;
+
+  @override
+  Future<List<ProjectMember>> projectMembers(String projectId) async =>
+      const [ProjectMember(id: 'member-1', displayNameOverride: '负责人')];
+
+  @override
+  Future<ProjectTask> createTask(String projectId, String title,
+      {String description = '',
+      String status = 'todo',
+      int priority = 2,
+      String? startDate,
+      String? dueDate,
+      List<String> labels = const [],
+      String? assigneeUserId,
+      Map<String, dynamic>? reminder}) async {
+    createdTitle = title;
+    createdDescription = description;
+    createdPriority = priority;
+    createdStartDate = startDate;
+    createdDueDate = dueDate;
+    createdLabels = labels;
+    createdAssigneeUserId = assigneeUserId;
+    createdReminder = reminder;
+    return ProjectTask(
+        id: 'created-task', projectId: projectId, title: title, status: status);
   }
 }
