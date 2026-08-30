@@ -27,6 +27,18 @@ IMAGE_TAG=local docker compose up -d server
 | `curl -k https://localhost/gateway-healthz` | HTTP 200 |
 | `bash scripts/verify-deploy-config.sh` | `deploy config check passed` |
 
+## API 与后端定向测试
+
+| 检查 | 结果 |
+| --- | --- |
+| Admin 登录、Dashboard、Settings API | 通过（错误密码按预期返回 401） |
+| Client 登录、`/api/client/me` | 通过；未登录会话接口按预期返回 401 |
+| `go test ./internal/store ./internal/api/http/admin ./internal/api/http/client` | 通过 |
+
+PostgreSQL 持久卷当前 goose 版本为 39，而仓库迁移文件最新为 00036；启动日志为
+`no migrations to run`。这是已有持久卷的历史迁移记录高于当前源码编号，不代表本次
+启动漏跑迁移；关键业务表和健康检查均可用。
+
 ## 复现说明
 
 - `IMAGE_TAG=local` 仅替换 Compose 中的镜像标签，数据库卷和 Caddy 数据未清理。
