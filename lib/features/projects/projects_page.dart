@@ -382,6 +382,18 @@ class _ProjectsPageState extends State<ProjectsPage> {
               future: _loadProjectTasks(project.id,
                   keyword: keyword, status: status, priority: priority),
               builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Center(
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.cloud_off_outlined, size: 40),
+                    const SizedBox(height: 12),
+                    const Text('任务加载失败'),
+                    TextButton.icon(
+                        onPressed: () => setFilterState(() {}),
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('重试'))
+                  ]));
+                }
                 if (!snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }

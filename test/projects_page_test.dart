@@ -160,6 +160,32 @@ void main() {
             containsPair('priority', 1))));
   });
 
+  testWidgets('项目任务加载失败可重试', (tester) async {
+    final repository = _RetryProjectRepository();
+    await tester.binding.setSurfaceSize(const Size(1000, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(
+            colorScheme:
+                ColorScheme.fromSeed(seedColor: const Color(0xFF6750A4)),
+            useMaterial3: true),
+        home: Scaffold(body: ProjectsPage(repository: repository))));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('客户端迭代'));
+    await tester.pumpAndSettle();
+    expect(find.text('任务加载失败'), findsOneWidget);
+    await expectLater(find.byType(MaterialApp),
+        matchesGoldenFile('evidence/project_task_retry.png'));
+
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+    expect(find.text('重试后任务'), findsOneWidget);
+    expect(repository.attempts, 2);
+  });
+
   testWidgets('目录不会误入编辑器且 Markdown 文档可打开', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1200, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -339,5 +365,27 @@ class _PagedProjectRepository extends _ProjectRepository {
       ProjectTask(
           id: 'page-2', projectId: 'project-1', title: '第二页任务', status: 'done')
     ], nextCursor: null);
+  }
+}
+
+class _RetryProjectRepository extends _ProjectRepository {
+  var attempts = 0;
+
+  @override
+  Future<ProjectTaskPage> projectTaskPage(String projectId,
+      {String? cursor,
+      int limit = 100,
+      String keyword = '',
+      List<String> statuses = const [],
+      List<int> priorities = const []}) async {
+    attempts += 1;
+    if (attempts == 1) throw StateError('temporary failure');
+    return const ProjectTaskPage(tasks: [
+      ProjectTask(
+          id: 'retry-task',
+          projectId: 'project-1',
+          title: '重试后任务',
+          status: 'todo')
+    ]);
   }
 }
