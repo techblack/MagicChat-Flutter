@@ -214,6 +214,20 @@ void main() {
         serverUrl: 'https://chat.example.com',
         sessionToken: 'test-token',
         client: MockClient((value) async {
+          if (value.url.path == '/api/client/users/resolve') {
+            return _jsonResponse({
+              'data': {
+                'users': [
+                  {
+                    'id': 'member-1',
+                    'name': '项目成员',
+                    'nickname': '小明',
+                    'avatar': '/avatars/member.webp',
+                  }
+                ]
+              }
+            });
+          }
           request = value;
           return _jsonResponse({
             'data': {
@@ -267,6 +281,8 @@ void main() {
       }
     });
     expect(task.assigneeUserId, 'member-1');
+    expect(task.assignee?.displayName, '小明');
+    expect(task.assignee?.avatar, '/avatars/member.webp');
     expect(task.labels, ['发布', '冒烟']);
   });
 

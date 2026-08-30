@@ -5,6 +5,8 @@ import '../domain/models.dart';
 import '../domain/message_content.dart';
 import 'http_client.dart';
 import 'session_store.dart';
+import 'contact_cache_store.dart';
+import 'message_cache_store.dart';
 
 abstract interface class MagicChatRepository {
   Future<CurrentUser> currentUser();
@@ -877,6 +879,9 @@ class HttpMagicChatRepository implements MagicChatRepository {
   final String sessionToken;
   final http.Client _client;
   String? _currentUserId;
+  final _projectUsers = <String, ProjectUser>{};
+  final _contactCacheStore = ContactCacheStore();
+  bool _projectCacheLoaded = false;
 
   Map<String, String> get _sessionHeaders =>
       sessionToken == SessionStore.cookieSessionToken
@@ -2195,7 +2200,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
     }
     final normalizedCursor = (nextCursor as String?)?.trim();
     return ProjectTaskPage(
-        tasks: parsed,
+        tasks: await _hydrateProjectTasks(parsed),
         nextCursor: normalizedCursor == null || normalizedCursor.isEmpty
             ? null
             : normalizedCursor);
@@ -2217,8 +2222,11 @@ class HttpMagicChatRepository implements MagicChatRepository {
       if (values is! List) {
         throw const FormatException('任务动态响应格式不正确');
       }
-      activities.addAll(
-          values.whereType<Map<String, dynamic>>().map(_taskActivityFromJson));
+      final page = values
+          .whereType<Map<String, dynamic>>()
+          .map(_taskActivityFromJson)
+          .toList();
+      activities.addAll(await _hydrateProjectActivities(page));
       cursor = data['next_cursor'] as String?;
     } while (cursor != null && cursor.isNotEmpty);
     return activities;
@@ -2326,7 +2334,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
           'assignee_user_id': assigneeUserId,
           'reminder': reminder,
         }));
-    return _taskFromJson(data);
+    return _hydrateProjectTask(_taskFromJson(data));
   }
 
   @override
@@ -2335,7 +2343,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
     final data = _data(await _request('PATCH',
         '/api/client/projects/${Uri.encodeComponent(projectId)}/tasks/${Uri.encodeComponent(taskId)}',
         body: {'status': status}));
-    return _taskFromJson(data);
+    return _hydrateProjectTask(_taskFromJson(data));
   }
 
   @override
@@ -2355,7 +2363,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
     final data = _data(await _request('PATCH',
         '/api/client/projects/${Uri.encodeComponent(projectId)}/tasks/${Uri.encodeComponent(taskId)}',
         body: body));
-    return _taskFromJson(data);
+    return _hydrateProjectTask(_taskFromJson(data));
   }
 
   @override
@@ -2370,7 +2378,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
     final data = _data(await _request('POST',
         '/api/client/projects/${Uri.encodeComponent(projectId)}/tasks/${Uri.encodeComponent(taskId)}/comments',
         body: {'content': content}));
-    return _taskActivityFromJson(data);
+    return _hydrateProjectActivity(_taskActivityFromJson(data));
   }
 
   ProjectTask _taskFromJson(Map<String, dynamic> item,
@@ -2461,6 +2469,135 @@ class HttpMagicChatRepository implements MagicChatRepository {
         nickname:
             value['nickname'] is String ? value['nickname'] as String : '',
         avatar: value['avatar'] is String ? value['avatar'] as String : '');
+  }
+
+  Future<List<ProjectTask>> _hydrateProjectTasks(
+      List<ProjectTask> tasks) async {
+    final users = <ProjectUser>[];
+    for (final task in tasks) {
+      if (task.assignee case final assignee?
+          when _needsProjectUserProfile(assignee)) {
+        users.add(assignee);
+      }
+    }
+    await _resolveProjectUsers(users);
+    return tasks.map(_mergeProjectTaskUsers).toList(growable: false);
+  }
+
+  Future<ProjectTask> _hydrateProjectTask(ProjectTask task) async {
+    await _resolveProjectUsers([
+      if (task.assignee case final assignee?
+          when _needsProjectUserProfile(assignee))
+        assignee
+    ]);
+    return _mergeProjectTaskUsers(task);
+  }
+
+  Future<List<ProjectTaskActivity>> _hydrateProjectActivities(
+      List<ProjectTaskActivity> activities) async {
+    await _resolveProjectUsers([
+      for (final activity in activities)
+        if (_needsProjectUserProfile(activity.actor)) activity.actor
+    ]);
+    return activities.map(_mergeProjectActivityUser).toList(growable: false);
+  }
+
+  Future<ProjectTaskActivity> _hydrateProjectActivity(
+      ProjectTaskActivity activity) async {
+    if (_needsProjectUserProfile(activity.actor)) {
+      await _resolveProjectUsers([activity.actor]);
+    }
+    return _mergeProjectActivityUser(activity);
+  }
+
+  bool _needsProjectUserProfile(ProjectUser user) =>
+      user.nickname.trim().isEmpty &&
+      (user.name.trim().isEmpty || user.name.trim() == user.id);
+
+  Future<void> _resolveProjectUsers(Iterable<ProjectUser> users) async {
+    await _loadProjectUserCache();
+    final missing = users
+        .where((user) => user.id.trim().isNotEmpty)
+        .where((user) => !_projectUsers.containsKey(user.id))
+        .map((user) => user.id)
+        .toSet()
+        .toList(growable: false);
+    if (missing.isEmpty) return;
+    try {
+      final resolved = await resolveUsers(missing);
+      for (final user in resolved) {
+        _projectUsers[user.id] = ProjectUser(
+            id: user.id,
+            name: user.name,
+            nickname: user.nickname,
+            avatar: user.avatar);
+      }
+      if (resolved.isNotEmpty) {
+        await _contactCacheStore.write(_projectCacheScope, resolved);
+      }
+    } catch (_) {
+      // 用户资料补全失败时保留接口返回值，项目任务仍可正常使用。
+    }
+  }
+
+  MessageCacheScope? get _projectCacheScope {
+    final userId = _currentUserId?.trim();
+    if (userId == null || userId.isEmpty) return null;
+    return MessageCacheScope(
+        serverUrl: baseUri.toString().replaceFirst(RegExp(r'/+$'), ''),
+        userId: userId);
+  }
+
+  Future<void> _loadProjectUserCache() async {
+    if (_projectCacheLoaded) return;
+    final scope = _projectCacheScope;
+    if (scope == null) return;
+    final cached = await _contactCacheStore.read(scope);
+    for (final user in cached.where((contact) => contact.type == 'user')) {
+      _projectUsers[user.id] = ProjectUser(
+          id: user.id,
+          name: user.name,
+          nickname: user.nickname,
+          avatar: user.avatar);
+    }
+    _projectCacheLoaded = true;
+  }
+
+  ProjectTask _mergeProjectTaskUsers(ProjectTask task) => ProjectTask(
+      id: task.id,
+      projectId: task.projectId,
+      title: task.title,
+      status: task.status,
+      priority: task.priority,
+      description: task.description,
+      startDate: task.startDate,
+      dueDate: task.dueDate,
+      labels: task.labels,
+      assignee:
+          task.assignee == null ? null : _mergeProjectUser(task.assignee!),
+      reminder: task.reminder);
+
+  ProjectTaskActivity _mergeProjectActivityUser(ProjectTaskActivity activity) =>
+      ProjectTaskActivity(
+          id: activity.id,
+          projectId: activity.projectId,
+          taskId: activity.taskId,
+          type: activity.type,
+          actor: _mergeProjectUser(activity.actor),
+          content: activity.content,
+          changes: activity.changes,
+          createdAt: activity.createdAt);
+
+  ProjectUser _mergeProjectUser(ProjectUser user) {
+    final resolved = _projectUsers[user.id];
+    if (resolved == null) return user;
+    return ProjectUser(
+        id: user.id,
+        name: resolved.name.trim().isEmpty ? user.name : resolved.name,
+        nickname: resolved.nickname.trim().isEmpty
+            ? user.nickname
+            : resolved.nickname,
+        avatar: resolved.avatar.trim().isEmpty ? user.avatar : resolved.avatar);
   }
 
   ProjectMember _projectMemberFromJson(Map<String, dynamic> value) {

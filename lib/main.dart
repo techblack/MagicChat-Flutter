@@ -854,33 +854,34 @@ class MessagesPage extends StatelessWidget {
             ),
           ]);
         }
-        return Stack(children: [
-          Row(children: [
-            SizedBox(
-                width: split ? 300 : constraints.maxWidth,
-                child: _ConversationList(
+        return Row(children: [
+          SizedBox(
+              width: split ? 300 : constraints.maxWidth,
+              child: Stack(children: [
+                Positioned.fill(
+                    child: _ConversationList(
+                        repository: repository,
+                        serverUrl: serverUrl,
+                        realtimeStore: realtimeStore,
+                        selectedId: selectedId,
+                        onSelect: onSelect)),
+                Positioned(
+                    right: 16,
+                    bottom: 16,
+                    child: FloatingActionButton(
+                        onPressed: () => _createGroup(context),
+                        child: const Icon(Icons.group_add),
+                        tooltip: '新建群聊')),
+              ])),
+          if (split)
+            Expanded(
+                child: ConversationView(
                     repository: repository,
-                    serverUrl: serverUrl,
                     realtimeStore: realtimeStore,
-                    selectedId: selectedId,
-                    onSelect: onSelect)),
-            if (split)
-              Expanded(
-                  child: ConversationView(
-                      repository: repository,
-                      realtimeStore: realtimeStore,
-                      cacheScope: cacheScope,
-                      conversationId: selectedId,
-                      onOpenConversation: onOpenConversation ?? onSelect,
-                      onOpenInternalLink: onOpenInternalLink))
-          ]),
-          Positioned(
-              right: 16,
-              bottom: 16,
-              child: FloatingActionButton(
-                  onPressed: () => _createGroup(context),
-                  child: const Icon(Icons.group_add),
-                  tooltip: '新建群聊')),
+                    cacheScope: cacheScope,
+                    conversationId: selectedId,
+                    onOpenConversation: onOpenConversation ?? onSelect,
+                    onOpenInternalLink: onOpenInternalLink))
         ]);
       });
 
