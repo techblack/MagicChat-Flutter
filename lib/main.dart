@@ -28,6 +28,7 @@ import 'features/messages/topic_source_banner.dart';
 import 'features/messages/conversation_list.dart';
 import 'features/messages/voice_message_player.dart';
 import 'features/projects/projects_page.dart';
+import 'features/search/global_search.dart';
 import 'features/settings/settings_page.dart';
 import 'domain/models.dart';
 import 'domain/message_content.dart';
@@ -693,67 +694,18 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<void> _showSearch(BuildContext context) async {
-    final controller = TextEditingController();
     await showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('搜索聊天记录'),
-        content: SizedBox(
-          width: 520,
-          child: StatefulBuilder(
-            builder: (context, setDialogState) => Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: controller,
-                  autofocus: true,
-                  minLines: 1,
-                  maxLines: 2,
-                  decoration: const InputDecoration(labelText: '关键词（至少 2 个字符）'),
-                  onChanged: (_) => setDialogState(() {}),
-                  onSubmitted: (_) => setDialogState(() {}),
-                ),
-                const SizedBox(height: 12),
-                if (controller.text.trim().length >= 2)
-                  FutureBuilder<List<MessageSearchResult>>(
-                    future: _repository.searchMessages(controller.text.trim()),
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData) {
-                        return const CircularProgressIndicator();
-                      }
-                      if (snapshot.data!.isEmpty) return const Text('没有匹配的消息');
-                      return ConstrainedBox(
-                        constraints: const BoxConstraints(maxHeight: 280),
-                        child: ListView(
-                          shrinkWrap: true,
-                          children: snapshot.data!
-                              .map((result) => ListTile(
-                                    title: Text(result.message.text,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis),
-                                    subtitle: Text(result.conversationName),
-                                    onTap: () {
-                                      Navigator.pop(context);
-                                      setState(() => _selectedConversation =
-                                          result.conversationId);
-                                    },
-                                  ))
-                              .toList(),
-                        ),
-                      );
-                    },
-                  ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context), child: const Text('关闭'))
-        ],
+      builder: (dialogContext) => GlobalSearchDialog(
+        repository: _repository,
+        onOpenConversation: (id) => setState(() {
+          _selectedConversation = id;
+          _index = 0;
+        }),
+        onOpenProject: (_) => setState(() => _index = 2),
+        onOpenContact: (_) => setState(() => _index = 1),
       ),
     );
-    controller.dispose();
   }
 }
 
