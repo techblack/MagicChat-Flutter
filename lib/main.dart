@@ -3136,16 +3136,6 @@ class _MessageBubble extends StatelessWidget {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         if (!revoked && message.replyTo != null)
           _replyPreview(context, message.replyTo!, mine, colors),
-        if (mine)
-          FutureBuilder<List<Contact>>(
-              future: contactsFuture,
-              builder: (context, snapshot) {
-                final contact = _findContact(snapshot.data);
-                return Align(
-                    alignment: Alignment.centerRight,
-                    child: _avatar(context, contact,
-                        snapshot.hasData ? _nonIdAuthor : ''));
-              }),
         if (!mine)
           FutureBuilder<List<Contact>>(
               future: contactsFuture,
@@ -3288,37 +3278,48 @@ class _MessageBubble extends StatelessWidget {
                 future: repository
                     .attachmentUrl(message.rawBody['file_id'] as String),
                 builder: (context, snapshot) {
+                  final isImage = message.contentType == 'image';
                   if (snapshot.hasError) {
-                    return const Padding(
-                        padding: EdgeInsets.only(top: 8),
-                        child: Text('图片暂时无法加载'));
+                    return isImage
+                        ? _imagePlaceholder(context, const Text('图片暂时无法加载'))
+                        : const Padding(
+                            padding: EdgeInsets.only(top: 8),
+                            child: Text('附件暂时无法加载'));
                   }
                   if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Padding(
-                        padding: EdgeInsets.only(top: 8),
-                        child: SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(strokeWidth: 2)));
+                    return isImage
+                        ? _imagePlaceholder(context,
+                            const CircularProgressIndicator(strokeWidth: 2))
+                        : const Padding(
+                            padding: EdgeInsets.only(top: 8),
+                            child: SizedBox(
+                                height: 40,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2)));
                   }
-                  if (!snapshot.hasData) return const SizedBox.shrink();
+                  if (!snapshot.hasData) {
+                    return isImage
+                        ? _imagePlaceholder(context, const Text('图片暂时无法加载'))
+                        : const SizedBox(height: 40);
+                  }
                   final uri = snapshot.data;
-                  if (uri == null) return const SizedBox.shrink();
-                  if (message.contentType == 'image') {
-                    return Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: GestureDetector(
-                        onTap: () => _showImageViewer(context, uri),
-                        child: ConstrainedBox(
-                            constraints: const BoxConstraints(
-                                maxWidth: 320, maxHeight: 240),
-                            child: Image.network(uri.toString(),
-                                fit: BoxFit.contain,
-                                errorBuilder: (_, __, ___) => const Padding(
-                                    padding: EdgeInsets.all(12),
-                                    child: Text('图片暂时无法加载')))),
-                      ),
-                    );
+                  if (uri == null) {
+                    return isImage
+                        ? _imagePlaceholder(context, const Text('图片暂时无法加载'))
+                        : const SizedBox(height: 40);
+                  }
+                  if (isImage) {
+                    return _imagePlaceholder(
+                        context,
+                        GestureDetector(
+                          onTap: () => _showImageViewer(context, uri),
+                          child: Image.network(uri.toString(),
+                              width: double.infinity,
+                              height: double.infinity,
+                              fit: BoxFit.contain,
+                              errorBuilder: (_, __, ___) =>
+                                  const Text('图片暂时无法加载')),
+                        ));
                   }
                   final name = message.rawBody['name'];
                   final size = message.rawBody['size_bytes'];
@@ -3507,6 +3508,19 @@ class _MessageBubble extends StatelessWidget {
             : label.isEmpty
                 ? const Icon(Icons.person_outline, size: 17)
                 : Text(label.characters.first));
+  }
+
+  Widget _imagePlaceholder(BuildContext context, Widget child) {
+    final available = MediaQuery.sizeOf(context).width - 100;
+    final width = available.clamp(180.0, 320.0).toDouble();
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: SizedBox(
+        width: width,
+        height: 240,
+        child: Center(child: child),
+      ),
+    );
   }
 
   Future<void> _showReactionUsers(
