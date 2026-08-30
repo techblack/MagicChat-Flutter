@@ -346,12 +346,17 @@ class _ProjectsPageState extends State<ProjectsPage> {
     }
   }
 
-  Future<List<ProjectTask>> _loadProjectTasks(String projectId) async {
+  Future<List<ProjectTask>> _loadProjectTasks(String projectId,
+      {String keyword = '', String status = '', int priority = 0}) async {
     final tasks = <ProjectTask>[];
     String? cursor;
     do {
       final page = await repository.projectTaskPage(projectId,
-          cursor: cursor, limit: 100);
+          cursor: cursor,
+          limit: 100,
+          keyword: keyword,
+          statuses: status.isEmpty ? const [] : [status],
+          priorities: priority == 0 ? const [] : [priority]);
       tasks.addAll(page.tasks);
       final nextCursor = page.nextCursor;
       if (nextCursor == null || nextCursor.isEmpty || nextCursor == cursor) {
@@ -363,67 +368,130 @@ class _ProjectsPageState extends State<ProjectsPage> {
   }
 
   Future<void> _showTasks(BuildContext context, Project project) async {
+    var keyword = '';
+    var status = '';
+    var priority = 0;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (context) => SafeArea(
-        child: SizedBox(
-          height: MediaQuery.sizeOf(context).height * .7,
-          child: FutureBuilder<List<ProjectTask>>(
-            future: _loadProjectTasks(project.id),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              return DefaultTabController(
-                length: 7,
-                child: Column(children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                    child: Row(children: [
-                      Expanded(
-                          child: Text(project.name,
-                              style: Theme.of(context).textTheme.titleLarge)),
-                      IconButton(
-                          onPressed: () => _createTask(context, project),
-                          icon: const Icon(Icons.add),
-                          tooltip: '新建任务'),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setFilterState) => SafeArea(
+          child: SizedBox(
+            height: MediaQuery.sizeOf(context).height * .7,
+            child: FutureBuilder<List<ProjectTask>>(
+              future: _loadProjectTasks(project.id,
+                  keyword: keyword, status: status, priority: priority),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                return DefaultTabController(
+                  length: 7,
+                  child: Column(children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                      child: Row(children: [
+                        Expanded(
+                            child: Text(project.name,
+                                style: Theme.of(context).textTheme.titleLarge)),
+                        IconButton(
+                            onPressed: () => _createTask(context, project),
+                            icon: const Icon(Icons.add),
+                            tooltip: '新建任务'),
+                      ]),
+                    ),
+                    Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                        child: Row(children: [
+                          Expanded(
+                              child: TextField(
+                                  decoration: const InputDecoration(
+                                      prefixIcon: Icon(Icons.search),
+                                      hintText: '搜索任务',
+                                      isDense: true),
+                                  onChanged: (value) => setFilterState(
+                                      () => keyword = value.trim()))),
+                          const SizedBox(width: 8),
+                          SizedBox(
+                              width: 120,
+                              child: DropdownButtonFormField<String>(
+                                  initialValue: status,
+                                  isExpanded: true,
+                                  isDense: true,
+                                  decoration: const InputDecoration(
+                                      labelText: '状态', isDense: true),
+                                  items: const [
+                                    DropdownMenuItem(
+                                        value: '', child: Text('全部状态')),
+                                    DropdownMenuItem(
+                                        value: 'todo', child: Text('待处理')),
+                                    DropdownMenuItem(
+                                        value: 'in_progress',
+                                        child: Text('进行中')),
+                                    DropdownMenuItem(
+                                        value: 'done', child: Text('已完成')),
+                                    DropdownMenuItem(
+                                        value: 'canceled', child: Text('已取消')),
+                                  ],
+                                  onChanged: (value) => setFilterState(
+                                      () => status = value ?? ''))),
+                          const SizedBox(width: 8),
+                          SizedBox(
+                              width: 100,
+                              child: DropdownButtonFormField<int>(
+                                  initialValue: priority,
+                                  isExpanded: true,
+                                  isDense: true,
+                                  decoration: const InputDecoration(
+                                      labelText: '优先级', isDense: true),
+                                  items: const [
+                                    DropdownMenuItem(
+                                        value: 0, child: Text('全部')),
+                                    DropdownMenuItem(
+                                        value: 1, child: Text('高')),
+                                    DropdownMenuItem(
+                                        value: 2, child: Text('中')),
+                                    DropdownMenuItem(
+                                        value: 3, child: Text('低')),
+                                  ],
+                                  onChanged: (value) => setFilterState(
+                                      () => priority = value ?? 0))),
+                        ])),
+                    const TabBar(isScrollable: true, tabs: [
+                      Tab(text: '列表'),
+                      Tab(text: '看板'),
+                      Tab(text: '日历'),
+                      Tab(text: '甘特'),
+                      Tab(text: '文档'),
+                      Tab(text: '目标'),
+                      Tab(text: '成员')
                     ]),
-                  ),
-                  const TabBar(isScrollable: true, tabs: [
-                    Tab(text: '列表'),
-                    Tab(text: '看板'),
-                    Tab(text: '日历'),
-                    Tab(text: '甘特'),
-                    Tab(text: '文档'),
-                    Tab(text: '目标'),
-                    Tab(text: '成员')
+                    Expanded(
+                        child: TabBarView(children: [
+                      ListView(
+                          padding: const EdgeInsets.all(16),
+                          children: snapshot.data!
+                              .map((task) => _taskTile(context, project, task))
+                              .toList()),
+                      _taskBoard(context, project, snapshot.data!),
+                      ProjectTaskCalendarView(
+                          tasks: snapshot.data!,
+                          onOpenTask: (task) => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => ProjectTaskDetailsPage(
+                                      repository: repository,
+                                      project: project,
+                                      task: task)))),
+                      _taskGantt(context, project, snapshot.data!),
+                      _documentsView(context, project),
+                      _goalsView(context),
+                      _membersView(context, project),
+                    ])),
                   ]),
-                  Expanded(
-                      child: TabBarView(children: [
-                    ListView(
-                        padding: const EdgeInsets.all(16),
-                        children: snapshot.data!
-                            .map((task) => _taskTile(context, project, task))
-                            .toList()),
-                    _taskBoard(context, project, snapshot.data!),
-                    ProjectTaskCalendarView(
-                        tasks: snapshot.data!,
-                        onOpenTask: (task) => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => ProjectTaskDetailsPage(
-                                    repository: repository,
-                                    project: project,
-                                    task: task)))),
-                    _taskGantt(context, project, snapshot.data!),
-                    _documentsView(context, project),
-                    _goalsView(context),
-                    _membersView(context, project),
-                  ])),
-                ]),
-              );
-            },
+                );
+              },
+            ),
           ),
         ),
       ),

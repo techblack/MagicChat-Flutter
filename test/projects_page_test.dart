@@ -128,6 +128,38 @@ void main() {
         matchesGoldenFile('evidence/project_task_pagination.png'));
   });
 
+  testWidgets('项目任务筛选透传关键词、状态和优先级', (tester) async {
+    final repository = _PagedProjectRepository();
+    await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(
+            colorScheme:
+                ColorScheme.fromSeed(seedColor: const Color(0xFF6750A4)),
+            useMaterial3: true),
+        home: Scaffold(body: ProjectsPage(repository: repository))));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('客户端迭代'));
+    await tester.pumpAndSettle();
+
+    final taskSearch = find.byWidgetPredicate((widget) =>
+        widget is TextField && widget.decoration?.hintText == '搜索任务');
+    await tester.enterText(taskSearch, '发布');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('进行中').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(DropdownButtonFormField<int>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('高').last);
+    await tester.pumpAndSettle();
+
+    expect(repository.requests, contains(containsPair('keyword', '发布')));
+    expect(
+        repository.requests,
+        contains(allOf(containsPair('status', 'in_progress'),
+            containsPair('priority', 1))));
+  });
+
   testWidgets('目录不会误入编辑器且 Markdown 文档可打开', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1200, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -279,6 +311,7 @@ class _ProjectRepository extends DemoRepository {
 
 class _PagedProjectRepository extends _ProjectRepository {
   final cursors = <String?>[];
+  final requests = <Map<String, Object?>>[];
 
   @override
   Future<ProjectTaskPage> projectTaskPage(String projectId,
@@ -288,6 +321,11 @@ class _PagedProjectRepository extends _ProjectRepository {
       List<String> statuses = const [],
       List<int> priorities = const []}) async {
     cursors.add(cursor);
+    requests.add({
+      'keyword': keyword,
+      'status': statuses.isEmpty ? '' : statuses.first,
+      'priority': priorities.isEmpty ? 0 : priorities.first,
+    });
     if (cursor == null) {
       return const ProjectTaskPage(tasks: [
         ProjectTask(
