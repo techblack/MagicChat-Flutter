@@ -191,7 +191,7 @@ void main() {
     final priorityField = find
         .byWidgetPredicate((widget) =>
             widget is DropdownButtonFormField<int> &&
-            widget.decoration?.labelText == '优先级')
+            widget.decoration.labelText == '优先级')
         .last;
     await tester.ensureVisible(priorityField);
     await tester.tap(priorityField);
@@ -202,7 +202,7 @@ void main() {
     final assigneeField = find
         .byWidgetPredicate((widget) =>
             widget is DropdownButtonFormField<String> &&
-            widget.decoration?.labelText == '负责人')
+            widget.decoration.labelText == '负责人')
         .last;
     await tester.ensureVisible(assigneeField);
     await tester.tap(assigneeField);
