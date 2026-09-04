@@ -43,12 +43,16 @@ class _ProjectsPageState extends State<ProjectsPage> {
   }
 
   void _reloadProjects() {
-    setState(() => _projects = repository.projects());
+    setState(() {
+      _projects = repository.projects();
+    });
   }
 
   Future<void> _refreshProjects() async {
     final future = repository.projects();
-    setState(() => _projects = future);
+    setState(() {
+      _projects = future;
+    });
     await future;
   }
 

@@ -223,7 +223,9 @@ class _ConversationViewState extends State<ConversationView> {
       final offset = _scrollController.hasClients
           ? _scrollController.position.pixels
           : 0.0;
-      setState(() => _contactsFuture = Future.value(fresh));
+      setState(() {
+        _contactsFuture = Future.value(fresh);
+      });
       if (keepBottom) {
         _correctLatestPosition(conversationId,
             force: true, expectedOffset: offset);
