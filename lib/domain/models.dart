@@ -93,7 +93,7 @@ class ChatConversation {
           value['created_at'] is String ? value['created_at'] as String : '',
       unread: (value['unread_count'] as num?)?.toInt() ?? 0,
       pinned: value['pinned'] == true,
-      muted: value['notification_muted'] == true,
+      muted: value['notification_muted'] == true || value['muted'] == true,
       lastMessageAt: value['last_message_at'] is String
           ? value['last_message_at'] as String
           : '',

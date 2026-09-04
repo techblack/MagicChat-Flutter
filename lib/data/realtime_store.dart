@@ -341,8 +341,11 @@ class RealtimeStore extends ChangeNotifier {
         pinned: payload['pinned'] is bool
             ? payload['pinned'] as bool
             : current.pinned,
-        muted:
-            payload['muted'] is bool ? payload['muted'] as bool : current.muted,
+        muted: payload['muted'] is bool
+            ? payload['muted'] as bool
+            : payload['notification_muted'] is bool
+                ? payload['notification_muted'] as bool
+                : current.muted,
         lastMessageAt: payload['last_message_at'] is String
             ? payload['last_message_at'] as String
             : current.lastMessageAt,
