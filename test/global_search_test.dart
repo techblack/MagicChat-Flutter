@@ -5,6 +5,8 @@ import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/search/global_search.dart';
 
 class _SearchRepository extends DemoRepository {
+  var contactSearches = 0;
+
   @override
   Future<List<ChatConversation>> conversations() async => const [
         ChatConversation(
@@ -15,9 +17,12 @@ class _SearchRepository extends DemoRepository {
       ];
 
   @override
-  Future<List<Contact>> contacts({String keyword = ''}) async => const [
-        Contact(id: 'user-alice', name: 'Alice', email: 'alice@example.com'),
-      ];
+  Future<List<Contact>> contacts({String keyword = ''}) async {
+    contactSearches++;
+    return const [
+      Contact(id: 'user-alice', name: 'Alice', email: 'alice@example.com'),
+    ];
+  }
 
   @override
   Future<List<Project>> projects() async => const [
@@ -78,6 +83,7 @@ void main() {
   testWidgets('综合搜索加载本地索引并携带消息定位信息', (tester) async {
     final opened = <String>[];
     final openedMessages = <String>[];
+    final repository = _SearchRepository();
     await tester.binding.setSurfaceSize(const Size(1000, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     tester.view.devicePixelRatio = 1;
@@ -85,7 +91,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         body: GlobalSearchDialog(
-          repository: _SearchRepository(),
+          repository: repository,
           onOpenConversation: opened.add,
           onOpenMessage: (conversationId, messageId, messageSequence) =>
               openedMessages.add('$conversationId:$messageId:$messageSequence'),
@@ -95,12 +101,17 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), 'release');
+    await tester.pump(const Duration(milliseconds: 299));
+    expect(repository.contactSearches, 0);
+    await tester.pump(const Duration(milliseconds: 1));
     await tester.pumpAndSettle();
     expect(find.text('会话'), findsOneWidget);
     expect(find.text('工程群'), findsWidgets);
     expect(find.text('项目'), findsOneWidget);
     expect(find.text('Release 计划'), findsOneWidget);
     expect(find.text('聊天记录'), findsOneWidget);
+    await tester.tap(find.text('综合搜索'));
+    await tester.pump(const Duration(milliseconds: 500));
     await expectLater(find.byType(MaterialApp),
         matchesGoldenFile('evidence/global_search.png'));
 
