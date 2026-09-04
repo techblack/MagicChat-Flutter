@@ -77,10 +77,20 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _setNotifications(bool value) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('magicchat.notifications.enabled', value);
     if (value) {
-      await const LocalNotificationService().requestPermission();
+      final granted =
+          await const LocalNotificationService().requestPermission();
+      if (!granted) {
+        await prefs.setBool('magicchat.notifications.enabled', false);
+        if (mounted) {
+          setState(() => _notificationsEnabled = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('系统通知权限未开启，请在系统设置中允许通知')));
+        }
+        return;
+      }
     }
+    await prefs.setBool('magicchat.notifications.enabled', value);
     if (mounted) setState(() => _notificationsEnabled = value);
   }
 

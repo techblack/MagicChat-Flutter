@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/features/settings/settings_page.dart';
@@ -52,5 +53,34 @@ void main() {
     await tester.scrollUntilVisible(find.text('退出登录'), 500,
         scrollable: find.byType(Scrollable).last);
     expect(find.text('退出登录'), findsOneWidget);
+  });
+
+  testWidgets('系统拒绝通知权限时开关回滚并提示用户', (tester) async {
+    const channel = MethodChannel('magicchat/notifications');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'requestPermission') return false;
+      return true;
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding
+        .instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null));
+
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SettingsPage(
+                repository: DemoRepository(),
+                serverUrl: 'https://chat.example.com'))));
+    await tester.pumpAndSettle();
+
+    final toggle = find.byType(SwitchListTile);
+    expect(toggle, findsOneWidget);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+
+    expect(find.text('系统通知权限未开启，请在系统设置中允许通知'), findsOneWidget);
+    expect((tester.widget<SwitchListTile>(toggle)).value, isFalse);
   });
 }
