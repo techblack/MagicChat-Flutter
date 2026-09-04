@@ -30,6 +30,31 @@ void main() {
     expect(unauthorizedCount, 1);
   });
 
+  test('multipart 接口也解析业务错误 envelope', () async {
+    final repository = HttpMagicChatRepository(
+      serverUrl: 'https://chat.example.com',
+      sessionToken: 'token',
+      client: MockClient((_) async => _jsonResponse({
+            'success': false,
+            'error': {'code': 'avatar_invalid', 'message': '头像尺寸不正确'},
+          }, statusCode: 422)),
+    );
+
+    await expectLater(
+      repository.uploadAppAvatar(
+          'app-1',
+          AttachmentUpload(
+              path: '',
+              name: 'avatar.webp',
+              mimeType: 'image/webp',
+              bytes: Uint8List.fromList([1, 2, 3]))),
+      throwsA(isA<MagicChatRequestException>()
+          .having((error) => error.statusCode, 'statusCode', 422)
+          .having((error) => error.code, 'code', 'avatar_invalid')
+          .having((error) => error.message, 'message', '头像尺寸不正确')),
+    );
+  });
+
   test('HTTP 消息解析选择状态及选项统计', () async {
     final repository = HttpMagicChatRepository(
       serverUrl: 'https://chat.example.com',
