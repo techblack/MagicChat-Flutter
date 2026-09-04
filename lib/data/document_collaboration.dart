@@ -131,15 +131,18 @@ class DocumentCollaborationSession extends ChangeNotifier {
   void replaceXmlText(yjs.YXmlText node, String value,
       {Map<String, Object?>? marks}) {
     if (documentType != 'document' ||
-        status != DocumentCollaborationStatus.synced ||
-        node.toString() == value) {
+        status != DocumentCollaborationStatus.synced) {
       return;
     }
     final nextMarks = marks ?? _marksFor(node);
+    if (node.toString() == value && mapEquals(_marksFor(node), nextMarks)) {
+      return;
+    }
     _document.transact((_) {
       _clearText(node);
       if (value.isNotEmpty) node.insert(0, value, nextMarks);
     });
+    notifyListeners();
   }
 
   /// 返回当前文本叶子的可见 marks，供编辑器初始化格式控件。
