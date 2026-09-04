@@ -50,7 +50,9 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
 
   Future<void> _refresh() async {
     final future = widget.repository.apps();
-    setState(() => _appsFuture = future);
+    setState(() {
+      _appsFuture = future;
+    });
     await future;
   }
 

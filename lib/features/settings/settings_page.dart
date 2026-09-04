@@ -204,14 +204,15 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       final processed =
           bytes == null ? null : const AvatarProcessor().process(bytes);
-      setState(() => _userFuture = widget.repository.uploadAvatar(
-          AttachmentUpload(
-              path: file.path ?? '',
-              name: processed == null ? file.name : 'avatar.webp',
-              mimeType: processed == null
-                  ? 'image/${file.extension ?? 'webp'}'
-                  : 'image/webp',
-              bytes: processed)));
+      setState(() {
+        _userFuture = widget.repository.uploadAvatar(AttachmentUpload(
+            path: file.path ?? '',
+            name: processed == null ? file.name : 'avatar.webp',
+            mimeType: processed == null
+                ? 'image/${file.extension ?? 'webp'}'
+                : 'image/webp',
+            bytes: processed));
+      });
     } catch (error) {
       if (mounted)
         ScaffoldMessenger.of(context)

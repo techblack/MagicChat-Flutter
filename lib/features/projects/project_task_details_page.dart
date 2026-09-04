@@ -47,7 +47,9 @@ class _ProjectTaskDetailsPageState extends State<ProjectTaskDetailsPage> {
       final current = await _activities;
       if (!mounted) return;
       _comment.clear();
-      setState(() => _activities = Future.value([...current, activity]));
+      setState(() {
+        _activities = Future.value([...current, activity]);
+      });
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -79,9 +81,11 @@ class _ProjectTaskDetailsPageState extends State<ProjectTaskDetailsPage> {
                             subtitle: Text('${snapshot.error}'),
                             trailing: IconButton(
                                 tooltip: '重试',
-                                onPressed: () => setState(() => _activities =
-                                    widget.repository.taskActivities(
-                                        widget.project.id, widget.task.id)),
+                                onPressed: () => setState(() {
+                                      _activities = widget.repository
+                                          .taskActivities(widget.project.id,
+                                              widget.task.id);
+                                    }),
                                 icon: const Icon(Icons.refresh))));
                   }
                   if (!snapshot.hasData) {
