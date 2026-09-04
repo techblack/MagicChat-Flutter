@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../data/repository.dart';
@@ -129,9 +131,12 @@ class _GlobalSearchDialogState extends State<GlobalSearchDialog> {
   final _controller = TextEditingController();
   String _keyword = '';
   Future<List<GlobalSearchResult>>? _results;
+  Timer? _searchDebounce;
+  int _searchGeneration = 0;
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -156,9 +161,18 @@ class _GlobalSearchDialogState extends State<GlobalSearchDialog> {
 
   void _onChanged(String value) {
     final keyword = value.trim();
+    _searchDebounce?.cancel();
+    final generation = ++_searchGeneration;
     setState(() {
       _keyword = keyword;
-      _results = keyword.isEmpty ? null : _search(keyword);
+      _results = null;
+    });
+    if (keyword.isEmpty) return;
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted || generation != _searchGeneration) return;
+      setState(() {
+        _results = _search(keyword);
+      });
     });
   }
 
