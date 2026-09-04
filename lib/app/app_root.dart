@@ -143,6 +143,8 @@ class _MagicChatAppState extends State<MagicChatApp> {
     }
     if (_sessionExpiring) return;
     _sessionExpiring = true;
+    await const SessionStore()
+        .markAccountReauthRequired(serverUrl: server, token: token);
     await _realtime?.close();
     await const SessionStore().clear();
     await MessageCacheStore().clearAll();
@@ -162,7 +164,11 @@ class _MagicChatAppState extends State<MagicChatApp> {
     final prefs = await SharedPreferences.getInstance();
     final server = prefs.getString('magicchat.server_url');
     final token = await const SessionStore().readToken();
-    if (server != null && token != null) await _revokePush(server, token);
+    if (server != null && token != null) {
+      await _revokePush(server, token);
+      await const SessionStore()
+          .markAccountReauthRequired(serverUrl: server, token: token);
+    }
     if (server != null) {
       try {
         await AuthService().logout(serverUrl: server);
@@ -201,6 +207,8 @@ class _MagicChatAppState extends State<MagicChatApp> {
     final oldToken = await const SessionStore().readToken();
     if (oldServer != null && oldToken != null) {
       await _revokePush(oldServer, oldToken);
+      await const SessionStore()
+          .markAccountReauthRequired(serverUrl: oldServer, token: oldToken);
     }
     await _realtime?.close();
     await const SessionStore().clear();
@@ -223,6 +231,8 @@ class _MagicChatAppState extends State<MagicChatApp> {
     final oldToken = await const SessionStore().readToken();
     if (oldServer != null && oldToken != null) {
       await _revokePush(oldServer, oldToken);
+      await const SessionStore()
+          .markAccountReauthRequired(serverUrl: oldServer, token: oldToken);
     }
     await _realtime?.close();
     await const SessionStore().writeToken(account.token);

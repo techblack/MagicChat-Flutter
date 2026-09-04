@@ -107,6 +107,34 @@ class SessionStore {
     }
   }
 
+  /// 将当前会话标记为需要重新认证，但保留账户入口和展示信息。
+  Future<void> markAccountReauthRequired(
+      {required String serverUrl, required String token}) async {
+    final accounts = await readAccounts();
+    var changed = false;
+    final updated = accounts.map((account) {
+      if (account.serverUrl != serverUrl || account.token != token) {
+        return account;
+      }
+      changed = true;
+      return StoredAccount(
+          id: account.id,
+          serverUrl: account.serverUrl,
+          token: account.token,
+          email: account.email,
+          name: account.name,
+          status: 'reauth-required');
+    }).toList();
+    if (!changed) return;
+    try {
+      await _storage.write(
+          key: 'magicchat.accounts',
+          value: jsonEncode(updated.map((item) => item.toJson()).toList()));
+    } on PlatformException {
+      // Account persistence is best effort when the desktop keyring is absent.
+    }
+  }
+
   Future<void> removeAccount(String accountId) async {
     final accounts = await readAccounts();
     try {
