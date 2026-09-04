@@ -75,6 +75,19 @@ class PushTokenProvider {
       return null;
     }
   }
+
+  /// 消费原生通知点击携带的一次性 route token。
+  Future<String?> takePendingRouteToken() async {
+    try {
+      final value =
+          await _channel.invokeMethod<Object?>('getPendingRouteToken');
+      return value is String && value.trim().isNotEmpty ? value.trim() : null;
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
+  }
 }
 
 class PushDeviceToken {

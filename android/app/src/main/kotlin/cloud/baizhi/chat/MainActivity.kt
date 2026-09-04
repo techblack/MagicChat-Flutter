@@ -5,6 +5,9 @@ import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.pm.PackageManager
+import android.content.Context
+import android.content.Intent
+import android.os.Bundle
 import android.os.Build
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -16,6 +19,18 @@ class MainActivity : FlutterActivity() {
     private val channelName = "magicchat/notifications"
     private val notificationChannelId = "magicchat_messages"
     private val requestCode = 4101
+    private var pendingRouteToken: String? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        pendingRouteToken = routeTokenFromIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        pendingRouteToken = routeTokenFromIntent(intent)
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -24,9 +39,12 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "getDeviceToken" -> {
-                        // JPush is not bundled by the Flutter client yet. Keep
-                        // the bridge explicit so Dart can safely fall back.
-                        result.success(null)
+                        result.success(readJPushDeviceToken())
+                    }
+                    "getPendingRouteToken" -> {
+                        val token = pendingRouteToken
+                        pendingRouteToken = null
+                        result.success(token)
                     }
                     else -> result.notImplemented()
                 }
@@ -59,6 +77,34 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun readJPushDeviceToken(): Map<String, String>? {
+        if (!BuildConfig.JPUSH_CONFIGURED) return null
+        return try {
+            val jpush = Class.forName("cn.jpush.android.api.JPushInterface")
+            jpush.getMethod("setDebugMode", Boolean::class.javaPrimitiveType)
+                .invoke(null, BuildConfig.DEBUG)
+            jpush.getMethod("init", Context::class.java)
+                .invoke(null, applicationContext)
+            val registrationId = jpush
+                .getMethod("getRegistrationID", Context::class.java)
+                .invoke(null, applicationContext) as? String
+            val token = registrationId?.trim().orEmpty()
+            if (token.isEmpty()) null else mapOf(
+                "provider" to "jpush",
+                "platform" to "android",
+                "environment" to "production",
+                "token" to token,
+            )
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun routeTokenFromIntent(intent: Intent?): String? {
+        val token = intent?.getStringExtra("route_token")?.trim()
+        return token?.takeIf { it.isNotEmpty() }
     }
 
     private fun createNotificationChannel() {

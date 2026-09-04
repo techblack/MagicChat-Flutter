@@ -47,6 +47,16 @@ flutter build linux
 
 CI 会执行格式、静态检查、单元测试，并构建 Web Release 与 Linux Debug 产物。
 
+Android 推送默认保持安全降级；发布包需要 JPush 时，在构建环境注入应用密钥（不要提交到仓库）：
+
+```bash
+JPUSH_APP_KEY="$YOUR_JPUSH_APP_KEY" \
+JPUSH_CHANNEL=official \
+flutter build apk --release
+```
+
+未设置 `JPUSH_APP_KEY` 时不会打包 JPush SDK，其他 Android 构建和测试不受影响。
+
 ## 目录
 
 ```text

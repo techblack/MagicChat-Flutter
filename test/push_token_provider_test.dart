@@ -216,6 +216,21 @@ void main() {
     );
   });
 
+  test('读取原生通知点击 route token 并去除空白', () async {
+    final channel = MethodChannel('test/push-route-token');
+    channel.setMockMethodCallHandler((call) async {
+      expect(call.method, 'getPendingRouteToken');
+      return '  route-token  ';
+    });
+    addTearDown(() => channel.setMockMethodCallHandler(null));
+
+    expect(
+        await const PushTokenProvider(
+                channel: MethodChannel('test/push-route-token'))
+            .takePendingRouteToken(),
+        'route-token');
+  });
+
   test('推送接口保留服务端业务错误消息', () async {
     final service = PushService(
         client: MockClient((_) async => http.Response(
