@@ -232,9 +232,17 @@ class _ConversationListState extends State<_ConversationList> {
 
   void _onRealtimeChanged() {
     if (!mounted) return;
+    final event = widget.realtimeStore?.lastEvent;
+    if (event == 'conversation.removed' || event == 'topic.created') {
+      setState(_reload);
+      return;
+    }
+    final liveConversations = widget.realtimeStore?.conversations.values;
+    if (liveConversations != null) {
+      widget.onUnreadChanged?.call(totalConversationUnread(liveConversations));
+    }
     setState(() {
       _currentUserId = widget.realtimeStore?.currentUserId ?? _currentUserId;
-      _reload();
     });
   }
 
@@ -275,7 +283,14 @@ class _ConversationListState extends State<_ConversationList> {
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        final conversations = orderConversations(snapshot.data!).where((item) =>
+        final live = widget.realtimeStore?.conversations ?? const {};
+        final merged = <String, ChatConversation>{
+          for (final item in snapshot.data!) item.id: item,
+        };
+        for (final entry in live.entries) {
+          if (merged.containsKey(entry.key)) merged[entry.key] = entry.value;
+        }
+        final conversations = orderConversations(merged.values).where((item) =>
             matchesConversationFilter(item, _filter) &&
             matchesConversationQuery(item, _query));
         return RefreshIndicator(

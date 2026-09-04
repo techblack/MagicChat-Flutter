@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import 'package:magicchat_client/data/repository.dart';
+import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/main.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/messages/conversation_list.dart';
@@ -53,6 +54,27 @@ class _PreferenceDemoRepository extends DemoRepository {
   Future<bool> setConversationMuted(String conversationId, bool value) async {
     muted = value;
     return value;
+  }
+}
+
+class _RealtimeConversationRepository extends DemoRepository {
+  var requests = 0;
+
+  @override
+  Future<List<ChatConversation>> conversations() async {
+    requests++;
+    return const [
+      ChatConversation(
+          id: 'older',
+          title: '旧会话',
+          lastMessageAt: '2026-09-04T10:00:00Z',
+          lastMessageSeq: 1),
+      ChatConversation(
+          id: 'newer',
+          title: '新会话',
+          lastMessageAt: '2026-09-04T11:00:00Z',
+          lastMessageSeq: 2),
+    ];
   }
 }
 
@@ -237,6 +259,35 @@ void main() {
     await tester.tap(find.text('消息免打扰'));
     await tester.pumpAndSettle();
     expect(find.byIcon(Icons.notifications_off), findsOneWidget);
+  });
+
+  testWidgets('实时新消息原地更新会话而不重新请求列表', (tester) async {
+    final repository = _RealtimeConversationRepository();
+    final store = RealtimeStore()..currentUserId = 'me';
+    await tester.pumpWidget(MaterialApp(
+        home: AppShell(repository: repository, realtimeStore: store)));
+    await tester.pumpAndSettle();
+    final requestsBeforeEvent = repository.requests;
+    expect(requestsBeforeEvent, greaterThanOrEqualTo(1));
+
+    store.apply({
+      'event': 'message.created',
+      'cursor': 1,
+      'payload': {
+        'id': 'm3',
+        'conversation_id': 'older',
+        'seq': 3,
+        'created_at': '2026-09-04T12:00:00Z',
+        'sender': {'id': 'other', 'name': '其他成员'},
+        'body': {'type': 'text', 'content': '刚刚收到'},
+      }
+    });
+    await tester.pump();
+
+    expect(repository.requests, requestsBeforeEvent);
+    expect(find.text('刚刚收到'), findsOneWidget);
+    final tiles = find.byType(ListTile);
+    expect((tester.widget<ListTile>(tiles.first).title as Text).data, '旧会话');
   });
 
   testWidgets('生成会话筛选流程截图', (tester) async {
