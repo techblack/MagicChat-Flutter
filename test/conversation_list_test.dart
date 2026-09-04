@@ -187,6 +187,21 @@ void main() {
     expect(formatMessageTime('not-a-date'), isNull);
   });
 
+  test('静默会话不触发本地消息通知', () {
+    expect(
+        shouldShowLocalMessageNotification(
+            conversationId: 'c1', selectedConversationId: 'c2', muted: true),
+        isFalse);
+    expect(
+        shouldShowLocalMessageNotification(
+            conversationId: 'c1', selectedConversationId: 'c1'),
+        isFalse);
+    expect(
+        shouldShowLocalMessageNotification(
+            conversationId: 'c1', selectedConversationId: 'c2'),
+        isTrue);
+  });
+
   test('会话响应解析提及和选择提醒序号', () {
     final conversation = ChatConversation.fromJson({
       'id': 'c1',
