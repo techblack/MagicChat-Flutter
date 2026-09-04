@@ -46,6 +46,12 @@ class _ProjectsPageState extends State<ProjectsPage> {
     setState(() => _projects = repository.projects());
   }
 
+  Future<void> _refreshProjects() async {
+    final future = repository.projects();
+    setState(() => _projects = future);
+    await future;
+  }
+
   void _openInitialProject(List<Project> projects) {
     final id = widget.initialProjectId;
     if (id == null || id.isEmpty || id == _openedInitialProjectId) return;
@@ -113,12 +119,12 @@ class _ProjectsPageState extends State<ProjectsPage> {
                           project.description.toLowerCase().contains(keyword))
                       .toList();
               return RefreshIndicator(
-                  onRefresh: () async => _reloadProjects(),
+                  onRefresh: _refreshProjects,
                   child: ListView.separated(
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                    itemCount: projects.length + 1,
+                    itemCount: projects.isEmpty ? 2 : projects.length + 1,
                     separatorBuilder: (_, __) => const SizedBox(height: 2),
                     itemBuilder: (context, index) {
                       if (index == 0) {
@@ -141,6 +147,13 @@ class _ProjectsPageState extends State<ProjectsPage> {
                                             },
                                             icon: const Icon(Icons.clear)),
                                     border: const OutlineInputBorder())));
+                      }
+                      if (projects.isEmpty) {
+                        return Padding(
+                            padding: const EdgeInsets.all(32),
+                            child: Center(
+                                child: Text(
+                                    keyword.isEmpty ? '暂无项目' : '未找到匹配的项目')));
                       }
                       final project = projects[index - 1];
                       return ListTile(
