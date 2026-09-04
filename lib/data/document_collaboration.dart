@@ -128,18 +128,22 @@ class DocumentCollaborationSession extends ChangeNotifier {
   }
 
   /// 更新一个已有的 XML 文本叶子，保留该叶子的 marks 属性。
-  void replaceXmlText(yjs.YXmlText node, String value) {
+  void replaceXmlText(yjs.YXmlText node, String value,
+      {Map<String, Object?>? marks}) {
     if (documentType != 'document' ||
         status != DocumentCollaborationStatus.synced ||
         node.toString() == value) {
       return;
     }
-    final marks = _marksFor(node);
+    final nextMarks = marks ?? _marksFor(node);
     _document.transact((_) {
       _clearText(node);
-      if (value.isNotEmpty) node.insert(0, value, marks);
+      if (value.isNotEmpty) node.insert(0, value, nextMarks);
     });
   }
+
+  /// 返回当前文本叶子的可见 marks，供编辑器初始化格式控件。
+  Map<String, Object?> xmlTextMarks(yjs.YXmlText node) => _marksFor(node);
 
   /// 在富文档末尾追加一个标准 Tiptap XML block。
   ///

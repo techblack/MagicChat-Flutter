@@ -128,11 +128,14 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
         session.status != DocumentCollaborationStatus.synced) {
       return;
     }
-    final value = await showDialog<String>(
-        context: context,
-        builder: (_) => _TextBlockDialog(initialText: node.toString()));
-    if (value != null && mounted) {
-      session.replaceXmlText(node, value);
+    final result =
+        await showDialog<({String text, Map<String, Object?> marks})>(
+            context: context,
+            builder: (_) => _TextBlockDialog(
+                initialText: node.toString(),
+                initialMarks: session.xmlTextMarks(node)));
+    if (result != null && mounted) {
+      session.replaceXmlText(node, result.text, marks: result.marks);
     }
   }
 
@@ -325,9 +328,11 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
 }
 
 class _TextBlockDialog extends StatefulWidget {
-  const _TextBlockDialog({required this.initialText});
+  const _TextBlockDialog(
+      {required this.initialText, required this.initialMarks});
 
   final String initialText;
+  final Map<String, Object?> initialMarks;
 
   @override
   State<_TextBlockDialog> createState() => _TextBlockDialogState();
@@ -336,6 +341,8 @@ class _TextBlockDialog extends StatefulWidget {
 class _TextBlockDialogState extends State<_TextBlockDialog> {
   late final TextEditingController _controller =
       TextEditingController(text: widget.initialText);
+  late final Map<String, Object?> _marks =
+      Map<String, Object?>.from(widget.initialMarks);
 
   @override
   void dispose() {
@@ -346,20 +353,44 @@ class _TextBlockDialogState extends State<_TextBlockDialog> {
   @override
   Widget build(BuildContext context) => AlertDialog(
         title: const Text('编辑文本块'),
-        content: TextField(
-            controller: _controller,
-            autofocus: true,
-            minLines: 2,
-            maxLines: 8,
-            decoration: const InputDecoration(
-                hintText: '输入文本', border: OutlineInputBorder())),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(
+              controller: _controller,
+              autofocus: true,
+              minLines: 2,
+              maxLines: 8,
+              decoration: const InputDecoration(
+                  hintText: '输入文本', border: OutlineInputBorder())),
+          const SizedBox(height: 12),
+          Align(
+              alignment: Alignment.centerLeft,
+              child: Wrap(spacing: 8, runSpacing: 4, children: [
+                _markChip('粗体', 'bold'),
+                _markChip('斜体', 'italic'),
+                _markChip('删除线', 'strike'),
+                _markChip('代码', 'code'),
+              ])),
+        ]),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context), child: const Text('取消')),
           FilledButton(
-              onPressed: () => Navigator.pop(context, _controller.text),
+              onPressed: () => Navigator.pop(
+                  context, (text: _controller.text, marks: Map.of(_marks))),
               child: const Text('保存')),
         ],
+      );
+
+  Widget _markChip(String label, String key) => FilterChip(
+        label: Text(label),
+        selected: _marks[key] == true,
+        onSelected: (selected) => setState(() {
+          if (selected) {
+            _marks[key] = true;
+          } else {
+            _marks.remove(key);
+          }
+        }),
       );
 }
 
