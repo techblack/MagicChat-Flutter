@@ -90,6 +90,25 @@ void main() {
     expect(token?.token, 'a' * 64);
   });
 
+  test('读取有效 Android JPush RegistrationID', () async {
+    final channel = MethodChannel('test/jpush-device-token');
+    channel.setMockMethodCallHandler((_) async => {
+          'provider': 'jpush',
+          'platform': 'android',
+          'environment': 'production',
+          'token': '  registration-id  ',
+        });
+    addTearDown(() => channel.setMockMethodCallHandler(null));
+
+    final token = await const PushTokenProvider(
+            channel: MethodChannel('test/jpush-device-token'))
+        .readDeviceToken();
+
+    expect(token?.provider, 'jpush');
+    expect(token?.platform, 'android');
+    expect(token?.token, 'registration-id');
+  });
+
   test('拒绝平台与推送厂商不匹配的设备令牌', () async {
     final channel = MethodChannel('test/mismatched-device-token');
     channel.setMockMethodCallHandler((_) async => {
