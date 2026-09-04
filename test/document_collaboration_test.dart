@@ -223,6 +223,55 @@ void main() {
     serverDocument.destroy();
   });
 
+  test('富文档可编辑已有文本块并同步到协作状态', () async {
+    final channel = _FakeChannel();
+    final session = DocumentCollaborationSession(
+        serverUrl: 'https://chat.example.com',
+        token: 'session-token',
+        documentId: 'doc-text-edit',
+        documentType: 'document',
+        connector: (_, __) => channel);
+    await session.connect();
+    channel.emit(
+        encodeHocuspocusAuthenticatedFrame(documentName: 'doc-text-edit'));
+    await Future<void>.delayed(Duration.zero);
+
+    final serverDocument = yjs.Doc(yjs.DocOpts(guid: 'doc-text-edit'));
+    final serverBody =
+        serverDocument.get<yjs.YXmlFragment>('body', yjs.YXmlFragment.new)!;
+    _insertParagraphs(serverBody, '原始正文');
+    final incoming = yjs.createEncoder();
+    yjs.writeVarString(incoming, 'doc-text-edit');
+    yjs.writeVarUint(incoming, HocuspocusMessageType.sync);
+    yjs.writeSyncStep2(incoming, serverDocument);
+    channel.emit(yjs.toUint8Array(incoming));
+    await Future<void>.delayed(Duration.zero);
+    expect(session.status, DocumentCollaborationStatus.synced);
+
+    final paragraph =
+        session.body.toArray().whereType<yjs.YXmlElement>().single;
+    final text = paragraph.toArray().whereType<yjs.YXmlText>().single;
+    final sentBeforeEdit = channel.sent.length;
+    session.replaceXmlText(text, '编辑后的正文');
+    expect(channel.sent, hasLength(sentBeforeEdit + 1));
+    final update = yjs.createDecoder(channel.sent.last as Uint8List);
+    expect(yjs.readVarString(update), 'doc-text-edit');
+    expect(yjs.readVarUint(update), HocuspocusMessageType.sync);
+    yjs.readSyncMessage(update, yjs.createEncoder(), serverDocument, 'server');
+    expect(_xmlText(serverBody), '编辑后的正文');
+
+    final markedParagraph = yjs.YXmlElement('paragraph');
+    final markedText = yjs.YXmlText()..insert(0, '带标记正文', {'bold': true});
+    markedParagraph.insert(0, [markedText]);
+    session.body.insert(session.body.length, [markedParagraph]);
+    session.replaceXmlText(markedText, '编辑后的加粗正文');
+    expect(
+        markedText.toDelta().single['attributes'], containsPair('bold', true));
+
+    await session.close();
+    serverDocument.destroy();
+  });
+
   test('协作会话断线后重连并保留当前文档状态', () async {
     final first = _FakeChannel();
     final second = _FakeChannel();

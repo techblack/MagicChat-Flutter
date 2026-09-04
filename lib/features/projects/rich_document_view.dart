@@ -5,13 +5,14 @@ import '../../domain/message_content.dart';
 
 /// 将 Tiptap 协作正文的 XML block tree 渲染为 Flutter 原生控件。
 ///
-/// 该控件只负责展示，不直接修改 Yjs 状态。这样在完整富文本编辑器接入
-/// 前，来自 Web/Desktop 的 heading、列表、任务、表格和 marks 不会被
-/// Flutter 的纯文本输入框覆盖掉。
+/// 默认只负责展示，不直接修改 Yjs 状态；传入 [onEditText] 后，用户可以
+/// 长按文本叶子交给上层编辑。来自 Web/Desktop 的 heading、列表、任务、
+/// 表格和 marks 仍按 XML tree 原样渲染。
 class RichDocumentView extends StatelessWidget {
-  const RichDocumentView({required this.body, super.key});
+  const RichDocumentView({required this.body, this.onEditText, super.key});
 
   final yjs.YXmlFragment body;
+  final ValueChanged<yjs.YXmlText>? onEditText;
 
   @override
   Widget build(BuildContext context) {
@@ -35,9 +36,7 @@ class RichDocumentView extends StatelessWidget {
 
   Widget? _renderNode(BuildContext context, Object? node) {
     if (node is yjs.YXmlText) {
-      return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 2),
-          child: Text.rich(_inlineSpan(context, node)));
+      return _editableText(context, node);
     }
     if (node is! yjs.YXmlElement) return null;
     switch (node.name) {
@@ -76,9 +75,14 @@ class RichDocumentView extends StatelessWidget {
     }
   }
 
-  Widget _paragraph(BuildContext context, yjs.YXmlElement node) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Text.rich(_inlineSpan(context, node)));
+  Widget _paragraph(BuildContext context, yjs.YXmlElement node) {
+    final textNodes = node.toArray().whereType<yjs.YXmlText>().toList();
+    final content = textNodes.length == 1 && onEditText != null
+        ? _editableText(context, textNodes.single)
+        : Text.rich(_inlineSpan(context, node));
+    return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4), child: content);
+  }
 
   Widget _heading(BuildContext context, yjs.YXmlElement node) {
     final level = (node.getAttribute('level') as num?)?.toInt() ?? 2;
@@ -87,9 +91,28 @@ class RichDocumentView extends StatelessWidget {
       2 => Theme.of(context).textTheme.titleLarge,
       _ => Theme.of(context).textTheme.titleMedium,
     };
+    final textNodes = node.toArray().whereType<yjs.YXmlText>().toList();
+    final content = textNodes.length == 1 && onEditText != null
+        ? _editableText(context, textNodes.single, style: style)
+        : Text.rich(_inlineSpan(context, node), style: style);
     return Padding(
-        padding: const EdgeInsets.only(top: 10, bottom: 5),
+        padding: const EdgeInsets.only(top: 10, bottom: 5), child: content);
+  }
+
+  Widget _editableText(BuildContext context, yjs.YXmlText node,
+      {TextStyle? style}) {
+    final content = Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
         child: Text.rich(_inlineSpan(context, node), style: style));
+    return onEditText == null
+        ? content
+        : InkWell(
+            onLongPress: () => onEditText!(node),
+            borderRadius: BorderRadius.circular(4),
+            child: Tooltip(
+                triggerMode: TooltipTriggerMode.tap,
+                message: '长按编辑文本块',
+                child: content));
   }
 
   Widget _list(BuildContext context, yjs.YXmlElement node,

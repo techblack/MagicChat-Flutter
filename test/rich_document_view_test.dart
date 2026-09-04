@@ -31,6 +31,21 @@ void main() {
         matchesGoldenFile('evidence/rich_document_view.png'));
     document.destroy();
   });
+
+  testWidgets('长按富文档文本块触发编辑回调', (tester) async {
+    final document = yjs.Doc(yjs.DocOpts(guid: 'rich-edit-view-test'));
+    final body = document.get<yjs.YXmlFragment>('body', yjs.YXmlFragment.new)!;
+    _addParagraph(body, '可编辑正文');
+    yjs.YXmlText? edited;
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: RichDocumentView(
+                body: body, onEditText: (node) => edited = node))));
+
+    await tester.longPress(find.text('可编辑正文'));
+    expect(edited?.toString(), '可编辑正文');
+    document.destroy();
+  });
 }
 
 void _addHeading(yjs.YXmlFragment body, String value) {
