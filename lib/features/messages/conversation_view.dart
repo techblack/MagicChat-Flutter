@@ -47,6 +47,7 @@ class _ConversationViewState extends State<ConversationView> {
   Future<List<ChatMessage>>? _messagesFuture;
   MessagePage? _messagePage;
   final _messageCacheStore = MessageCacheStore();
+  bool _sendingMessage = false;
   bool _sendingFile = false;
   bool _recording = false;
   Future<List<Contact>>? _contactsFuture;
@@ -1224,36 +1225,18 @@ class _ConversationViewState extends State<ConversationView> {
                               isDense: true))),
                   const SizedBox(width: 6),
                   IconButton.filled(
-                    icon: const Icon(Icons.send_rounded),
+                    icon: _sendingMessage
+                        ? const SizedBox.square(
+                            dimension: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.send_rounded),
                     style: IconButton.styleFrom(
                         minimumSize: const Size(46, 46),
                         shape: const CircleBorder()),
                     tooltip: '发送',
-                    onPressed: !canSend
+                    onPressed: !canSend || _sendingMessage || _sendingFile
                         ? null
-                        : () async {
-                            final text = _controller.text.trim();
-                            if (text.isEmpty) return;
-                            try {
-                              await widget.repository.sendMessage(
-                                  conversationId, text,
-                                  replyToMessageId: _replyTo?.id);
-                              _controller.clear();
-                              if (mounted) setState(() => _replyTo = null);
-                              final key = _draftKey;
-                              if (key != null) {
-                                final prefs =
-                                    await SharedPreferences.getInstance();
-                                await prefs.remove(key);
-                              }
-                              if (mounted) setState(() {});
-                            } catch (error) {
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('发送消息失败：$error')));
-                              }
-                            }
-                          },
+                        : () => _sendMessage(conversationId),
                   ),
                 ]),
                 const SizedBox(height: 2),
@@ -1492,6 +1475,36 @@ class _ConversationViewState extends State<ConversationView> {
       }
     } finally {
       if (mounted) setState(() => _sendingFile = false);
+    }
+  }
+
+  Future<void> _sendMessage(String conversationId) async {
+    if (_sendingMessage || _sendingFile) return;
+    final text = _controller.text.trim();
+    if (text.isEmpty) return;
+    final replyTo = _replyTo?.id;
+    setState(() => _sendingMessage = true);
+    try {
+      await widget.repository
+          .sendMessage(conversationId, text, replyToMessageId: replyTo);
+      if (_controller.text.trim() == text) {
+        _controller.clear();
+        if (mounted && _replyTo?.id == replyTo) {
+          setState(() => _replyTo = null);
+        }
+        final key = _draftKey;
+        if (key != null) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.remove(key);
+        }
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('发送消息失败：$error')));
+      }
+    } finally {
+      if (mounted) setState(() => _sendingMessage = false);
     }
   }
 

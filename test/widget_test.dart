@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import 'package:magicchat_client/main.dart';
@@ -31,6 +33,23 @@ class _HistoryRepository extends DemoRepository {
             sequence: start + index,
             author: '成员',
             text: '历史消息 ${start + index}'));
+  }
+}
+
+class _SendRepository extends DemoRepository {
+  final completer = Completer<void>();
+  var sendCount = 0;
+
+  @override
+  Future<List<ChatMessage>> messages(String conversationId,
+          {int? beforeSeq, int limit = 50}) async =>
+      const [];
+
+  @override
+  Future<void> sendMessage(String conversationId, String text,
+      {String? replyToMessageId}) {
+    sendCount++;
+    return completer.future;
   }
 }
 
@@ -191,6 +210,33 @@ void main() {
     await tester.pumpWidget(page());
     await tester.pumpAndSettle();
     expect(find.text('稍后发送'), findsOneWidget);
+  });
+
+  testWidgets('消息发送中禁用重复提交并显示进度', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = _SendRepository();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: ConversationView(
+                repository: repository, conversationId: 'conversation-1'))));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '只发送一次');
+    final send = find.byTooltip('发送');
+    await tester.tap(send);
+    await tester.pump();
+
+    expect(repository.sendCount, 1);
+    await tester.tap(send);
+    expect(repository.sendCount, 1);
+    expect(find.byIcon(Icons.send_rounded), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), '发送期间的新草稿');
+    repository.completer.complete();
+    await tester.pumpAndSettle();
+    expect(repository.sendCount, 1);
+    expect(find.text('发送期间的新草稿'), findsOneWidget);
   });
 
   testWidgets('阅读历史时提示新消息并可回到最新', (tester) async {
