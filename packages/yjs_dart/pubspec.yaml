@@ -1,0 +1,7 @@
+name: yjs_dart
+description: Local yjs_dart fork with XML element/text support required by MagicChat documents.
+publish_to: none
+version: 1.1.15+magicchat.1
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+dependencies: {}

@@ -1,4 +1,4 @@
-package com.example.magicchat_client
+package cloud.baizhi.chat
 
 import io.flutter.embedding.android.FlutterActivity
 import android.Manifest

@@ -1,27 +1,68 @@
-# MagicChat Flutter 客户端
+# MagicChat Flutter
 
-这是 desktop/mobile 共用的 Flutter 客户端工程，已生成 Android、iOS、Windows、macOS、Linux 及 Web 宿主目录。
-`lib/domain` 只放跨平台模型，`lib/data` 负责仓储契约、HTTP/WebSocket 与平台适配，`lib/features/<domain>` 按业务垂直切分页面和交互，避免平台代码渗入 UI。通讯录与项目工作区已分别迁移到 `lib/features/contacts/` 和 `lib/features/projects/`，其余历史页面会按迁移矩阵逐步从 `main.dart` 拆出。
+[![CI](https://github.com/techblack/MagicChat-Flutter/actions/workflows/ci.yml/badge.svg)](https://github.com/techblack/MagicChat-Flutter/actions/workflows/ci.yml)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
+
+MagicChat 的跨平台 Flutter 客户端。一套代码覆盖 Android、iOS、Windows、macOS、Linux 和 Web，支持连接自托管 MagicChat Server。
+
+## 功能
+
+- 消息：私聊、群聊、应用会话、话题、回复、转发、回应、选择消息、附件、语音、Markdown、图表与系统事件
+- 联系人：好友目录、好友申请、在线状态、公开群组和应用管理
+- 项目：项目、任务、看板、月历、甘特图、评论、提醒、成员与群组授权
+- 文档：Markdown 协作编辑、Yjs 富文档、在线协作者状态和文档目录树
+- 客户端：多账户、主题切换、本地缓存、全局搜索、二维码、推送授权和版本检查
+- 实时同步：WebSocket 游标续传、断线重连、幂等事件投影和离线消息缓存
+
+## 快速开始
+
+需要 Flutter 3.22 或更高版本。
+
+```bash
+git clone https://github.com/techblack/MagicChat-Flutter.git
+cd MagicChat-Flutter
+flutter pub get
+flutter run -d chrome
+```
+
+首次启动后，在登录页填写 MagicChat Server 地址和账户信息。Native 客户端使用 Bearer Token；Web 客户端使用 Server 下发的 HttpOnly Cookie，Token 不会写入 URL。
 
 ## 开发
 
 ```bash
-flutter pub get
-flutter run -d chrome       # 快速检查 UI
-flutter run -d windows      # Windows
-flutter run -d android      # Android 真机/模拟器
+dart format lib test test_driver packages/yjs_dart/lib
 flutter analyze
 flutter test
+flutter build web --release
 ```
 
-CI 可使用同样的命令验证：`flutter pub get && dart format --set-exit-if-changed lib test && flutter analyze && flutter test`。应用工程保留 `pubspec.lock` 以固定跨端依赖版本；`build/`、`.dart_tool/` 等生成目录不会提交。
+Linux 构建还需要 Clang、CMake、Ninja、GTK3、libsecret 和 GStreamer 开发包：
 
-仓库的 `client-flutter` GitHub Actions 会在相关目录变更时自动执行上述门禁，并构建 Web 与 Linux Debug 产物。
+```bash
+sudo apt-get install clang cmake ninja-build pkg-config \
+  libgtk-3-dev libsecret-1-dev \
+  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+flutter build linux
+```
 
-Linux 构建需要系统安装 `clang++`、GTK3、`libsecret-1-dev`、GStreamer 开发包和 CMake；在 Ubuntu/Debian 上可执行
-`apt install clang libgtk-3-dev libsecret-1-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev`
-后运行 `flutter build linux`。
+CI 会执行格式、静态检查、单元测试，并构建 Web Release 与 Linux Debug 产物。
 
-当前壳已覆盖原客户端的一级入口：消息、联系人、项目和设置，并提供登录/Server 配置入口。网络仓储契约对应 `/api/client/`，实时层对应既有 WebSocket envelope；迁移业务模块时只需替换 `MagicChatRepository` 实现，不改变页面导航。
+## 目录
 
-WebSocket 连接器必须由平台适配层注入：Native 使用 `Authorization: Bearer <token>`，Web 使用浏览器自动携带的 HttpOnly `user_session` Cookie；不会把 Token 放进 URL 查询参数。
+```text
+lib/app/                应用装配、认证状态和顶层导航
+lib/data/               HTTP、WebSocket、缓存和平台能力适配
+lib/domain/             跨平台领域模型与消息内容解析
+lib/features/           消息、联系人、项目、搜索和设置页面
+packages/yjs_dart/      MagicChat 富文档需要的 Yjs Dart fork
+test/                   接口契约、状态模型和 Widget 测试
+test_driver/            关键业务流程的集成测试入口
+```
+
+`MagicChatRepository` 是页面与服务端之间的统一契约。HTTP API 使用 `/api/client/`，实时连接使用 MagicChat WebSocket envelope。仓库内的 `yjs_dart` fork 基于 1.1.15，补齐了与 Web/Desktop Tiptap 文档互操作所需的 XML 类型支持，并保留其 BSD-3-Clause 许可证。
+
+服务端源码与部署说明见 [MagicChat](https://github.com/chaitin/MagicChat)。当前迁移覆盖和待完善能力见 [MIGRATION.md](MIGRATION.md)。
+
+## 许可证
+
+本项目使用 [GNU AGPL v3](LICENSE)。`packages/yjs_dart` 使用其目录内声明的 BSD-3-Clause 许可证。

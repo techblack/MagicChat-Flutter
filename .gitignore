@@ -1,6 +1,14 @@
 .dart_tool/
+.idea/
+.pub-cache/
 .flutter-plugins
 .flutter-plugins-dependencies
 .packages
+*.iml
+*.log
+.DS_Store
 build/
 coverage/
+android/app/debug/
+android/app/profile/
+android/app/release/

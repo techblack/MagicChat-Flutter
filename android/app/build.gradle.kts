@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.magicchat_client"
+    namespace = "cloud.baizhi.chat"
     // file_picker's current Android lifecycle dependency requires API 36.
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
@@ -16,8 +16,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.magicchat_client"
+        applicationId = "cloud.baizhi.chat"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
