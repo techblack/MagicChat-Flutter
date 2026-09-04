@@ -6,6 +6,9 @@ import UserNotifications
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private let apnsTokenKey = "magicchat.apns.deviceToken"
   private let pendingRouteTokenKey = "magicchat.push.pendingRouteToken"
+  private let pendingConversationIDKey = "magicchat.push.pendingConversationID"
+  private let pendingMessageIDKey = "magicchat.push.pendingMessageID"
+  private var pushChannel: FlutterMethodChannel?
 
   override func application(
     _ application: UIApplication,
@@ -21,6 +24,7 @@ import UserNotifications
       name: "magicchat/push",
       binaryMessenger: engineBridge.applicationRegistrar.messenger()
     )
+    pushChannel = push
     push.setMethodCallHandler { [weak self] call, result in
       guard let self else {
         result(nil)
@@ -49,6 +53,17 @@ import UserNotifications
         let token = UserDefaults.standard.string(forKey: self.pendingRouteTokenKey)
         UserDefaults.standard.removeObject(forKey: self.pendingRouteTokenKey)
         result(token)
+      case "getPendingRoute":
+        let defaults = UserDefaults.standard
+        let route: [String: String] = [
+          "route_token": defaults.string(forKey: self.pendingRouteTokenKey) ?? "",
+          "conversation_id": defaults.string(forKey: self.pendingConversationIDKey) ?? "",
+          "message_id": defaults.string(forKey: self.pendingMessageIDKey) ?? "",
+        ]
+        defaults.removeObject(forKey: self.pendingRouteTokenKey)
+        defaults.removeObject(forKey: self.pendingConversationIDKey)
+        defaults.removeObject(forKey: self.pendingMessageIDKey)
+        result(route)
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -79,10 +94,15 @@ import UserNotifications
         let title = arguments?["title"] as? String ?? "新消息"
         let body = arguments?["body"] as? String ?? ""
         let conversationID = arguments?["conversation_id"] as? String ?? "magicchat"
+        let messageID = arguments?["message_id"] as? String ?? ""
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
+        content.userInfo = [
+          "conversation_id": conversationID,
+          "message_id": messageID,
+        ]
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
         let request = UNNotificationRequest(
           identifier: "magicchat-\(conversationID.hashValue)",
@@ -101,6 +121,20 @@ import UserNotifications
       default:
         result(FlutterMethodNotImplemented)
       }
+    }
+    let appBadge = FlutterMethodChannel(
+      name: "magicchat/app_badge",
+      binaryMessenger: engineBridge.applicationRegistrar.messenger()
+    )
+    appBadge.setMethodCallHandler { call, result in
+      guard call.method == "setCount" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      let arguments = call.arguments as? [String: Any]
+      let count = max(0, arguments?["count"] as? Int ?? 0)
+      UIApplication.shared.applicationIconBadgeNumber = count
+      result(true)
     }
   }
 
@@ -129,6 +163,19 @@ import UserNotifications
     if let token = routeToken(from: response.notification.request.content.userInfo) {
       UserDefaults.standard.set(token, forKey: pendingRouteTokenKey)
     }
+    if let conversationID = response.notification.request.content.userInfo["conversation_id"] as? String,
+       !conversationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      UserDefaults.standard.set(conversationID, forKey: pendingConversationIDKey)
+    }
+    if let messageID = response.notification.request.content.userInfo["message_id"] as? String,
+       !messageID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      UserDefaults.standard.set(messageID, forKey: pendingMessageIDKey)
+    }
+    pushChannel?.invokeMethod("routeOpened", arguments: [
+      "route_token": UserDefaults.standard.string(forKey: pendingRouteTokenKey) ?? "",
+      "conversation_id": UserDefaults.standard.string(forKey: pendingConversationIDKey) ?? "",
+      "message_id": UserDefaults.standard.string(forKey: pendingMessageIDKey) ?? "",
+    ])
     completionHandler()
   }
 

@@ -238,8 +238,8 @@ void main() {
   test('读取原生通知点击 route token 并去除空白', () async {
     final channel = MethodChannel('test/push-route-token');
     channel.setMockMethodCallHandler((call) async {
-      expect(call.method, 'getPendingRouteToken');
-      return '  route-token  ';
+      expect(call.method, 'getPendingRoute');
+      return {'route_token': '  route-token  '};
     });
     addTearDown(() => channel.setMockMethodCallHandler(null));
 
@@ -248,6 +248,46 @@ void main() {
                 channel: MethodChannel('test/push-route-token'))
             .takePendingRouteToken(),
         'route-token');
+  });
+
+  test('读取本地通知携带的会话和消息路由', () async {
+    final channel = MethodChannel('test/push-direct-route');
+    channel.setMockMethodCallHandler((call) async {
+      expect(call.method, 'getPendingRoute');
+      return {
+        'conversation_id': ' conversation-1 ',
+        'message_id': ' message-1 ',
+      };
+    });
+    addTearDown(() => channel.setMockMethodCallHandler(null));
+
+    final route = await const PushTokenProvider(
+            channel: MethodChannel('test/push-direct-route'))
+        .takePendingRoute();
+
+    expect(route?.conversationId, 'conversation-1');
+    expect(route?.messageId, 'message-1');
+    expect(route?.routeToken, isEmpty);
+  });
+
+  test('应用前台时接收原生通知点击事件', () async {
+    const channel = MethodChannel('test/push-route-opened');
+    final provider = const PushTokenProvider(channel: channel);
+    PendingPushRoute? opened;
+    provider.setRouteOpenedHandler((route) async => opened = route);
+    addTearDown(() => provider.setRouteOpenedHandler(null));
+
+    await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .handlePlatformMessage(
+      channel.name,
+      const StandardMethodCodec().encodeMethodCall(const MethodCall(
+          'routeOpened',
+          {'conversation_id': 'conversation-1', 'message_id': 'message-1'})),
+      (_) {},
+    );
+
+    expect(opened?.conversationId, 'conversation-1');
+    expect(opened?.messageId, 'message-1');
   });
 
   test('推送接口保留服务端业务错误消息', () async {

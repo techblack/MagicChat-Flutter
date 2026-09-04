@@ -25,11 +25,13 @@ class LocalNotificationService {
     required String conversationId,
     required String title,
     required String body,
+    String messageId = '',
   }) async {
     try {
       if (!await requestPermission()) return;
       await _channel.invokeMethod<void>('showMessage', {
         'conversation_id': conversationId,
+        'message_id': messageId,
         'title': title,
         'body': body,
       });

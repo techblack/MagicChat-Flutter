@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magicchat_client/data/repository.dart';
+import 'package:magicchat_client/data/chat_preferences.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/settings/settings_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -83,6 +84,27 @@ void main() {
 
     expect(find.text('系统通知权限未开启，请在系统设置中允许通知'), findsOneWidget);
     expect((tester.widget<SwitchListTile>(toggle)).value, isFalse);
+  });
+
+  testWidgets('发送快捷键切换后即时回调并持久化', (tester) async {
+    MessageSendShortcut? changed;
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SettingsPage(
+                repository: DemoRepository(),
+                serverUrl: 'https://chat.example.com',
+                onSendMessageShortcutChanged: (value) => changed = value))));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(DropdownButton<MessageSendShortcut>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Ctrl/⌘+Enter').last);
+    await tester.pumpAndSettle();
+
+    expect(changed, MessageSendShortcut.commandOrControlEnter);
+    expect(find.text('Ctrl/⌘+Enter 发送，Enter 换行'), findsOneWidget);
+    expect(await const ChatPreferences().readSendShortcut(),
+        MessageSendShortcut.commandOrControlEnter);
   });
 
   testWidgets('账户信息加载失败可重试', (tester) async {

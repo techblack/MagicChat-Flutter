@@ -15,6 +15,31 @@ class RealtimeStore extends ChangeNotifier {
     currentUserId = id;
   }
 
+  /// 在不改变当前可观察状态的前提下，计算消息事件应用后的消息快照。
+  /// 实时流水线用它先持久化消息，再把原事件交给 [apply] 展示。
+  ChatMessage? previewMessage(Map<String, dynamic> envelope) {
+    final event = envelope['event'];
+    final rawPayload = envelope['payload'];
+    if (event is! String || rawPayload is! Map<String, dynamic>) return null;
+    final payload = rawPayload['message'] is Map<String, dynamic>
+        ? rawPayload['message'] as Map<String, dynamic>
+        : rawPayload;
+    final messageId = event == 'message.created' || event == 'message.updated'
+        ? payload['id']
+        : event == 'message.reactions_updated' ||
+                event == 'message.choice_updated'
+            ? payload['message_id']
+            : null;
+    if (messageId is! String || messageId.isEmpty) return null;
+
+    final staged = RealtimeStore()
+      ..currentUserId = currentUserId
+      ..messages.addAll(messages)
+      ..conversations.addAll(conversations);
+    staged.apply({...envelope, 'cursor': 1});
+    return staged.messages[messageId];
+  }
+
   void markConversationRead(ConversationReadResult result) {
     final current = conversations[result.conversationId];
     if (current == null) return;

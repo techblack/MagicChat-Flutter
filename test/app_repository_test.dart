@@ -8,6 +8,37 @@ import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
 
 void main() {
+  test('HTTP 消息检索传递会话、发送人和 UTC 时间范围', () async {
+    late Uri requestUri;
+    final repository = HttpMagicChatRepository(
+      serverUrl: 'https://chat.example.com',
+      sessionToken: 'token',
+      client: MockClient((request) async {
+        requestUri = request.url;
+        return _jsonResponse({
+          'data': {'items': <Object>[]}
+        });
+      }),
+    );
+
+    await repository.searchMessages(
+      ' 发布计划 ',
+      conversationId: 'conversation-1',
+      senderId: 'user-2',
+      from: DateTime.parse('2026-07-01T08:00:00+08:00'),
+      to: DateTime.parse('2026-08-01T18:30:00+08:00'),
+    );
+
+    expect(requestUri.path, '/api/client/search/messages');
+    expect(requestUri.queryParameters, {
+      'keyword': '发布计划',
+      'conversation_id': 'conversation-1',
+      'sender_id': 'user-2',
+      'from': '2026-07-01T00:00:00.000Z',
+      'to': '2026-08-01T10:30:00.000Z',
+    });
+  });
+
   test('HTTP 仓库保留服务端错误并通知会话失效', () async {
     var unauthorizedCount = 0;
     final repository = HttpMagicChatRepository(

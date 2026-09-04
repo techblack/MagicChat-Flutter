@@ -30,7 +30,12 @@ class _SearchRepository extends DemoRepository {
       ];
 
   @override
-  Future<List<MessageSearchResult>> searchMessages(String keyword) async => [
+  Future<List<MessageSearchResult>> searchMessages(String keyword,
+          {String? conversationId,
+          String? senderId,
+          DateTime? from,
+          DateTime? to}) async =>
+      [
         const MessageSearchResult(
             conversationId: 'conversation-engineering',
             conversationName: '工程群',

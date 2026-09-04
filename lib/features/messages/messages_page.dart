@@ -10,8 +10,9 @@ class MessagesPage extends StatelessWidget {
       required this.onSelect,
       this.onOpenConversation,
       this.onBack,
-      this.onSearch,
+      this.onOpenMessage,
       this.onOpenInternalLink,
+      this.sendMessageShortcut = MessageSendShortcut.enter,
       this.focusMessageId,
       this.focusMessageSequence,
       this.onMessageFocused,
@@ -25,8 +26,11 @@ class MessagesPage extends StatelessWidget {
   final ValueChanged<String> onSelect;
   final ValueChanged<String>? onOpenConversation;
   final VoidCallback? onBack;
-  final VoidCallback? onSearch;
+  final void Function(
+          String conversationId, String messageId, int? messageSequence)?
+      onOpenMessage;
   final ValueChanged<String>? onOpenInternalLink;
+  final MessageSendShortcut sendMessageShortcut;
   final String? focusMessageId;
   final int? focusMessageSequence;
   final VoidCallback? onMessageFocused;
@@ -57,6 +61,7 @@ class MessagesPage extends StatelessWidget {
           repository: repository,
           realtimeStore: realtimeStore,
           cacheScope: cacheScope,
+          sendMessageShortcut: sendMessageShortcut,
           conversationId: selectedId,
           focusMessageId: focusMessageId,
           focusMessageSequence: focusMessageSequence,
@@ -64,6 +69,22 @@ class MessagesPage extends StatelessWidget {
           onOpenInternalLink: onOpenInternalLink,
           onMessageFocused: onMessageFocused,
         );
+        final conversationPane = selectedId == null
+            ? conversationView
+            : Column(children: [
+                _ConversationHeader(
+                  repository: repository,
+                  realtimeStore: realtimeStore,
+                  conversationId: selectedId!,
+                  compact: !split,
+                  onBack: onBack ?? () => onSelect(''),
+                  onSearch: onOpenMessage == null
+                      ? null
+                      : (title) => _showAdvancedMessageSearch(
+                          context, selectedId!, title),
+                ),
+                Expanded(child: conversationView),
+              ]);
         if (!split) {
           return IndexedStack(
             index: selectedId == null ? 0 : 1,
@@ -72,39 +93,33 @@ class MessagesPage extends StatelessWidget {
               if (selectedId == null)
                 const SizedBox.shrink()
               else
-                Column(children: [
-                  Material(
-                    color: Theme.of(context).colorScheme.surfaceContainer,
-                    child: SizedBox(
-                      height: 52,
-                      child: Row(children: [
-                        IconButton(
-                          tooltip: '返回会话列表',
-                          onPressed: onBack ?? () => onSelect(''),
-                          icon: const Icon(Icons.arrow_back),
-                        ),
-                        const Text('聊天',
-                            style: TextStyle(fontWeight: FontWeight.w600)),
-                        const Spacer(),
-                        if (onSearch != null)
-                          IconButton(
-                            tooltip: '搜索',
-                            onPressed: onSearch,
-                            icon: const Icon(Icons.search),
-                          ),
-                      ]),
-                    ),
-                  ),
-                  Expanded(child: conversationView),
-                ]),
+                conversationPane,
             ],
           );
         }
         return Row(children: [
           SizedBox(width: 300, child: conversationList),
-          Expanded(child: conversationView),
+          Expanded(child: conversationPane),
         ]);
       });
+
+  Future<void> _showAdvancedMessageSearch(
+      BuildContext context, String conversationId, String title) async {
+    final openMessage = onOpenMessage;
+    if (openMessage == null) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AdvancedMessageSearchDialog(
+        repository: repository,
+        conversationId: conversationId,
+        conversationName: title,
+        cacheScope: cacheScope,
+        conversationType:
+            realtimeStore?.conversations[conversationId]?.type ?? 'direct',
+        onOpenMessage: openMessage,
+      ),
+    );
+  }
 
   Future<void> _createGroup(BuildContext context) async {
     final controller = TextEditingController();
@@ -186,6 +201,131 @@ class MessagesPage extends StatelessWidget {
   }
 }
 
+class _ConversationHeader extends StatefulWidget {
+  const _ConversationHeader({
+    required this.repository,
+    required this.realtimeStore,
+    required this.conversationId,
+    required this.compact,
+    required this.onBack,
+    required this.onSearch,
+  });
+
+  final MagicChatRepository repository;
+  final RealtimeStore? realtimeStore;
+  final String conversationId;
+  final bool compact;
+  final VoidCallback onBack;
+  final ValueChanged<String>? onSearch;
+
+  @override
+  State<_ConversationHeader> createState() => _ConversationHeaderState();
+}
+
+class _ConversationHeaderState extends State<_ConversationHeader> {
+  late Future<String> _titleFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _titleFuture = _loadTitle();
+    widget.realtimeStore?.addListener(_onRealtimeChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ConversationHeader oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.realtimeStore != widget.realtimeStore) {
+      oldWidget.realtimeStore?.removeListener(_onRealtimeChanged);
+      widget.realtimeStore?.addListener(_onRealtimeChanged);
+    }
+    if (oldWidget.conversationId != widget.conversationId ||
+        oldWidget.repository != widget.repository) {
+      _titleFuture = _loadTitle();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.realtimeStore?.removeListener(_onRealtimeChanged);
+    super.dispose();
+  }
+
+  void _onRealtimeChanged() {
+    if (mounted &&
+        widget.realtimeStore?.conversations
+                .containsKey(widget.conversationId) ==
+            true) {
+      setState(() => _titleFuture = _loadTitle());
+    }
+  }
+
+  Future<String> _loadTitle() async {
+    final live = widget.realtimeStore?.conversations[widget.conversationId];
+    if (live != null && live.title.trim().isNotEmpty) return live.title.trim();
+    final conversations = await widget.repository.conversations();
+    for (final conversation in conversations) {
+      if (conversation.id == widget.conversationId &&
+          conversation.title.trim().isNotEmpty) {
+        return conversation.title.trim();
+      }
+    }
+    return '聊天';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final header = Material(
+      color: Theme.of(context).colorScheme.surfaceContainer,
+      child: SizedBox(
+        height: 52,
+        child: FutureBuilder<String>(
+          future: _titleFuture,
+          initialData:
+              widget.realtimeStore?.conversations[widget.conversationId]?.title,
+          builder: (context, snapshot) {
+            final title = snapshot.data?.trim().isNotEmpty == true
+                ? snapshot.data!.trim()
+                : '聊天';
+            return Stack(alignment: Alignment.center, children: [
+              if (widget.compact)
+                Positioned(
+                  left: 0,
+                  child: IconButton(
+                    tooltip: '返回会话列表',
+                    onPressed: widget.onBack,
+                    icon: const Icon(Icons.arrow_back),
+                  ),
+                ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 56),
+                child: Text(
+                  title,
+                  key: const ValueKey('conversation-header-title'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              if (widget.onSearch != null)
+                Positioned(
+                  right: 0,
+                  child: IconButton(
+                    tooltip: '检索当前会话',
+                    onPressed: () => widget.onSearch!(title),
+                    icon: const Icon(Icons.manage_search),
+                  ),
+                ),
+            ]);
+          },
+        ),
+      ),
+    );
+    return widget.compact ? SafeArea(bottom: false, child: header) : header;
+  }
+}
+
 class _ConversationList extends StatefulWidget {
   const _ConversationList(
       {required this.repository,
@@ -224,6 +364,7 @@ class _ConversationListState extends State<_ConversationList> {
     if (_currentUserId != null) return;
     try {
       final user = await widget.repository.currentUser();
+      widget.realtimeStore?.setCurrentUserId(user.id);
       if (mounted) setState(() => _currentUserId = user.id);
     } catch (_) {
       // 会话列表仍可展示；服务端会再次校验群操作权限。

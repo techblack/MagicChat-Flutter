@@ -22,6 +22,8 @@ class ConversationView extends StatefulWidget {
       {required this.repository,
       this.realtimeStore,
       this.cacheScope,
+      this.messageCacheStore,
+      this.sendMessageShortcut = MessageSendShortcut.enter,
       required this.conversationId,
       this.focusMessageId,
       this.focusMessageSequence,
@@ -32,6 +34,8 @@ class ConversationView extends StatefulWidget {
   final MagicChatRepository repository;
   final RealtimeStore? realtimeStore;
   final MessageCacheScope? cacheScope;
+  final MessageCacheStore? messageCacheStore;
+  final MessageSendShortcut sendMessageShortcut;
   final String? conversationId;
   final String? focusMessageId;
   final int? focusMessageSequence;
@@ -45,6 +49,8 @@ class ConversationView extends StatefulWidget {
 class _ConversationViewState extends State<ConversationView> {
   static const _maxSelectedMessages = 50;
   static const _maxForwardTargets = 20;
+  static const _messageTapSlop = 18.0;
+  static const _messageDoubleTapMax = Duration(milliseconds: 400);
   static const _forwardableMessageTypes = {
     'text',
     'markdown',
@@ -63,7 +69,9 @@ class _ConversationViewState extends State<ConversationView> {
   final _voiceRecorder = VoiceRecorder();
   Future<List<ChatMessage>>? _messagesFuture;
   MessagePage? _messagePage;
-  final _messageCacheStore = MessageCacheStore();
+  late final MessageCacheStore _messageCacheStore =
+      widget.messageCacheStore ?? MessageCacheStore();
+  late final bool _ownsMessageCacheStore = widget.messageCacheStore == null;
   bool _sendingMessage = false;
   bool _sendingFile = false;
   bool _recording = false;
@@ -97,6 +105,11 @@ class _ConversationViewState extends State<ConversationView> {
   String? _highlightedMessageId;
   bool _historyMode = false;
   Timer? _highlightTimer;
+  String? _lastTappedMessageId;
+  Duration? _lastMessageTapTime;
+  Offset? _lastMessageTapPosition;
+  Offset? _messagePointerDownPosition;
+  bool _messagePointerMoved = false;
 
   bool get _topicArchived =>
       _conversation?.topic?.archived == true ||
@@ -150,6 +163,8 @@ class _ConversationViewState extends State<ConversationView> {
   @override
   void initState() {
     super.initState();
+    final id = widget.conversationId;
+    if (id != null) _conversation = widget.realtimeStore?.conversations[id];
     _historyMode = widget.focusMessageId != null;
     _messagesFuture = _loadMessages();
     _contactsFuture = _loadConversationContacts();
@@ -400,65 +415,24 @@ class _ConversationViewState extends State<ConversationView> {
     final scope = widget.cacheScope;
     if (scope == null) return;
     await _messageCacheStore.write(
-        scope,
-        id,
-        messages
-            .map((message) => {
-                  'id': message.id,
-                  'author': message.author,
-                  'author_id': message.authorId,
-                  'conversation_id': message.conversationId,
-                  'sequence': message.sequence,
-                  'created_at': message.createdAt,
-                  'content_type': message.contentType,
-                  'raw_body': message.rawBody,
-                  'text': message.text,
-                  if (message.editableText != null)
-                    'editable_text': message.editableText,
-                  'mine': message.mine,
-                  if (message.choice != null)
-                    'choice': {
-                      'my_option_ids': message.choice!.myOptionIds,
-                      'response_count': message.choice!.responseCount,
-                      'options': message.choice!.options
-                          .map((option) => {
-                                'id': option.id,
-                                'response_count': option.responseCount,
-                              })
-                          .toList(),
-                    },
-                  'reply_to': message.replyTo == null
-                      ? null
-                      : {
-                          'id': message.replyTo!.id,
-                          'author': message.replyTo!.author,
-                          'author_id': message.replyTo!.authorId,
-                          'text': message.replyTo!.text,
-                        },
-                  if (message.topic != null) 'topic': message.topic!.toJson(),
-                  'reactions': message.reactions
-                      .map((reaction) => {
-                            'text': reaction.text,
-                            'count': reaction.count,
-                            'reacted_by_me': reaction.reactedByMe,
-                            'users': reaction.users
-                                .map((user) => {
-                                      'id': user.id,
-                                      if (user.name.isNotEmpty)
-                                        'name': user.name,
-                                    })
-                                .toList(),
-                          })
-                      .toList(),
-                })
-            .toList());
+        scope, id, messages.map(messageCacheRecord).toList(),
+        conversationType: _messageCacheConversationType);
   }
 
   Future<List<ChatMessage>> _readCachedMessages(String id) async {
     final scope = widget.cacheScope;
     if (scope == null) return const [];
-    final records = await _messageCacheStore.read(scope, id);
+    final records = await _messageCacheStore.read(scope, id,
+        conversationType: _messageCacheConversationType);
     return records.map(_messageFromCache).whereType<ChatMessage>().toList();
+  }
+
+  String get _messageCacheConversationType {
+    final id = widget.conversationId;
+    final type = (_conversation ??
+            (id == null ? null : widget.realtimeStore?.conversations[id]))
+        ?.type;
+    return messageCacheConversationTypes.contains(type) ? type! : 'direct';
   }
 
   Future<List<ChatMessage>> _loadMessages() async {
@@ -486,7 +460,11 @@ class _ConversationViewState extends State<ConversationView> {
     _hasMoreOlder = _messagePage?.hasMoreBefore ?? true;
     _lastOlderBeforeSeq = null;
     await _preloadComplexMessages(id, fresh);
-    unawaited(_cacheMessages(id, fresh));
+    try {
+      await _cacheMessages(id, fresh);
+    } catch (_) {
+      // 首次缓存失败不阻断远程消息展示。
+    }
     // 消息接口返回的 choice/reaction 可能来自旧缓存或断线前的视图；
     // 快照查询是尽力而为的后台修正，失败时不影响消息首屏加载。
     unawaited(_refreshMessageSnapshots(id, fresh));
@@ -556,7 +534,11 @@ class _ConversationViewState extends State<ConversationView> {
     }.values.toList()
       ..sort((a, b) => (a.sequence ?? 0).compareTo(b.sequence ?? 0));
     await _preloadComplexMessages(id, merged);
-    await _cacheMessages(id, merged);
+    try {
+      await _cacheMessages(id, merged);
+    } catch (_) {
+      // 刷新结果仍应展示；缓存会在后续实时事件或刷新时重试。
+    }
     if (!mounted || widget.conversationId != id) return;
     setState(() {
       _messagesFuture = Future.value(merged);
@@ -650,7 +632,11 @@ class _ConversationViewState extends State<ConversationView> {
         _scrollController.hasClients ? _scrollController.position.pixels : 0.0;
     final updated = await _applyMessageSnapshots(conversationId, messages);
     if (!mounted || widget.conversationId != conversationId) return;
-    await _cacheMessages(conversationId, updated);
+    try {
+      await _cacheMessages(conversationId, updated);
+    } catch (_) {
+      // 快照修正即使无法持久化也应更新当前页面。
+    }
     if (!mounted || widget.conversationId != conversationId) return;
     setState(() {
       _messagesFuture = Future.value(updated);
@@ -665,10 +651,14 @@ class _ConversationViewState extends State<ConversationView> {
     final id = widget.conversationId;
     final current = id == null ? null : widget.realtimeStore?.conversations[id];
     if (!mounted) return;
-    final incomingIds = _realtimeConversationMessages()
+    final unseenIds = _realtimeConversationMessages()
         .where((messageId) => !_seenRealtimeMessageIds.contains(messageId))
         .toList(growable: false);
-    _seenRealtimeMessageIds.addAll(incomingIds);
+    _seenRealtimeMessageIds.addAll(unseenIds);
+    final incomingIds = unseenIds
+        .where((messageId) =>
+            widget.realtimeStore?.messages[messageId]?.mine != true)
+        .toList(growable: false);
     final shouldShowNewMessages = incomingIds.isNotEmpty &&
         (_historyMode || (_positionedConversationId == id && !_isAtBottom()));
     if (current == null && !shouldShowNewMessages) return;
@@ -1008,7 +998,32 @@ class _ConversationViewState extends State<ConversationView> {
     _composerFocusNode.dispose();
     _scrollController.dispose();
     _voiceRecorder.dispose();
+    if (_ownsMessageCacheStore) unawaited(_messageCacheStore.close());
     super.dispose();
+  }
+
+  KeyEventResult _handleComposerKeyEvent(
+      KeyEvent event, String conversationId) {
+    if (event is! KeyDownEvent ||
+        (event.logicalKey != LogicalKeyboardKey.enter &&
+            event.logicalKey != LogicalKeyboardKey.numpadEnter)) {
+      return KeyEventResult.ignored;
+    }
+    final composing = _controller.value.composing;
+    if (composing.isValid && !composing.isCollapsed) {
+      return KeyEventResult.ignored;
+    }
+    final keyboard = HardwareKeyboard.instance;
+    final controlOrMeta = keyboard.isControlPressed || keyboard.isMetaPressed;
+    final hasOtherModifier = keyboard.isShiftPressed || keyboard.isAltPressed;
+    final shouldSend = switch (widget.sendMessageShortcut) {
+      MessageSendShortcut.enter => !controlOrMeta && !hasOtherModifier,
+      MessageSendShortcut.commandOrControlEnter =>
+        controlOrMeta && !hasOtherModifier,
+    };
+    if (!shouldSend) return KeyEventResult.ignored;
+    unawaited(_sendMessage(conversationId));
+    return KeyEventResult.handled;
   }
 
   Future<void> _toggleVoice(String conversationId) async {
@@ -1069,6 +1084,125 @@ class _ConversationViewState extends State<ConversationView> {
             .showSnackBar(SnackBar(content: Text('无法打开私聊：$error')));
       }
     }
+  }
+
+  bool _canReplyToMessage(String conversationId, ChatMessage message) =>
+      _topicIsOpen(conversationId) &&
+      !_isTopicConversation &&
+      message.topic == null &&
+      _hasMessageActions(message);
+
+  void _replyToMessage(String conversationId, ChatMessage message) {
+    if (!_canReplyToMessage(conversationId, message)) return;
+    setState(() => _replyTo = MessageReply(
+        id: message.id,
+        author: message.author,
+        authorId: message.authorId,
+        text: message.text));
+    _composerFocusNode.requestFocus();
+  }
+
+  String _messageDetailsText(ChatMessage message) {
+    if (message.contentType == 'image') {
+      final caption = message.rawBody['caption'];
+      return caption is String && caption.trim().isNotEmpty
+          ? caption.trim()
+          : '图片消息';
+    }
+    if (message.contentType == 'object' || message.contentType == 'chart') {
+      return const JsonEncoder.withIndent('  ').convert(message.rawBody);
+    }
+    return message.text;
+  }
+
+  Future<void> _showMessageDetails(ChatMessage message) async {
+    final content = _messageDetailsText(message);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog.fullscreen(
+        child: Scaffold(
+          appBar: AppBar(
+            title: const Text('消息详情'),
+            leading: IconButton(
+                tooltip: '关闭',
+                onPressed: () => Navigator.pop(dialogContext),
+                icon: const Icon(Icons.close)),
+            actions: [
+              IconButton(
+                  tooltip: '复制全部',
+                  onPressed: () async {
+                    await Clipboard.setData(ClipboardData(text: content));
+                    if (dialogContext.mounted) {
+                      ScaffoldMessenger.maybeOf(dialogContext)?.showSnackBar(
+                          const SnackBar(content: Text('消息已复制')));
+                    }
+                  },
+                  icon: const Icon(Icons.copy_outlined)),
+            ],
+          ),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(message.author,
+                    style: Theme.of(dialogContext).textTheme.titleMedium),
+                if (formatMessageTime(message.createdAt) case final time?)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2, bottom: 16),
+                    child: Text(time,
+                        style: Theme.of(dialogContext).textTheme.bodySmall),
+                  )
+                else
+                  const SizedBox(height: 16),
+                SelectableText(content,
+                    key: const ValueKey('message-details-content')),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _onMessagePointerDown(PointerDownEvent event) {
+    _messagePointerDownPosition = event.position;
+    _messagePointerMoved = false;
+  }
+
+  void _onMessagePointerMove(PointerMoveEvent event) {
+    final origin = _messagePointerDownPosition;
+    if (origin != null &&
+        (event.position - origin).distance > _messageTapSlop) {
+      _messagePointerMoved = true;
+    }
+  }
+
+  void _onMessagePointerUp(PointerUpEvent event, ChatMessage message) {
+    if (_messagePointerMoved || _selectedMessageIds.isNotEmpty) {
+      _lastTappedMessageId = null;
+      _lastMessageTapTime = null;
+      _lastMessageTapPosition = null;
+      return;
+    }
+    final previous = _lastMessageTapTime;
+    final previousPosition = _lastMessageTapPosition;
+    final elapsed = previous == null ? null : event.timeStamp - previous;
+    if (_lastTappedMessageId == message.id &&
+        elapsed != null &&
+        previousPosition != null &&
+        (event.position - previousPosition).distance <= _messageTapSlop &&
+        elapsed >= Duration.zero &&
+        elapsed <= _messageDoubleTapMax) {
+      _lastTappedMessageId = null;
+      _lastMessageTapTime = null;
+      _lastMessageTapPosition = null;
+      unawaited(_showMessageDetails(message));
+      return;
+    }
+    _lastTappedMessageId = message.id;
+    _lastMessageTapTime = event.timeStamp;
+    _lastMessageTapPosition = event.position;
   }
 
   @override
@@ -1203,48 +1337,110 @@ class _ConversationViewState extends State<ConversationView> {
                                           conversationId, message);
                                     }
                                   },
-                                  child: Container(
-                                      padding: _highlightedMessageId == message.id
-                                          ? const EdgeInsets.all(2)
-                                          : EdgeInsets.zero,
-                                      decoration: _highlightedMessageId == message.id
-                                          ? BoxDecoration(
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .primaryContainer
-                                                  .withValues(alpha: .65),
-                                              borderRadius:
-                                                  BorderRadius.circular(18))
-                                          : null,
-                                      child: _MessageBubble(
-                                          message: message,
-                                          repository: widget.repository,
-                                          conversationId: conversationId,
-                                          canReact:
-                                              _topicIsOpen(conversationId),
-                                          canRespond: canSend,
-                                          onOpenTopic:
-                                              widget.onOpenConversation,
-                                          onOpenInternalLink:
-                                              widget.onOpenInternalLink,
-                                          onForwardMessage: (id) => _showForwardDialog(
-                                              conversationId, [id]),
-                                          contactsFuture: _contactsFuture,
-                                          isGroupConversation:
-                                              _isGroupConversation,
-                                          onOpenMemberConversation:
-                                              _openMemberConversation,
-                                          onReeditMessage: _reeditMessage,
-                                          cacheScope: widget.cacheScope,
-                                          preloadedImages: _preloadedImages,
-                                          preloadedAttachmentUrls:
-                                              _preloadedAttachmentUrls)),
+                                  child: Listener(
+                                    onPointerDown: _onMessagePointerDown,
+                                    onPointerMove: _onMessagePointerMove,
+                                    onPointerUp: (event) =>
+                                        _onMessagePointerUp(event, message),
+                                    child: Dismissible(
+                                      key: ValueKey(
+                                          'message-swipe-${message.id}'),
+                                      direction: _canReplyToMessage(
+                                              conversationId, message)
+                                          ? DismissDirection.endToStart
+                                          : DismissDirection.none,
+                                      resizeDuration: null,
+                                      dismissThresholds: const {
+                                        DismissDirection.endToStart: .25,
+                                      },
+                                      confirmDismiss: (_) async {
+                                        _replyToMessage(
+                                            conversationId, message);
+                                        return false;
+                                      },
+                                      background: const SizedBox.shrink(),
+                                      secondaryBackground: Container(
+                                        alignment: Alignment.centerRight,
+                                        padding:
+                                            const EdgeInsets.only(right: 18),
+                                        child: const Icon(Icons.reply),
+                                      ),
+                                      child: Container(
+                                          padding: _highlightedMessageId == message.id
+                                              ? const EdgeInsets.all(2)
+                                              : EdgeInsets.zero,
+                                          decoration: _highlightedMessageId == message.id
+                                              ? BoxDecoration(
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .primaryContainer
+                                                      .withValues(alpha: .65),
+                                                  borderRadius:
+                                                      BorderRadius.circular(18))
+                                              : null,
+                                          child: _MessageBubble(
+                                              message: message,
+                                              repository: widget.repository,
+                                              conversationId: conversationId,
+                                              canReact:
+                                                  _topicIsOpen(conversationId),
+                                              canRespond: canSend,
+                                              onOpenTopic:
+                                                  widget.onOpenConversation,
+                                              onOpenInternalLink:
+                                                  widget.onOpenInternalLink,
+                                              onForwardMessage: (id) => _showForwardDialog(
+                                                  conversationId, [id]),
+                                              contactsFuture: _contactsFuture,
+                                              isGroupConversation:
+                                                  _isGroupConversation,
+                                              onOpenMemberConversation:
+                                                  _openMemberConversation,
+                                              onReeditMessage: _reeditMessage,
+                                              cacheScope: widget.cacheScope,
+                                              preloadedImages: _preloadedImages,
+                                              preloadedAttachmentUrls:
+                                                  _preloadedAttachmentUrls)),
+                                    ),
+                                  ),
                                 ),
                               ))
                           .toList(),
                     ),
                   );
                 },
+              ),
+              Positioned(
+                top: 8,
+                left: 0,
+                right: 0,
+                child: IgnorePointer(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 160),
+                    child: _loadingOlder
+                        ? Semantics(
+                            key: const ValueKey('older-messages-loading'),
+                            label: '正在加载更早消息',
+                            child: Material(
+                              elevation: 1,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHigh,
+                              shape: const CircleBorder(),
+                              child: const Padding(
+                                padding: EdgeInsets.all(8),
+                                child: SizedBox.square(
+                                  dimension: 18,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                              ),
+                            ),
+                          )
+                        : const SizedBox.shrink(
+                            key: ValueKey('older-messages-idle')),
+                  ),
+                ),
               ),
               if (_historyMode || _pendingNewMessageCount > 0)
                 Positioned(
@@ -1266,6 +1462,8 @@ class _ConversationViewState extends State<ConversationView> {
           ),
         ),
         SafeArea(
+          key: const ValueKey('message-composer-safe-area'),
+          top: false,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(10, 6, 10, 10),
             child: Column(
@@ -1300,16 +1498,28 @@ class _ConversationViewState extends State<ConversationView> {
                 // 输入框单独占一行，操作按钮放到下一行，窄屏不会再被挤压。
                 Row(children: [
                   Expanded(
-                      child: TextField(
-                          controller: _controller,
-                          focusNode: _composerFocusNode,
-                          readOnly: !canSend,
-                          minLines: 1,
-                          maxLines: 5,
-                          textInputAction: TextInputAction.newline,
-                          decoration: InputDecoration(
-                              hintText: canSend ? '输入消息…' : '话题已关闭',
-                              isDense: true))),
+                      child: Focus(
+                    onKeyEvent: (_, event) =>
+                        _handleComposerKeyEvent(event, conversationId),
+                    child: TextField(
+                        controller: _controller,
+                        focusNode: _composerFocusNode,
+                        readOnly: !canSend,
+                        minLines: 1,
+                        maxLines: 5,
+                        keyboardType: TextInputType.multiline,
+                        textInputAction: widget.sendMessageShortcut ==
+                                MessageSendShortcut.enter
+                            ? TextInputAction.send
+                            : TextInputAction.newline,
+                        onSubmitted: widget.sendMessageShortcut ==
+                                MessageSendShortcut.enter
+                            ? (_) => unawaited(_sendMessage(conversationId))
+                            : null,
+                        decoration: InputDecoration(
+                            hintText: canSend ? '输入消息…' : '话题已关闭',
+                            isDense: true)),
+                  )),
                   const SizedBox(width: 6),
                   IconButton.filled(
                     icon: _sendingMessage
@@ -2183,7 +2393,6 @@ class _MessageBubble extends StatelessWidget {
         message.contentType == 'voice' &&
         message.rawBody['file_id'] is String;
     final prefix = switch (message.contentType) {
-      'image' => Icons.image_outlined,
       'file' => Icons.attach_file,
       'voice' => Icons.mic_none,
       'choice' => Icons.checklist,
@@ -2203,9 +2412,13 @@ class _MessageBubble extends StatelessWidget {
             ? bodyUrl.trim()
             : '';
     final linkUrl = bodyUrl is String ? bodyUrl.trim() : '';
+    final maxBubbleWidth =
+        (MediaQuery.sizeOf(context).width * .78).clamp(220.0, 560.0);
     return Container(
+      key: ValueKey('message-bubble-${message.id}'),
       margin: EdgeInsets.only(
           left: mine ? 56 : 12, right: mine ? 12 : 56, bottom: 6),
+      constraints: BoxConstraints(maxWidth: maxBubbleWidth),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
       decoration: BoxDecoration(
         color: mine ? colors.primary : colors.surfaceContainerHighest,
@@ -2250,15 +2463,7 @@ class _MessageBubble extends StatelessWidget {
                           customBorder: const CircleBorder(),
                           onTap: !canOpenProfile
                               ? null
-                              : () {
-                                  if (isGroupConversation &&
-                                      onOpenMemberConversation != null) {
-                                    unawaited(onOpenMemberConversation!(
-                                        avatarContact));
-                                  } else {
-                                    _showContactPanel(context, avatarContact);
-                                  }
-                                },
+                              : () => _showContactPanel(context, avatarContact),
                           child: _avatar(context, contact ?? avatarContact,
                               snapshot.hasData ? _nonIdAuthor : ''),
                         ),
@@ -2277,7 +2482,7 @@ class _MessageBubble extends StatelessWidget {
                       ],
                     ]);
                   })),
-        if (!hasVoicePlayer)
+        if (!hasVoicePlayer && message.contentType != 'image')
           Row(mainAxisSize: MainAxisSize.min, children: [
             if (prefix != null) Icon(prefix, size: 18),
             if (prefix != null) const SizedBox(width: 6),
@@ -2628,7 +2833,6 @@ class _MessageBubble extends StatelessWidget {
               : fallback);
       final prefix = author.isEmpty ? '回复' : '回复 $author';
       return Container(
-        width: double.infinity,
         margin: const EdgeInsets.only(bottom: 6),
         padding: const EdgeInsets.fromLTRB(8, 5, 8, 5),
         decoration: BoxDecoration(
@@ -2738,6 +2942,17 @@ class _MessageBubble extends StatelessWidget {
                       color: contact.online
                           ? Colors.green.shade700
                           : Theme.of(context).colorScheme.onSurfaceVariant)),
+              if (isGroupConversation && onOpenMemberConversation != null) ...[
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: () async {
+                    Navigator.pop(sheetContext);
+                    await onOpenMemberConversation!(contact);
+                  },
+                  icon: const Icon(Icons.chat_bubble_outline),
+                  label: const Text('发消息'),
+                ),
+              ],
             ],
           ),
         ),
@@ -2848,14 +3063,14 @@ class _CachedConversationImageState extends State<_CachedConversationImage> {
 
   @override
   Widget build(BuildContext context) {
-    final available = MediaQuery.sizeOf(context).width - 100;
-    final width = available.clamp(180.0, 320.0).toDouble();
     return FutureBuilder<_CachedImageData?>(
       future: _future,
       initialData: widget.initialData,
       builder: (context, snapshot) {
         final data = snapshot.data;
         final bytes = data?.bytes;
+        final displaySize = _conversationImageSize(
+            MediaQuery.sizeOf(context), data?.pixelWidth, data?.pixelHeight);
         final child = snapshot.connectionState == ConnectionState.waiting &&
                 !snapshot.hasData
             ? const CircularProgressIndicator(strokeWidth: 2)
@@ -2865,24 +3080,25 @@ class _CachedConversationImageState extends State<_CachedConversationImage> {
                     child: data?.uri == null
                         ? const Text('图片暂时无法加载')
                         : Image.network(data!.uri.toString(),
-                            width: width,
-                            height: 240,
+                            width: displaySize.width,
+                            height: displaySize.height,
                             fit: BoxFit.contain,
                             errorBuilder: (_, __, ___) =>
                                 const Text('图片暂时无法加载')))
                 : GestureDetector(
                     onTap: () => widget.onTap(data),
                     child: Image.memory(bytes,
-                        width: width,
-                        height: 240,
+                        width: displaySize.width,
+                        height: displaySize.height,
                         fit: BoxFit.contain,
                         errorBuilder: (_, __, ___) => const Text('图片暂时无法加载')),
                   );
         return Padding(
           padding: const EdgeInsets.only(top: 8),
           child: SizedBox(
-            width: width,
-            height: 240,
+            key: ValueKey('conversation-image-${widget.fileId}'),
+            width: displaySize.width,
+            height: displaySize.height,
             child: Center(child: child),
           ),
         );
@@ -2906,7 +3122,7 @@ Future<_CachedImageData?> _loadCachedConversationImage({
   } catch (_) {
     cached = null;
   }
-  if (cached != null) return _CachedImageData(bytes: cached);
+  if (cached != null) return _cachedImageData(cached);
   Uri? uri;
   try {
     uri = await repository.attachmentUrl(fileId);
@@ -2935,12 +3151,112 @@ Future<_CachedImageData?> _loadCachedConversationImage({
       // 图片已经在内存中，缓存目录不可写不阻断当前消息显示。
     }
   }
-  return _CachedImageData(bytes: bytes, uri: uri);
+  return _cachedImageData(bytes, uri: uri);
+}
+
+Size _conversationImageSize(Size viewport, int? pixelWidth, int? pixelHeight) {
+  final maxWidth = min(320.0, max(120.0, viewport.width - 132));
+  final maxHeight = min(300.0, max(160.0, viewport.height * .45));
+  final width =
+      pixelWidth != null && pixelWidth > 0 ? pixelWidth.toDouble() : 4;
+  final height =
+      pixelHeight != null && pixelHeight > 0 ? pixelHeight.toDouble() : 3;
+  final scale = min(maxWidth / width, maxHeight / height);
+  return Size(width * scale, height * scale);
+}
+
+_CachedImageData _cachedImageData(Uint8List? bytes, {Uri? uri}) {
+  if (bytes == null || bytes.isEmpty) {
+    return _CachedImageData(bytes: bytes, uri: uri);
+  }
+  final dimensions = _imageDimensions(bytes);
+  return _CachedImageData(
+      bytes: bytes,
+      uri: uri,
+      pixelWidth: dimensions?.width,
+      pixelHeight: dimensions?.height);
+}
+
+_ImageDimensions? _imageDimensions(Uint8List bytes) {
+  int be16(int offset) => (bytes[offset] << 8) | bytes[offset + 1];
+  int le16(int offset) => bytes[offset] | (bytes[offset + 1] << 8);
+  int be32(int offset) =>
+      (bytes[offset] << 24) |
+      (bytes[offset + 1] << 16) |
+      (bytes[offset + 2] << 8) |
+      bytes[offset + 3];
+  int le24(int offset) =>
+      bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16);
+  bool ascii(int offset, String value) {
+    if (offset + value.length > bytes.length) return false;
+    for (var i = 0; i < value.length; i++) {
+      if (bytes[offset + i] != value.codeUnitAt(i)) return false;
+    }
+    return true;
+  }
+
+  if (bytes.length >= 24 && bytes[0] == 0x89 && ascii(1, 'PNG\r\n\x1a\n')) {
+    return _ImageDimensions(be32(16), be32(20));
+  }
+  if (bytes.length >= 10 && ascii(0, 'GIF')) {
+    return _ImageDimensions(le16(6), le16(8));
+  }
+  if (bytes.length >= 30 && ascii(0, 'RIFF') && ascii(8, 'WEBP')) {
+    if (ascii(12, 'VP8X')) {
+      return _ImageDimensions(le24(24) + 1, le24(27) + 1);
+    }
+    if (ascii(12, 'VP8L') && bytes[20] == 0x2f) {
+      final width = 1 + bytes[21] + ((bytes[22] & 0x3f) << 8);
+      final height =
+          1 + (bytes[22] >> 6) + (bytes[23] << 2) + ((bytes[24] & 0x0f) << 10);
+      return _ImageDimensions(width, height);
+    }
+    if (ascii(12, 'VP8 ') &&
+        bytes[23] == 0x9d &&
+        bytes[24] == 0x01 &&
+        bytes[25] == 0x2a) {
+      return _ImageDimensions(le16(26) & 0x3fff, le16(28) & 0x3fff);
+    }
+  }
+  if (bytes.length >= 4 && bytes[0] == 0xff && bytes[1] == 0xd8) {
+    var offset = 2;
+    while (offset + 8 < bytes.length) {
+      if (bytes[offset] != 0xff) {
+        offset++;
+        continue;
+      }
+      final marker = bytes[offset + 1];
+      if (marker == 0xd8 || marker == 0xd9) {
+        offset += 2;
+        continue;
+      }
+      final segmentLength = be16(offset + 2);
+      if (segmentLength < 2 || offset + 2 + segmentLength > bytes.length) break;
+      if ((marker >= 0xc0 && marker <= 0xc3) ||
+          (marker >= 0xc5 && marker <= 0xc7) ||
+          (marker >= 0xc9 && marker <= 0xcb) ||
+          (marker >= 0xcd && marker <= 0xcf)) {
+        return _ImageDimensions(be16(offset + 7), be16(offset + 5));
+      }
+      offset += 2 + segmentLength;
+    }
+  }
+  return null;
+}
+
+class _ImageDimensions {
+  const _ImageDimensions(this.width, this.height);
+
+  final int width;
+  final int height;
 }
 
 class _CachedImageData {
-  const _CachedImageData({required this.bytes, this.uri});
+  const _CachedImageData(
+      {required this.bytes, this.uri, this.pixelWidth, this.pixelHeight});
 
   final Uint8List? bytes;
   final Uri? uri;
+  final int? pixelWidth;
+  final int? pixelHeight;
 }
