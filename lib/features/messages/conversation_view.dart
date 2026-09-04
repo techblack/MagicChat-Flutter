@@ -107,6 +107,7 @@ class _ConversationViewState extends State<ConversationView> {
   Timer? _highlightTimer;
   String? _lastTappedMessageId;
   Duration? _lastMessageTapTime;
+  Offset? _lastMessageTapPosition;
   Offset? _messagePointerDownPosition;
   bool _messagePointerMoved = false;
 
@@ -1181,21 +1182,27 @@ class _ConversationViewState extends State<ConversationView> {
     if (_messagePointerMoved || _selectedMessageIds.isNotEmpty) {
       _lastTappedMessageId = null;
       _lastMessageTapTime = null;
+      _lastMessageTapPosition = null;
       return;
     }
     final previous = _lastMessageTapTime;
+    final previousPosition = _lastMessageTapPosition;
     final elapsed = previous == null ? null : event.timeStamp - previous;
     if (_lastTappedMessageId == message.id &&
         elapsed != null &&
+        previousPosition != null &&
+        (event.position - previousPosition).distance <= _messageTapSlop &&
         elapsed >= Duration.zero &&
         elapsed <= _messageDoubleTapMax) {
       _lastTappedMessageId = null;
       _lastMessageTapTime = null;
+      _lastMessageTapPosition = null;
       unawaited(_showMessageDetails(message));
       return;
     }
     _lastTappedMessageId = message.id;
     _lastMessageTapTime = event.timeStamp;
+    _lastMessageTapPosition = event.position;
   }
 
   @override
