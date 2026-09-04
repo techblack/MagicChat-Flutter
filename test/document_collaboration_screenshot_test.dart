@@ -218,11 +218,21 @@ void main() {
     await tester.longPress(find.text('原始文本'));
     await tester.pumpAndSettle();
     expect(find.text('编辑文本块'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilterChip, '粗体'));
     await tester.enterText(find.byType(TextField).last, '编辑后文本');
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
 
     expect(session.text, '编辑后文本');
+    final editedText = session.body
+        .toArray()
+        .whereType<yjs.YXmlElement>()
+        .single
+        .toArray()
+        .whereType<yjs.YXmlText>()
+        .single;
+    expect(
+        editedText.toDelta().single['attributes'], containsPair('bold', true));
     serverDocument.destroy();
   });
 }
