@@ -1,7 +1,7 @@
 name: magicchat_client
 description: MagicChat 跨平台 Flutter 客户端
 publish_to: none
-version: 0.1.0+1
+version: 0.1.1+2
 environment:
   sdk: ">=3.3.0 <4.0.0"
   flutter: ">=3.22.0"
