@@ -10,10 +10,12 @@ class MessagesPage extends StatelessWidget {
       required this.onSelect,
       this.onOpenConversation,
       this.onBack,
+      this.onSearch,
       this.onOpenInternalLink,
       this.focusMessageId,
       this.focusMessageSequence,
       this.onMessageFocused,
+      this.onUnreadChanged,
       super.key});
   final MagicChatRepository repository;
   final String? serverUrl;
@@ -23,79 +25,84 @@ class MessagesPage extends StatelessWidget {
   final ValueChanged<String> onSelect;
   final ValueChanged<String>? onOpenConversation;
   final VoidCallback? onBack;
+  final VoidCallback? onSearch;
   final ValueChanged<String>? onOpenInternalLink;
   final String? focusMessageId;
   final int? focusMessageSequence;
   final VoidCallback? onMessageFocused;
+  final ValueChanged<int>? onUnreadChanged;
   @override
   Widget build(BuildContext context) =>
       LayoutBuilder(builder: (context, constraints) {
         final split = constraints.maxWidth >= 700;
-        // 移动端使用单列导航：选择会话后进入聊天，返回按钮回到列表。
-        if (!split && selectedId != null) {
-          return Column(children: [
-            Material(
-              color: Theme.of(context).colorScheme.surfaceContainer,
-              child: SizedBox(
-                height: 52,
-                child: Row(children: [
-                  IconButton(
-                    tooltip: '返回会话列表',
-                    onPressed: onBack ?? () => onSelect(''),
-                    icon: const Icon(Icons.arrow_back),
+        final conversationList = Stack(children: [
+          Positioned.fill(
+              child: _ConversationList(
+                  repository: repository,
+                  serverUrl: serverUrl,
+                  cacheScope: cacheScope,
+                  realtimeStore: realtimeStore,
+                  selectedId: selectedId,
+                  onSelect: onSelect,
+                  onUnreadChanged: onUnreadChanged)),
+          Positioned(
+              right: 16,
+              bottom: 16,
+              child: FloatingActionButton(
+                  onPressed: () => _createGroup(context),
+                  tooltip: '新建群聊',
+                  child: const Icon(Icons.group_add))),
+        ]);
+        final conversationView = ConversationView(
+          repository: repository,
+          realtimeStore: realtimeStore,
+          cacheScope: cacheScope,
+          conversationId: selectedId,
+          focusMessageId: focusMessageId,
+          focusMessageSequence: focusMessageSequence,
+          onOpenConversation: onOpenConversation ?? onSelect,
+          onOpenInternalLink: onOpenInternalLink,
+          onMessageFocused: onMessageFocused,
+        );
+        if (!split) {
+          return IndexedStack(
+            index: selectedId == null ? 0 : 1,
+            children: [
+              conversationList,
+              if (selectedId == null)
+                const SizedBox.shrink()
+              else
+                Column(children: [
+                  Material(
+                    color: Theme.of(context).colorScheme.surfaceContainer,
+                    child: SizedBox(
+                      height: 52,
+                      child: Row(children: [
+                        IconButton(
+                          tooltip: '返回会话列表',
+                          onPressed: onBack ?? () => onSelect(''),
+                          icon: const Icon(Icons.arrow_back),
+                        ),
+                        const Text('聊天',
+                            style: TextStyle(fontWeight: FontWeight.w600)),
+                        const Spacer(),
+                        if (onSearch != null)
+                          IconButton(
+                            tooltip: '搜索',
+                            onPressed: onSearch,
+                            icon: const Icon(Icons.search),
+                          ),
+                      ]),
+                    ),
                   ),
-                  const Text('聊天',
-                      style: TextStyle(fontWeight: FontWeight.w600)),
+                  Expanded(child: conversationView),
                 ]),
-              ),
-            ),
-            Expanded(
-              child: ConversationView(
-                repository: repository,
-                realtimeStore: realtimeStore,
-                cacheScope: cacheScope,
-                conversationId: selectedId,
-                focusMessageId: focusMessageId,
-                focusMessageSequence: focusMessageSequence,
-                onOpenConversation: onOpenConversation ?? onSelect,
-                onOpenInternalLink: onOpenInternalLink,
-                onMessageFocused: onMessageFocused,
-              ),
-            ),
-          ]);
+            ],
+          );
         }
         return Row(children: [
-          SizedBox(
-              width: split ? 300 : constraints.maxWidth,
-              child: Stack(children: [
-                Positioned.fill(
-                    child: _ConversationList(
-                        repository: repository,
-                        serverUrl: serverUrl,
-                        cacheScope: cacheScope,
-                        realtimeStore: realtimeStore,
-                        selectedId: selectedId,
-                        onSelect: onSelect)),
-                Positioned(
-                    right: 16,
-                    bottom: 16,
-                    child: FloatingActionButton(
-                        onPressed: () => _createGroup(context),
-                        child: const Icon(Icons.group_add),
-                        tooltip: '新建群聊')),
-              ])),
-          if (split)
-            Expanded(
-                child: ConversationView(
-                    repository: repository,
-                    realtimeStore: realtimeStore,
-                    cacheScope: cacheScope,
-                    conversationId: selectedId,
-                    focusMessageId: focusMessageId,
-                    focusMessageSequence: focusMessageSequence,
-                    onOpenConversation: onOpenConversation ?? onSelect,
-                    onOpenInternalLink: onOpenInternalLink,
-                    onMessageFocused: onMessageFocused))
+          SizedBox(width: 300, child: conversationList),
+          Expanded(child: conversationView),
         ]);
       });
 
@@ -186,13 +193,15 @@ class _ConversationList extends StatefulWidget {
       this.cacheScope,
       this.realtimeStore,
       required this.selectedId,
-      required this.onSelect});
+      required this.onSelect,
+      this.onUnreadChanged});
   final MagicChatRepository repository;
   final String? serverUrl;
   final MessageCacheScope? cacheScope;
   final RealtimeStore? realtimeStore;
   final String? selectedId;
   final ValueChanged<String> onSelect;
+  final ValueChanged<int>? onUnreadChanged;
   @override
   State<_ConversationList> createState() => _ConversationListState();
 }
@@ -235,7 +244,15 @@ class _ConversationListState extends State<_ConversationList> {
     super.dispose();
   }
 
-  void _reload() => _future = widget.repository.conversations();
+  void _reload() => _future = _loadConversations();
+
+  Future<List<ChatConversation>> _loadConversations() async {
+    final conversations = await widget.repository.conversations();
+    if (mounted) {
+      widget.onUnreadChanged?.call(totalConversationUnread(conversations));
+    }
+    return conversations;
+  }
 
   @override
   Widget build(BuildContext context) => FutureBuilder<List<ChatConversation>>(
