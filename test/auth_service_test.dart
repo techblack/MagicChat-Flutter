@@ -35,6 +35,25 @@ void main() {
         throwsFormatException);
   });
 
+  test('解析服务端第三方登录方式', () async {
+    final service = AuthService(
+        client: MockClient((_) async => _jsonResponse({
+              'data': {
+                'password_login_enabled': true,
+                'email_code_login_enabled': false,
+                'third_party_providers': [
+                  {'key': 'oidc', 'name': '企业 SSO'}
+                ],
+              }
+            })));
+
+    final info =
+        await service.fetchClientInfo(serverUrl: 'https://chat.example.com');
+
+    expect(info.thirdPartyProviders.single.key, 'oidc');
+    expect(info.thirdPartyProviders.single.name, '企业 SSO');
+  });
+
   test('密码登录声明 Native Session 能力并保存返回 Token', () async {
     late http.Request captured;
     final sessions = _MemorySessionStore();
