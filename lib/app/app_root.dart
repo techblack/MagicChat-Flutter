@@ -17,6 +17,12 @@ bool shouldShowLocalMessageNotification({
     conversationId != selectedConversationId &&
     !muted;
 
+Uri buildThirdPartyLoginUri(String serverUrl, String providerKey) {
+  final base = Uri.parse('${normalizeServerUrl(serverUrl)}/');
+  return base.resolve(
+      'api/client/auth/third-party/${Uri.encodeComponent(providerKey)}/start?redirect=/init');
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (!kIsWeb &&
@@ -569,6 +575,24 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  Future<void> _startThirdPartyLogin(ClientThirdPartyProvider provider) async {
+    if (_submitting || !kIsWeb) return;
+    try {
+      final server = normalizeServerUrl(_server.text);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('magicchat.server_url', server);
+      await const SessionStore().writeToken(SessionStore.cookieSessionToken);
+      final launched = await launchUrl(
+          buildThirdPartyLoginUri(server, provider.key),
+          mode: LaunchMode.platformDefault);
+      if (!launched && mounted) {
+        setState(() => _error = '无法打开第三方登录页面');
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = _errorText(error));
+    }
+  }
+
   @override
   void dispose() {
     _resendTimer?.cancel();
@@ -832,6 +856,39 @@ class _LoginPageState extends State<LoginPage> {
                                       : const Text('登录'),
                                 ),
                               ),
+                              if (kIsWeb &&
+                                  _appInfo?.thirdPartyProviders.isNotEmpty ==
+                                      true) ...[
+                                const SizedBox(height: 20),
+                                Row(children: [
+                                  const Expanded(child: Divider()),
+                                  Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12),
+                                      child: Text('其他登录方式',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .labelMedium)),
+                                  const Expanded(child: Divider()),
+                                ]),
+                                const SizedBox(height: 10),
+                                ..._appInfo!.thirdPartyProviders.map(
+                                  (provider) => Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: SizedBox(
+                                      width: double.infinity,
+                                      child: OutlinedButton.icon(
+                                        onPressed: _submitting
+                                            ? null
+                                            : () =>
+                                                _startThirdPartyLogin(provider),
+                                        icon: const Icon(Icons.login_outlined),
+                                        label: Text('使用 ${provider.name} 登录'),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),

@@ -57,6 +57,13 @@ class _SendRepository extends DemoRepository {
 }
 
 void main() {
+  test('构造第三方登录授权地址并编码 provider key', () {
+    expect(
+        buildThirdPartyLoginUri('https://chat.example.com/base', 'company/sso'),
+        Uri.parse(
+            'https://chat.example.com/base/api/client/auth/third-party/company%2Fsso/start?redirect=/init'));
+  });
+
   testWidgets('登录表单校验输入并规范化服务器地址', (tester) async {
     final service = AuthService(
         client: MockClient((_) async => http.Response(
