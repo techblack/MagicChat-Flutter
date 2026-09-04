@@ -586,9 +586,12 @@ class _LoginPageState extends State<LoginPage> {
           buildThirdPartyLoginUri(server, provider.key),
           mode: LaunchMode.platformDefault);
       if (!launched && mounted) {
+        await const SessionStore().clear();
+        await prefs.remove('magicchat.server_url');
         setState(() => _error = '无法打开第三方登录页面');
       }
     } catch (error) {
+      await const SessionStore().clear();
       if (mounted) setState(() => _error = _errorText(error));
     }
   }
