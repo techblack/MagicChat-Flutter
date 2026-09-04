@@ -48,6 +48,7 @@ class _ContactsPageState extends State<ContactsPage> {
   final _contactCacheStore = ContactCacheStore();
   Future<ContactDirectory>? _directoryFuture;
   String? _openedInitialContactId;
+  Timer? _searchDebounce;
 
   @override
   void initState() {
@@ -69,13 +70,25 @@ class _ContactsPageState extends State<ContactsPage> {
     if (mounted) setState(() {});
   }
 
-  void _load() {
+  void _load({bool cancelPendingSearch = true}) {
+    if (!mounted) return;
+    if (cancelPendingSearch) _searchDebounce?.cancel();
     setState(() {
       _directoryFuture = _loadDirectory();
     });
   }
 
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    if (mounted) setState(() {});
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      _searchDebounce = null;
+      _load(cancelPendingSearch: false);
+    });
+  }
+
   Future<void> _refresh() async {
+    _searchDebounce?.cancel();
     final future = _loadDirectory();
     setState(() {
       _directoryFuture = future;
@@ -125,6 +138,7 @@ class _ContactsPageState extends State<ContactsPage> {
   @override
   void dispose() {
     widget.realtimeStore?.removeListener(_onRealtimeChanged);
+    _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -142,10 +156,19 @@ class _ContactsPageState extends State<ContactsPage> {
                 controller: _searchController,
                 textInputAction: TextInputAction.search,
                 onSubmitted: (_) => _load(),
+                onChanged: _onSearchChanged,
                 decoration: InputDecoration(
                   hintText: '搜索联系人、应用或群组',
                   prefixIcon: const Icon(Icons.search),
                   suffixIcon: Row(mainAxisSize: MainAxisSize.min, children: [
+                    if (_searchController.text.isNotEmpty)
+                      IconButton(
+                          tooltip: '清除搜索',
+                          onPressed: () {
+                            _searchController.clear();
+                            _load();
+                          },
+                          icon: const Icon(Icons.clear)),
                     if (directory?.supportsFriendManagement == true)
                       IconButton(
                           key: const ValueKey('friend-management-button'),
@@ -189,12 +212,16 @@ class _ContactsPageState extends State<ContactsPage> {
     }
     final contacts = snapshot.data!.contacts;
     if (contacts.isEmpty) {
+      final keyword = _searchController.text.trim();
       return RefreshIndicator(
           onRefresh: _refresh,
           child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
-              children: const [
-                SizedBox(height: 220, child: Center(child: Text('暂无联系人'))),
+              children: [
+                SizedBox(
+                    height: 220,
+                    child: Center(
+                        child: Text(keyword.isEmpty ? '暂无联系人' : '未找到匹配的联系人'))),
               ]));
     }
     return RefreshIndicator(

@@ -115,4 +115,32 @@ void main() {
     expect(directory.contacts.single.memberCount, 3);
     expect(directory.contacts.single.visibility, 'public');
   });
+
+  test('通讯录搜索会将关键词编码到查询参数', () async {
+    Uri? requested;
+    final repository = HttpMagicChatRepository(
+      serverUrl: 'https://chat.example.com',
+      sessionToken: 'test-token',
+      client: MockClient((request) async {
+        requested = request.url;
+        return http.Response(
+            jsonEncode({
+              'data': {
+                'apps': [],
+                'groups': [],
+                'user_ids': [],
+                'directory_mode': 'organization',
+              }
+            }),
+            200);
+      }),
+    );
+
+    await repository.contactDirectory(keyword: 'alice@example.com');
+
+    expect(
+        requested,
+        Uri.parse(
+            'https://chat.example.com/api/client/contacts?keyword=alice%40example.com'));
+  });
 }
