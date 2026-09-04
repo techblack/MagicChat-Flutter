@@ -7,16 +7,16 @@ void main() {
   test('默认使用 release 更新源', () {
     expect(UpdateService.updateSource, 'release');
     expect(UpdateService.manifestUrl, UpdateService.releaseManifestUrl);
-    expect(UpdateService.currentVersion, '0.2.0');
-    expect(UpdateService.currentBuild, 3);
+    expect(UpdateService.currentVersion, '0.2.1');
+    expect(UpdateService.currentBuild, 4);
   });
 
   test('只接受 HTTPS 下载地址并识别新版本', () async {
     final client = MockClient((request) async => http.Response(
-        '{"android":{"version":"0.3.0","build":4,"url":"https://example.com/app.apk"}}',
+        '{"android":{"version":"0.3.0","build":5,"url":"https://example.com/app.apk"}}',
         200));
     final release = await UpdateService(client: client).check();
-    expect(release?.build, 4);
+    expect(release?.build, 5);
     expect(release?.url, startsWith('https://'));
   });
 
