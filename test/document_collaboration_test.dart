@@ -252,8 +252,11 @@ void main() {
         session.body.toArray().whereType<yjs.YXmlElement>().single;
     final text = paragraph.toArray().whereType<yjs.YXmlText>().single;
     final sentBeforeEdit = channel.sent.length;
+    var notifications = 0;
+    session.addListener(() => notifications++);
     session.replaceXmlText(text, '编辑后的正文');
     expect(channel.sent, hasLength(sentBeforeEdit + 1));
+    expect(notifications, 1);
     final update = yjs.createDecoder(channel.sent.last as Uint8List);
     expect(yjs.readVarString(update), 'doc-text-edit');
     expect(yjs.readVarUint(update), HocuspocusMessageType.sync);
@@ -267,6 +270,11 @@ void main() {
     session.replaceXmlText(markedText, '编辑后的加粗正文');
     expect(
         markedText.toDelta().single['attributes'], containsPair('bold', true));
+
+    final markedUpdateCount = channel.sent.length;
+    session.replaceXmlText(markedText, '编辑后的加粗正文', marks: const {});
+    expect(channel.sent, hasLength(markedUpdateCount + 1));
+    expect(markedText.toDelta().single['attributes'], isNull);
 
     await session.close();
     serverDocument.destroy();
