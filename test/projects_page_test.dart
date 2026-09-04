@@ -46,6 +46,21 @@ void main() {
     expect(find.text('演示用户'), findsOneWidget);
   });
 
+  testWidgets('项目搜索无结果时给出提示并支持清除', (tester) async {
+    await tester.pumpWidget(_app());
+    await tester.pumpAndSettle();
+
+    final search = find.byType(TextField).first;
+    await tester.enterText(search, '不存在的项目');
+    await tester.pump();
+    expect(find.text('未找到匹配的项目'), findsOneWidget);
+    expect(find.byTooltip('清除搜索'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('清除搜索'));
+    await tester.pump();
+    expect(find.text('我的项目'), findsOneWidget);
+  });
+
   testWidgets('普通项目可以打开授权群组并选择可用群组', (tester) async {
     await tester.pumpWidget(_app());
     await tester.pumpAndSettle();
