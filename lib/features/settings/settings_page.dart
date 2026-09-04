@@ -66,7 +66,14 @@ class _SettingsPageState extends State<SettingsPage> {
 
   void _onRealtimeChanged() {
     if (widget.realtimeStore?.lastEvent != 'user.profile.updated') return;
-    if (mounted) setState(() => _userFuture = widget.repository.currentUser());
+    _reloadUser();
+  }
+
+  void _reloadUser() {
+    if (!mounted) return;
+    setState(() {
+      _userFuture = widget.repository.currentUser();
+    });
   }
 
   @override
@@ -379,6 +386,15 @@ class _SettingsPageState extends State<SettingsPage> {
         FutureBuilder<CurrentUser>(
             future: _userFuture,
             builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return ListTile(
+                    leading: const Icon(Icons.cloud_off_outlined),
+                    title: const Text('账户信息加载失败'),
+                    trailing: TextButton.icon(
+                        onPressed: _reloadUser,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('重试')));
+              }
               final user = snapshot.data;
               if (user == null)
                 return const ListTile(
