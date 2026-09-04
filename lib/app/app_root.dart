@@ -925,7 +925,8 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<void> _resolveNotificationRoute() async {
-    final routeToken = Uri.base.queryParameters['route_token'];
+    final routeToken = Uri.base.queryParameters['route_token'] ??
+        await const PushTokenProvider().takePendingRouteToken();
     if (routeToken == null || routeToken.isEmpty || widget.serverUrl == null)
       return;
     try {
@@ -935,7 +936,9 @@ class _AppShellState extends State<AppShell> {
           serverUrl: widget.serverUrl!,
           sessionToken: token,
           routeToken: routeToken);
-      if (mounted) _selectConversationFromList(route.conversationId);
+      if (mounted) {
+        _openMessageFromSearch(route.conversationId, route.messageId, null);
+      }
     } catch (_) {
       // 通知路由失效时保留正常首页，不阻断主应用启动。
     }

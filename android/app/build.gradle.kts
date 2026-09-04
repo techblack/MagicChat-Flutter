@@ -4,11 +4,19 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val jpushAppKey = System.getenv("JPUSH_APP_KEY")?.trim().orEmpty()
+val jpushChannel = System.getenv("JPUSH_CHANNEL")?.trim().takeUnless { it.isNullOrEmpty() }
+    ?: "official"
+
 android {
     namespace = "cloud.baizhi.chat"
     // file_picker's current Android lifecycle dependency requires API 36.
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
+
+    buildFeatures {
+        buildConfig = true
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -27,6 +35,9 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["JPUSH_APPKEY"] = jpushAppKey
+        manifestPlaceholders["JPUSH_CHANNEL"] = jpushChannel
+        buildConfigField("boolean", "JPUSH_CONFIGURED", jpushAppKey.isNotEmpty().toString())
     }
 
     buildTypes {
@@ -40,6 +51,9 @@ android {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
+    if (jpushAppKey.isNotEmpty()) {
+        implementation("cn.jiguang.sdk:jpush:6.2.0")
+    }
 }
 
 kotlin {
