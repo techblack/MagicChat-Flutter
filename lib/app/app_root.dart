@@ -8,6 +8,15 @@ Uri? _resolveAssetUri(String? serverUrl, String value) {
   return server == null ? null : server.resolve(value);
 }
 
+bool shouldShowLocalMessageNotification({
+  required String conversationId,
+  String? selectedConversationId,
+  bool muted = false,
+}) =>
+    conversationId.isNotEmpty &&
+    conversationId != selectedConversationId &&
+    !muted;
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (!kIsWeb &&
@@ -926,7 +935,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     final message = payload['message'];
     final data = message is Map<String, dynamic> ? message : payload;
     final conversationId = data['conversation_id'];
-    if (conversationId is! String || conversationId == _selectedConversation) {
+    if (conversationId is! String ||
+        !shouldShowLocalMessageNotification(
+            conversationId: conversationId,
+            selectedConversationId: _selectedConversation,
+            muted: widget.realtimeStore?.conversations[conversationId]?.muted ==
+                true)) {
       return;
     }
     final prefs = await SharedPreferences.getInstance();
