@@ -68,7 +68,10 @@ class _MagicChatAppState extends State<MagicChatApp> {
     final prefs = await SharedPreferences.getInstance();
     final token = await const SessionStore().readToken();
     await prefs.setString('magicchat.server_url', server);
-    if (!mounted || token == null) return;
+    if (token == null) {
+      throw const FormatException('无法保存登录会话，请检查系统安全存储权限');
+    }
+    if (!mounted) return;
     await const SessionStore().saveAccount(StoredAccount(
         id: '$server|$email', serverUrl: server, token: token, email: email));
     setState(() {
@@ -90,7 +93,10 @@ class _MagicChatAppState extends State<MagicChatApp> {
     final prefs = await SharedPreferences.getInstance();
     final token = await const SessionStore().readToken();
     await prefs.setString('magicchat.server_url', server);
-    if (!mounted || token == null) return;
+    if (token == null) {
+      throw const FormatException('无法保存登录会话，请检查系统安全存储权限');
+    }
+    if (!mounted) return;
     await const SessionStore().saveAccount(StoredAccount(
         id: '$server|$email', serverUrl: server, token: token, email: email));
     setState(() {
@@ -709,6 +715,9 @@ class _LoginPageState extends State<LoginPage> {
                                   controller: _code,
                                   keyboardType: TextInputType.number,
                                   textInputAction: TextInputAction.done,
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.digitsOnly
+                                  ],
                                   autofillHints: const [
                                     AutofillHints.oneTimeCode
                                   ],

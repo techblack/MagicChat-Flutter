@@ -125,9 +125,22 @@ jobs:
         run: |
           mkdir -p dist
           flutter build macos --release
+          app="build/macos/Build/Products/Release/MagicChat.app"
+          entitlements="$RUNNER_TEMP/MagicChat.entitlements.plist"
+          codesign -d --entitlements :- "$app" > "$entitlements"
+          for capability in \
+            com.apple.security.network.client \
+            com.apple.security.device.audio-input \
+            com.apple.security.device.camera \
+            com.apple.security.files.user-selected.read-write; do
+            test "$(/usr/libexec/PlistBuddy -c "Print :$capability" "$entitlements")" = true
+          done
+          /usr/libexec/PlistBuddy -c "Print :keychain-access-groups" "$entitlements" >/dev/null
+          for usage in NSCameraUsageDescription NSLocalNetworkUsageDescription NSMicrophoneUsageDescription; do
+            test -n "$(/usr/libexec/PlistBuddy -c "Print :$usage" "$app/Contents/Info.plist")"
+          done
           ditto -c -k --sequesterRsrc --keepParent \
-            build/macos/Build/Products/Release/MagicChat.app \
-            dist/MagicChat-macOS.zip
+            "$app" dist/MagicChat-macOS.zip
       - name: Build unsigned iOS release artifact
         shell: bash
         run: |

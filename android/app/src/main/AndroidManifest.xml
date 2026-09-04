@@ -6,6 +6,7 @@
     <application
         android:label="MagicChat"
         android:name="${applicationName}"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher">
         <meta-data
             android:name="JPUSH_APPKEY"

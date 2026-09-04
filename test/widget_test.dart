@@ -85,6 +85,42 @@ void main() {
     expect(find.text('登录已过期，请重新登录'), findsOneWidget);
   });
 
+  testWidgets('邮箱验证码登录过滤粘贴分隔符并提交', (tester) async {
+    final service = AuthService(
+        client: MockClient((request) async => request.url.path.endsWith('/info')
+            ? http.Response(
+                '{"data":{"password_login_enabled":true,"email_code_login_enabled":true,"third_party_providers":[]}}',
+                200)
+            : http.Response(
+                '{"success":true,"data":{"expires_in_seconds":600,"retry_after_seconds":0}}',
+                200)));
+    String? submittedCode;
+    await tester.pumpWidget(MaterialApp(
+      home: LoginPage(
+        initialServer: 'https://chat.example.com',
+        authService: service,
+        onLogin: (_, __, ___) async {},
+        onCodeLogin: (_, __, code) async => submittedCode = code,
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+        find.widgetWithText(TextFormField, '邮箱'), 'alice@example.com');
+    await tester.tap(find.text('使用邮箱验证码登录'));
+    await tester.pump();
+    await tester.tap(find.text('发送'));
+    await tester.pumpAndSettle();
+    final codeField = find.widgetWithText(TextFormField, '邮箱验证码');
+    await tester.enterText(codeField, '1234 5678');
+    await tester.tap(find.text('登录'));
+    await tester.pumpAndSettle();
+
+    expect(
+        tester.widget<TextFormField>(codeField).controller?.text, '12345678');
+    expect(submittedCode, '12345678');
+  });
+
   testWidgets('显示跨端导航入口', (tester) async {
     await tester
         .pumpWidget(MaterialApp(home: AppShell(repository: DemoRepository())));

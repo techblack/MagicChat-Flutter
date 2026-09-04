@@ -46,7 +46,8 @@ class SessionStore {
 
   Future<String?> readToken() async {
     try {
-      return await _storage.read(key: 'magicchat.session.token');
+      return await _storage.read(key: 'magicchat.session.token') ??
+          _fallbackToken;
     } on PlatformException {
       return _fallbackToken;
     }

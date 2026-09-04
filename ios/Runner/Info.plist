@@ -6,6 +6,8 @@
 	<string>MagicChat 需要使用相机扫描二维码</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>MagicChat 需要使用麦克风录制语音消息</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>用于连接您配置的自托管 MagicChat 服务器。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>MagicChat 需要访问照片以选择头像和图片</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
