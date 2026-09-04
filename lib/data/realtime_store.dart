@@ -217,6 +217,7 @@ class RealtimeStore extends ChangeNotifier {
     final senderId = sender is Map<String, dynamic> ? sender['id'] : null;
     final conversationId = payload['conversation_id'];
     final reply = payload['reply_to'];
+    final replyToMessageId = payload['reply_to_message_id'];
     final replySender = reply is Map<String, dynamic> ? reply['sender'] : null;
     final replyNickname =
         replySender is Map<String, dynamic> ? replySender['nickname'] : null;
@@ -241,11 +242,11 @@ class RealtimeStore extends ChangeNotifier {
         ? nickname.trim()
         : name is String && name.trim().isNotEmpty
             ? name.trim()
-            : previous?.author != null && previous!.author.trim().isNotEmpty
+            : previous?.author != null &&
+                    previous!.author.trim().isNotEmpty &&
+                    previous.author != previous.authorId
                 ? previous.author
-                : senderId is String && senderId.trim().isNotEmpty
-                    ? senderId
-                    : '成员';
+                : '成员';
     final resolvedSenderId = senderId is String ? senderId : previous?.authorId;
     final resolvedConversationId =
         conversationId is String ? conversationId : previous?.conversationId;
@@ -260,7 +261,10 @@ class RealtimeStore extends ChangeNotifier {
                         (reply['summary'] as String).isNotEmpty
                     ? reply['summary'] as String
                     : '[消息]')
-            : previous?.replyTo;
+            : replyToMessageId is String && replyToMessageId.trim().isNotEmpty
+                ? MessageReply(
+                    id: replyToMessageId.trim(), author: '成员', text: '[消息]')
+                : previous?.replyTo;
     messages[id] = ChatMessage(
         id: id,
         sequence: sequence,

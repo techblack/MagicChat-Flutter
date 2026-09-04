@@ -7,6 +7,11 @@ plugins {
 val jpushAppKey = System.getenv("JPUSH_APP_KEY")?.trim().orEmpty()
 val jpushChannel = System.getenv("JPUSH_CHANNEL")?.trim().takeUnless { it.isNullOrEmpty() }
     ?: "official"
+val releaseKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")?.trim()
+val releaseStorePassword = System.getenv("ANDROID_STORE_PASSWORD")
+val releaseKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+val hasReleaseSigning = !releaseKeystorePath.isNullOrEmpty() &&
+    !releaseStorePassword.isNullOrEmpty() && !releaseKeyPassword.isNullOrEmpty()
 
 android {
     namespace = "cloud.baizhi.chat"
@@ -40,11 +45,23 @@ android {
         buildConfigField("boolean", "JPUSH_CONFIGURED", jpushAppKey.isNotEmpty().toString())
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseKeystorePath!!)
+                storePassword = releaseStorePassword
+                keyAlias = "magicchat"
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // GitHub Release 使用固定发布证书；本地未提供证书时保留侧载构建能力。
+            signingConfig = signingConfigs.getByName(
+                if (hasReleaseSigning) "release" else "debug"
+            )
         }
     }
 }

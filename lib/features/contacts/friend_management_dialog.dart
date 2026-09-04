@@ -163,8 +163,7 @@ class _FriendManagementDialogState extends State<FriendManagementDialog> {
                       final friend = widget.friends[index];
                       return _FriendTile(
                         user: friend,
-                        subtitle:
-                            friend.email.isEmpty ? friend.id : friend.email,
+                        subtitle: friend.email.isEmpty ? '未提供邮箱' : friend.email,
                         trailing: TextButton(
                           key: ValueKey('delete-friend-${friend.id}'),
                           onPressed: _updatingKey.isEmpty
@@ -242,7 +241,7 @@ class _FriendManagementDialogState extends State<FriendManagementDialog> {
     final disabled = isFriend || isPending || _updatingKey.isNotEmpty;
     return _FriendTile(
       user: user,
-      subtitle: user.email.isEmpty ? user.id : user.email,
+      subtitle: user.email.isEmpty ? '未提供邮箱' : user.email,
       trailing: FilledButton.tonalIcon(
           onPressed: disabled
               ? null

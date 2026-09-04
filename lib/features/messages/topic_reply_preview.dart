@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../domain/message_content.dart';
 import '../../domain/models.dart';
 
 /// 父会话来源消息下方的话题回复摘要，可点击打开话题会话。
@@ -41,7 +42,10 @@ class TopicReplyPreview extends StatelessWidget {
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
-                            '${_senderName(reply.sender, contacts)}：${reply.summary}',
+                            '${_senderName(reply.sender, contacts)}：${formatMessageReferenceText(reply.summary, contacts.values.map((contact) => (
+                                  id: contact.id,
+                                  name: contact.displayName
+                                )), messageId: reply.id)}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: Theme.of(context).textTheme.bodySmall,
@@ -81,7 +85,10 @@ class TopicReplyPreview extends StatelessWidget {
         contact.displayName.trim() != contact.id.trim()) {
       return contact.displayName.trim();
     }
-    if (sender.name.trim().isNotEmpty) return sender.name.trim();
+    if (sender.name.trim().isNotEmpty &&
+        sender.name.trim() != sender.id.trim()) {
+      return sender.name.trim();
+    }
     return sender.type == 'app' ? '应用' : '成员';
   }
 }

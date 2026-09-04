@@ -262,12 +262,12 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
 
   Future<String> _loadTitle() async {
     final live = widget.realtimeStore?.conversations[widget.conversationId];
-    if (live != null && live.title.trim().isNotEmpty) return live.title.trim();
+    if (live != null) return live.displayTitle;
     final conversations = await widget.repository.conversations();
     for (final conversation in conversations) {
       if (conversation.id == widget.conversationId &&
-          conversation.title.trim().isNotEmpty) {
-        return conversation.title.trim();
+          conversation.displayTitle.trim().isNotEmpty) {
+        return conversation.displayTitle;
       }
     }
     return '聊天';
@@ -275,14 +275,13 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
 
   @override
   Widget build(BuildContext context) {
-    final header = Material(
-      color: Theme.of(context).colorScheme.surfaceContainer,
-      child: SizedBox(
+    final content = SizedBox(
+        width: double.infinity,
         height: 52,
         child: FutureBuilder<String>(
           future: _titleFuture,
-          initialData:
-              widget.realtimeStore?.conversations[widget.conversationId]?.title,
+          initialData: widget.realtimeStore
+              ?.conversations[widget.conversationId]?.displayTitle,
           builder: (context, snapshot) {
             final title = snapshot.data?.trim().isNotEmpty == true
                 ? snapshot.data!.trim()
@@ -319,10 +318,17 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
                 ),
             ]);
           },
-        ),
-      ),
+        ));
+    return Material(
+      key: const ValueKey('conversation-header-background'),
+      color: Theme.of(context).colorScheme.surfaceContainer,
+      child: widget.compact
+          ? SafeArea(
+              key: const ValueKey('conversation-header-safe-area'),
+              bottom: false,
+              child: content)
+          : content,
     );
-    return widget.compact ? SafeArea(bottom: false, child: header) : header;
   }
 }
 
@@ -349,6 +355,7 @@ class _ConversationList extends StatefulWidget {
 class _ConversationListState extends State<_ConversationList> {
   Future<List<ChatConversation>>? _future;
   String? _currentUserId;
+  List<Contact> _displayContacts = const [];
   ConversationFilter _filter = ConversationFilter.all;
   String _query = '';
   @override
@@ -357,7 +364,17 @@ class _ConversationListState extends State<_ConversationList> {
     _currentUserId = widget.realtimeStore?.currentUserId;
     widget.realtimeStore?.addListener(_onRealtimeChanged);
     unawaited(_loadCurrentUser());
+    unawaited(_loadDisplayContacts());
     _reload();
+  }
+
+  Future<void> _loadDisplayContacts() async {
+    try {
+      final contacts = await widget.repository.contacts();
+      if (mounted) setState(() => _displayContacts = contacts);
+    } catch (_) {
+      // 未加载到资料时，提及仍显示通用名称，不暴露内部 ID。
+    }
   }
 
   Future<void> _loadCurrentUser() async {
@@ -471,6 +488,18 @@ class _ConversationListState extends State<_ConversationList> {
                 final subtitleStyle =
                     TextStyle(fontWeight: hasUnread ? FontWeight.w600 : null);
                 final messageTime = _conversationTime(c);
+                final previewContacts = <String, Contact>{
+                  for (final contact in _displayContacts) contact.id: contact,
+                  for (final member in c.members) member.id: member,
+                }.values;
+                final preview = formatMentionText(
+                    c.announcement.isNotEmpty
+                        ? '公告：${c.announcement}'
+                        : c.preview,
+                    previewContacts.map((contact) => (
+                          id: contact.id,
+                          name: contact.displayName,
+                        )));
                 final statusIcons = <Widget>[
                   if (c.pinned)
                     const Padding(
@@ -496,25 +525,22 @@ class _ConversationListState extends State<_ConversationList> {
                         repository: widget.repository,
                         cacheScope: widget.cacheScope,
                         avatarUri: _resolveAssetUri(widget.serverUrl, c.avatar),
-                        name: c.title,
+                        name: c.displayTitle,
                         radius: 23),
                     title: statusIcons.isEmpty
-                        ? Text(c.title,
+                        ? Text(c.displayTitle,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: titleStyle)
                         : Row(children: [
                             Expanded(
-                                child: Text(c.title,
+                                child: Text(c.displayTitle,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: titleStyle)),
                             ...statusIcons,
                           ]),
-                    subtitle: Text(
-                        c.announcement.isNotEmpty
-                            ? '公告：${c.announcement}'
-                            : c.preview,
+                    subtitle: Text(preview,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: subtitleStyle),

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../data/repository.dart';
+import '../../domain/message_content.dart';
 import '../../domain/models.dart';
 
 enum GlobalSearchResultType { conversation, contact, project, message }
@@ -133,6 +134,7 @@ class _GlobalSearchDialogState extends State<GlobalSearchDialog> {
   Future<List<GlobalSearchResult>>? _results;
   Timer? _searchDebounce;
   int _searchGeneration = 0;
+  List<Contact> _displayContacts = const [];
 
   @override
   void dispose() {
@@ -150,6 +152,7 @@ class _GlobalSearchDialogState extends State<GlobalSearchDialog> {
     final messages = keyword.trim().characters.length >= 2
         ? await widget.repository.searchMessages(keyword.trim())
         : const <MessageSearchResult>[];
+    _displayContacts = local[1] as List<Contact>;
     return buildGlobalSearchResults(
       keyword: keyword,
       conversations: local[0] as List<ChatConversation>,
@@ -288,7 +291,7 @@ class _GlobalSearchDialogState extends State<GlobalSearchDialog> {
         return ListTile(
           key: ValueKey(result.key),
           leading: const Icon(Icons.chat_bubble_outline),
-          title: Text(value.title),
+          title: Text(value.displayTitle),
           subtitle: Text('会话 · ${_conversationType(value.type)}'),
           onTap: () => _open(result),
         );
@@ -313,11 +316,16 @@ class _GlobalSearchDialogState extends State<GlobalSearchDialog> {
         );
       case GlobalSearchResultType.message:
         final value = result.message!;
+        final text = formatMentionText(
+            value.message.text,
+            _displayContacts.map((contact) => (
+                  id: contact.id,
+                  name: contact.displayName,
+                )));
         return ListTile(
           key: ValueKey(result.key),
           leading: const Icon(Icons.message_outlined),
-          title: Text(value.message.text,
-              maxLines: 2, overflow: TextOverflow.ellipsis),
+          title: Text(text, maxLines: 2, overflow: TextOverflow.ellipsis),
           subtitle: Text(value.conversationName),
           onTap: () => _open(result),
         );

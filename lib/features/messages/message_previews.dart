@@ -130,10 +130,14 @@ class _ChoiceOptionsState extends State<_ChoiceOptions> {
 
 class _ForwardBundlePreview extends StatelessWidget {
   const _ForwardBundlePreview(
-      {required this.body, required this.summary, this.textColor});
+      {required this.body,
+      required this.summary,
+      this.contactsFuture,
+      this.textColor});
 
   final Map<String, dynamic> body;
   final String summary;
+  final Future<List<Contact>>? contactsFuture;
   final Color? textColor;
 
   @override
@@ -144,24 +148,36 @@ class _ForwardBundlePreview extends StatelessWidget {
         : null;
     final preview =
         first is String && first.trim().isNotEmpty ? first.trim() : summary;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(Icons.forum_outlined, color: textColor, size: 18),
-          const SizedBox(width: 6),
-          Text('聊天记录',
-              style: TextStyle(color: textColor, fontWeight: FontWeight.w600)),
-        ]),
-        if (preview.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text(preview,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: textColor)),
-          ),
-      ],
+    return FutureBuilder<List<Contact>>(
+      future: contactsFuture,
+      builder: (context, snapshot) {
+        final text = formatMentionText(
+            preview,
+            (snapshot.data ?? const <Contact>[]).map((contact) => (
+                  id: contact.id,
+                  name: contact.displayName,
+                )));
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.forum_outlined, color: textColor, size: 18),
+              const SizedBox(width: 6),
+              Text('聊天记录',
+                  style:
+                      TextStyle(color: textColor, fontWeight: FontWeight.w600)),
+            ]),
+            if (text.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(text,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: textColor)),
+              ),
+          ],
+        );
+      },
     );
   }
 }

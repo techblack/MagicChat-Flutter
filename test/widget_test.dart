@@ -197,9 +197,15 @@ void main() {
     expect(find.byTooltip('返回会话列表'), findsOneWidget);
     expect(find.byTooltip('检索当前会话'), findsOneWidget);
     final title = find.byKey(const ValueKey('conversation-header-title'));
+    final header = find.byKey(const ValueKey('conversation-header-background'));
+    final headerSafeArea =
+        find.byKey(const ValueKey('conversation-header-safe-area'));
     expect(find.text('MagicChat 小助手'), findsOneWidget);
-    expect(find.ancestor(of: title, matching: find.byType(SafeArea)),
-        findsOneWidget);
+    expect(
+        find.descendant(of: header, matching: headerSafeArea), findsOneWidget);
+    expect(
+        find.descendant(of: headerSafeArea, matching: title), findsOneWidget);
+    expect(tester.getSize(header).width, 500);
     expect(tester.getCenter(title).dx, 250);
 
     await tester.tap(find.byTooltip('返回会话列表'));

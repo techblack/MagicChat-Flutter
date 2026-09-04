@@ -43,6 +43,21 @@ class ChatConversation {
   final bool canSend;
   final TopicMetadata? topic;
 
+  String get displayTitle {
+    final value = title.trim();
+    if (value.isNotEmpty && value != id) return value;
+    for (final member in members) {
+      final name = member.displayName.trim();
+      if (name.isNotEmpty && name != '成员') return name;
+    }
+    return switch (type) {
+      'app' => '应用会话',
+      'group' => '群聊',
+      'topic' => '话题',
+      _ => '私聊',
+    };
+  }
+
   factory ChatConversation.fromJson(Map<String, dynamic> value) {
     final id = value['id'];
     final name = value['name'];
@@ -1075,9 +1090,14 @@ class Contact {
 
   String get displayName {
     final preferred = nickname.trim();
-    if (preferred.isNotEmpty) return preferred;
+    if (preferred.isNotEmpty && preferred != id) return preferred;
     final fallback = name.trim();
-    return fallback.isNotEmpty ? fallback : id;
+    if (fallback.isNotEmpty && fallback != id) return fallback;
+    return switch (type) {
+      'app' => '应用',
+      'group' => '群组',
+      _ => '成员',
+    };
   }
 
   Contact copyWith({
@@ -1211,11 +1231,11 @@ class ProjectUser {
   final String nickname;
   final String avatar;
 
-  String get displayName => nickname.isNotEmpty
+  String get displayName => nickname.isNotEmpty && nickname != id
       ? nickname
-      : name.isNotEmpty
+      : name.isNotEmpty && name != id
           ? name
-          : id;
+          : '成员';
 }
 
 class ProjectMember extends ProjectUser {
@@ -1238,7 +1258,9 @@ class ProjectMember extends ProjectUser {
 
   @override
   String get displayName =>
-      displayNameOverride.isNotEmpty ? displayNameOverride : super.displayName;
+      displayNameOverride.isNotEmpty && displayNameOverride != id
+          ? displayNameOverride
+          : super.displayName;
 }
 
 class ProjectTaskActivityChange {

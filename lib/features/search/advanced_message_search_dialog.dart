@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/message_cache_store.dart';
 import '../../data/repository.dart';
+import '../../domain/message_content.dart';
 import '../../domain/models.dart';
 
 enum ConversationMessageTypeFilter {
@@ -417,23 +418,41 @@ class _AdvancedMessageSearchDialogState
         }
         final results = snapshot.data!;
         if (results.isEmpty) return const Center(child: Text('没有匹配的消息'));
-        return ListView.separated(
-          itemCount: results.length,
-          separatorBuilder: (_, __) => const Divider(height: 1),
-          itemBuilder: (context, index) {
-            final result = results[index];
-            final message = result.message;
-            return ListTile(
-              key: ValueKey('advanced-message-search-result-${message.id}'),
-              leading: const Icon(Icons.message_outlined),
-              title: Text(message.text,
-                  maxLines: 2, overflow: TextOverflow.ellipsis),
-              subtitle: Text(
-                  '${message.author} · ${_messageTypeLabel(message.contentType)} · ${_messageTime(context, message.createdAt)}'),
-              onTap: () {
-                Navigator.pop(context);
-                widget.onOpenMessage(
-                    result.conversationId, message.id, message.sequence);
+        return FutureBuilder<List<Contact>>(
+          future: _sendersFuture,
+          builder: (context, senderSnapshot) {
+            final contacts = senderSnapshot.data ?? const <Contact>[];
+            final contactsById = {
+              for (final contact in contacts) contact.id: contact,
+            };
+            final labels = contacts.map((contact) => (
+                  id: contact.id,
+                  name: contact.displayName,
+                ));
+            return ListView.separated(
+              itemCount: results.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (context, index) {
+                final result = results[index];
+                final message = result.message;
+                final author = contactsById[message.authorId]?.displayName ??
+                    (message.author.trim().isEmpty ||
+                            message.author == message.authorId
+                        ? '成员'
+                        : message.author);
+                return ListTile(
+                  key: ValueKey('advanced-message-search-result-${message.id}'),
+                  leading: const Icon(Icons.message_outlined),
+                  title: Text(formatMentionText(message.text, labels),
+                      maxLines: 2, overflow: TextOverflow.ellipsis),
+                  subtitle: Text(
+                      '$author · ${_messageTypeLabel(message.contentType)} · ${_messageTime(context, message.createdAt)}'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    widget.onOpenMessage(
+                        result.conversationId, message.id, message.sequence);
+                  },
+                );
               },
             );
           },

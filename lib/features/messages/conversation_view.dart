@@ -356,9 +356,8 @@ class _ConversationViewState extends State<ConversationView> {
     final cachedAuthor = '${value['author'] ?? ''}'.trim();
     return ChatMessage(
       id: value['id'] as String,
-      author: cachedAuthor.isEmpty || cachedAuthor == '用户'
-          ? authorId ?? '成员'
-          : cachedAuthor,
+      author:
+          cachedAuthor.isEmpty || cachedAuthor == '用户' ? '成员' : cachedAuthor,
       authorId: authorId,
       conversationId: value['conversation_id'] as String?,
       sequence: (value['sequence'] as num?)?.toInt(),
@@ -1102,21 +1101,36 @@ class _ConversationViewState extends State<ConversationView> {
     _composerFocusNode.requestFocus();
   }
 
-  String _messageDetailsText(ChatMessage message) {
+  String _messageDetailsText(ChatMessage message, List<Contact> contacts) {
+    final labels = contacts.map((contact) => (
+          id: contact.id,
+          name: contact.displayName,
+        ));
     if (message.contentType == 'image') {
       final caption = message.rawBody['caption'];
       return caption is String && caption.trim().isNotEmpty
-          ? caption.trim()
+          ? formatMentionText(caption.trim(), labels)
           : '图片消息';
     }
     if (message.contentType == 'object' || message.contentType == 'chart') {
       return const JsonEncoder.withIndent('  ').convert(message.rawBody);
     }
-    return message.text;
+    return formatMentionText(message.text, labels);
   }
 
   Future<void> _showMessageDetails(ChatMessage message) async {
-    final content = _messageDetailsText(message);
+    List<Contact> contacts;
+    try {
+      contacts = await (_contactsFuture ?? Future.value(const <Contact>[]));
+    } catch (_) {
+      contacts = const [];
+    }
+    if (!mounted) return;
+    final content = _messageDetailsText(message, contacts);
+    final authorContact =
+        contacts.where((contact) => contact.id == message.authorId).firstOrNull;
+    final author = authorContact?.displayName ??
+        (message.author == message.authorId ? '成员' : message.author);
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => Dialog.fullscreen(
@@ -1145,7 +1159,7 @@ class _ConversationViewState extends State<ConversationView> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(message.author,
+                Text(author,
                     style: Theme.of(dialogContext).textTheme.titleMedium),
                 if (formatMessageTime(message.createdAt) case final time?)
                   Padding(
@@ -1212,7 +1226,9 @@ class _ConversationViewState extends State<ConversationView> {
     final canSend = _conversationCanSend(conversationId);
     return Column(
       children: [
-        if (_topicDetail != null) TopicSourceBanner(detail: _topicDetail!),
+        if (_topicDetail != null)
+          TopicSourceBanner(
+              detail: _topicDetail!, contactsFuture: _contactsFuture),
         if (_selectedMessageIds.isNotEmpty)
           Material(
             color: Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -1369,7 +1385,8 @@ class _ConversationViewState extends State<ConversationView> {
                                           padding: _highlightedMessageId == message.id
                                               ? const EdgeInsets.all(2)
                                               : EdgeInsets.zero,
-                                          decoration: _highlightedMessageId == message.id
+                                          decoration: _highlightedMessageId ==
+                                                  message.id
                                               ? BoxDecoration(
                                                   color: Theme.of(context)
                                                       .colorScheme
@@ -1380,6 +1397,8 @@ class _ConversationViewState extends State<ConversationView> {
                                               : null,
                                           child: _MessageBubble(
                                               message: message,
+                                              replyTarget:
+                                                  byId[message.replyTo?.id],
                                               repository: widget.repository,
                                               conversationId: conversationId,
                                               canReact:
@@ -1389,18 +1408,16 @@ class _ConversationViewState extends State<ConversationView> {
                                                   widget.onOpenConversation,
                                               onOpenInternalLink:
                                                   widget.onOpenInternalLink,
-                                              onForwardMessage: (id) => _showForwardDialog(
-                                                  conversationId, [id]),
+                                              onForwardMessage: (id) =>
+                                                  _showForwardDialog(
+                                                      conversationId, [id]),
                                               contactsFuture: _contactsFuture,
-                                              isGroupConversation:
-                                                  _isGroupConversation,
-                                              onOpenMemberConversation:
-                                                  _openMemberConversation,
+                                              isGroupConversation: _isGroupConversation,
+                                              onOpenMemberConversation: _openMemberConversation,
                                               onReeditMessage: _reeditMessage,
                                               cacheScope: widget.cacheScope,
                                               preloadedImages: _preloadedImages,
-                                              preloadedAttachmentUrls:
-                                                  _preloadedAttachmentUrls)),
+                                              preloadedAttachmentUrls: _preloadedAttachmentUrls)),
                                     ),
                                   ),
                                 ),
@@ -1485,10 +1502,34 @@ class _ConversationViewState extends State<ConversationView> {
                       const Icon(Icons.reply, size: 18),
                       const SizedBox(width: 6),
                       Expanded(
-                          child: Text(
-                              '回复 ${_replyTo!.author}：${_replyTo!.text}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis)),
+                        child: FutureBuilder<List<Contact>>(
+                          future: _contactsFuture,
+                          builder: (context, snapshot) {
+                            final contacts = snapshot.data ?? const <Contact>[];
+                            final matched = contacts
+                                .where((contact) =>
+                                    contact.id == _replyTo!.authorId)
+                                .firstOrNull;
+                            final rawAuthor = _replyTo!.author.trim();
+                            final author = matched?.displayName ??
+                                (rawAuthor.isEmpty ||
+                                        rawAuthor == _replyTo!.authorId ||
+                                        rawAuthor == '用户' ||
+                                        rawAuthor == '成员'
+                                    ? '成员'
+                                    : rawAuthor);
+                            final text = formatMessageReferenceText(
+                                _replyTo!.text,
+                                contacts.map((contact) => (
+                                      id: contact.id,
+                                      name: contact.displayName,
+                                    )),
+                                messageId: _replyTo!.id);
+                            return Text('回复 $author：$text',
+                                maxLines: 1, overflow: TextOverflow.ellipsis);
+                          },
+                        ),
+                      ),
                       IconButton(
                           tooltip: '取消回复',
                           onPressed: () => setState(() => _replyTo = null),
@@ -1601,9 +1642,19 @@ class _ConversationViewState extends State<ConversationView> {
   }
 
   Future<void> _copySelected() async {
+    List<Contact> contacts;
+    try {
+      contacts = await (_contactsFuture ?? Future.value(const <Contact>[]));
+    } catch (_) {
+      contacts = const [];
+    }
+    final labels = contacts.map((contact) => (
+          id: contact.id,
+          name: contact.displayName,
+        ));
     final text = _visibleMessages
         .where((message) => _selectedMessageIds.contains(message.id))
-        .map((message) => message.text)
+        .map((message) => formatMentionText(message.text, labels))
         .join('\n');
     if (text.isEmpty) return;
     await Clipboard.setData(ClipboardData(text: text));
@@ -1975,8 +2026,9 @@ class _ConversationViewState extends State<ConversationView> {
           final visible = normalized.isEmpty
               ? targets
               : targets
-                  .where((conversation) =>
-                      conversation.title.toLowerCase().contains(normalized))
+                  .where((conversation) => conversation.displayTitle
+                      .toLowerCase()
+                      .contains(normalized))
                   .toList(growable: false);
           Future<void> submit() async {
             if (submitting || selected.isEmpty) return;
@@ -2085,7 +2137,7 @@ class _ConversationViewState extends State<ConversationView> {
                               return CheckboxListTile(
                                 value: isSent || selected.contains(id),
                                 enabled: !submitting && !isSent,
-                                title: Text(conversation.title),
+                                title: Text(conversation.displayTitle),
                                 subtitle: Text(
                                   error ?? (isSent ? '已转发' : label),
                                   style: error == null
@@ -2096,9 +2148,11 @@ class _ConversationViewState extends State<ConversationView> {
                                               .error),
                                 ),
                                 secondary: CircleAvatar(
-                                    child: Text(conversation.title.isEmpty
-                                        ? '?'
-                                        : conversation.title.substring(0, 1))),
+                                    child: Text(
+                                        conversation.displayTitle.isEmpty
+                                            ? '?'
+                                            : conversation.displayTitle
+                                                .substring(0, 1))),
                                 onChanged: (checked) => setDialogState(() {
                                   if (checked == true) {
                                     if (selected.length >= _maxForwardTargets) {
@@ -2199,6 +2253,7 @@ class _ConversationLoadError extends StatelessWidget {
 class _MessageBubble extends StatelessWidget {
   const _MessageBubble(
       {required this.message,
+      this.replyTarget,
       required this.repository,
       required this.conversationId,
       this.canReact = true,
@@ -2214,6 +2269,7 @@ class _MessageBubble extends StatelessWidget {
       this.preloadedImages = const {},
       this.preloadedAttachmentUrls = const {}});
   final ChatMessage message;
+  final ChatMessage? replyTarget;
   final MagicChatRepository repository;
   final String conversationId;
   final bool canReact;
@@ -2582,6 +2638,7 @@ class _MessageBubble extends StatelessWidget {
                                     ? _ForwardBundlePreview(
                                         body: message.rawBody,
                                         summary: message.text,
+                                        contactsFuture: contactsFuture,
                                         textColor: mine ? colors.onPrimary : null)
                                     : FutureBuilder<List<Contact>>(
                                         future: contactsFuture,
@@ -2807,8 +2864,8 @@ class _MessageBubble extends StatelessWidget {
     );
   }
 
-  Contact? _findContact(List<Contact>? contacts) {
-    final id = message.authorId;
+  Contact? _findContact(List<Contact>? contacts, [String? referenceId]) {
+    final id = referenceId ?? message.authorId;
     if (id == null || contacts == null) return null;
     for (final contact in contacts) {
       if (contact.id == id) return contact;
@@ -2825,13 +2882,22 @@ class _MessageBubble extends StatelessWidget {
 
   Widget _replyPreview(
       BuildContext context, MessageReply reply, bool mine, ColorScheme colors) {
-    Widget content(Contact? contact) {
-      final fallback = reply.author.trim();
+    Widget content(List<Contact> contacts) {
+      final target = replyTarget;
+      final authorId = target?.authorId ?? reply.authorId;
+      final contact = _findContact(contacts, authorId);
+      final fallback = (target?.author ?? reply.author).trim();
       final author = _contactName(contact) ??
-          (fallback == reply.authorId || fallback == '用户' || fallback == '成员'
-              ? ''
+          (fallback == authorId || fallback == '用户' || fallback == '成员'
+              ? '成员'
               : fallback);
-      final prefix = author.isEmpty ? '回复' : '回复 $author';
+      final labels = contacts.map((contact) => (
+            id: contact.id,
+            name: contact.displayName,
+          ));
+      final referenceText = formatMessageReferenceText(
+          target?.text ?? reply.text, labels,
+          messageId: reply.id);
       return Container(
         margin: const EdgeInsets.only(bottom: 6),
         padding: const EdgeInsets.fromLTRB(8, 5, 8, 5),
@@ -2842,7 +2908,7 @@ class _MessageBubble extends StatelessWidget {
           border: Border(left: BorderSide(color: colors.primary, width: 3)),
           borderRadius: BorderRadius.circular(6),
         ),
-        child: Text('$prefix：${reply.text}',
+        child: Text('回复 $author：$referenceText',
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -2851,10 +2917,11 @@ class _MessageBubble extends StatelessWidget {
     }
 
     final future = contactsFuture;
-    if (future == null) return content(null);
+    if (future == null) return content(const []);
     return FutureBuilder<List<Contact>>(
         future: future,
-        builder: (context, snapshot) => content(_findContact(snapshot.data)));
+        builder: (context, snapshot) =>
+            content(snapshot.data ?? const <Contact>[]));
   }
 
   String get _nonIdAuthor {
@@ -2882,11 +2949,15 @@ class _MessageBubble extends StatelessWidget {
   }
 
   Future<void> _showContactPanel(BuildContext context, Contact contact) async {
-    final name = _contactName(contact) ?? contact.displayName;
+    final name = _contactName(contact) ?? (contact.type == 'app' ? '应用' : '成员');
     final fields = <({String label, String value})>[
-      if (contact.name.trim().isNotEmpty && contact.name.trim() != name)
+      if (contact.name.trim().isNotEmpty &&
+          contact.name.trim() != contact.id.trim() &&
+          contact.name.trim() != name)
         (label: '姓名', value: contact.name.trim()),
-      if (contact.nickname.trim().isNotEmpty && contact.nickname.trim() != name)
+      if (contact.nickname.trim().isNotEmpty &&
+          contact.nickname.trim() != contact.id.trim() &&
+          contact.nickname.trim() != name)
         (label: '昵称', value: contact.nickname.trim()),
       if (contact.email.trim().isNotEmpty)
         (label: '邮箱', value: contact.email.trim()),
@@ -2907,15 +2978,6 @@ class _MessageBubble extends StatelessWidget {
               Text(name,
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.titleLarge),
-              if (contact.id.trim().isNotEmpty && contact.id.trim() != name)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(contact.id,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color:
-                              Theme.of(context).colorScheme.onSurfaceVariant)),
-                ),
               if (fields.isNotEmpty) ...[
                 const SizedBox(height: 16),
                 ...fields.map((field) => Padding(
@@ -2989,11 +3051,12 @@ class _MessageBubble extends StatelessWidget {
                                   style:
                                       Theme.of(context).textTheme.titleMedium)),
                           ...users.map((user) {
-                            final name = user.name.isNotEmpty
-                                ? user.name
-                                : names[user.id]?.isNotEmpty == true
-                                    ? names[user.id]!
-                                    : user.id;
+                            final name =
+                                user.name.isNotEmpty && user.name != user.id
+                                    ? user.name
+                                    : names[user.id]?.isNotEmpty == true
+                                        ? names[user.id]!
+                                        : '成员';
                             return ListTile(
                                 leading: CircleAvatar(
                                     child: Text(name.isEmpty

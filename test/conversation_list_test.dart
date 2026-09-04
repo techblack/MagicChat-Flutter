@@ -117,6 +117,19 @@ void main() {
     expect(values.map((item) => item.id), ['newer', 'older']);
   });
 
+  test('资料缺失时使用可读占位，会话优先使用成员名称', () {
+    const contact = Contact(id: 'user-raw-id', name: 'user-raw-id');
+    const projectUser = ProjectUser(id: 'project-user-id');
+    const conversation = ChatConversation(
+        id: 'conversation-id',
+        title: 'conversation-id',
+        members: [Contact(id: 'alice', name: 'Alice')]);
+
+    expect(contact.displayName, '成员');
+    expect(projectUser.displayName, '成员');
+    expect(conversation.displayTitle, 'Alice');
+  });
+
   test('导航未读数包含普通未读和独立提醒', () {
     const conversations = [
       ChatConversation(id: 'normal', title: '普通', unread: 3),

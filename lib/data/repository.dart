@@ -1469,16 +1469,15 @@ class HttpMagicChatRepository implements MagicChatRepository {
             ? senderNickname.trim()
             : senderName is String && senderName.trim().isNotEmpty
                 ? senderName.trim()
-                : senderId is String && senderId.trim().isNotEmpty
-                    ? senderId
-                    : '成员',
+                : '成员',
         conversationId: conversationId,
         contentType: content.type,
         rawBody: content.raw,
         text: content.text,
         editableText: editableText,
         choice: parseMessageChoiceState(item['choice']),
-        replyTo: _replyFromJson(item['reply_to']),
+        replyTo: _replyFromJson(item['reply_to']) ??
+            _replyFromMessageId(item['reply_to_message_id']),
         topic: _topicFromJson(item['topic']),
         mine: senderId is String && senderId == _currentUserId,
         reactions: _reactionsFromJson(item['reactions']));
@@ -1620,6 +1619,11 @@ class HttpMagicChatRepository implements MagicChatRepository {
         text: summary is String && summary.isNotEmpty ? summary : '[消息]');
   }
 
+  MessageReply? _replyFromMessageId(Object? value) {
+    if (value is! String || value.trim().isEmpty) return null;
+    return MessageReply(id: value.trim(), author: '成员', text: '[消息]');
+  }
+
   MessageTopic? _topicFromJson(Object? value) {
     if (value == null) return null;
     if (value is! Map<String, dynamic>) {
@@ -1712,7 +1716,6 @@ class HttpMagicChatRepository implements MagicChatRepository {
           final name = sender is Map<String, dynamic> ? sender['name'] : null;
           final nickname =
               sender is Map<String, dynamic> ? sender['nickname'] : null;
-          final senderId = sender is Map<String, dynamic> ? sender['id'] : null;
           final conversationId = conversation['id'];
           final conversationName = conversation['name'];
           final chat = ChatMessage(
@@ -1730,15 +1733,14 @@ class HttpMagicChatRepository implements MagicChatRepository {
                       ? senderName.trim()
                       : name is String && name.trim().isNotEmpty
                           ? name.trim()
-                          : senderId is String && senderId.trim().isNotEmpty
-                              ? senderId
-                              : '成员',
+                          : '成员',
               conversationId: conversationId is String ? conversationId : null,
               contentType: body.type,
               rawBody: body.raw,
               text: body.text,
               editableText: editableText,
-              replyTo: _replyFromJson(message['reply_to']));
+              replyTo: _replyFromJson(message['reply_to']) ??
+                  _replyFromMessageId(message['reply_to_message_id']));
           return conversationId is String && conversationName is String
               ? MessageSearchResult(
                   conversationId: conversationId,
@@ -2254,8 +2256,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
       cursor = data['next_cursor'] as String?;
     } while (cursor != null && cursor.isNotEmpty);
     final incomplete = members
-        .where((member) =>
-            member.name == member.id && member.displayName == member.id)
+        .where(_needsProjectUserProfile)
         .map((member) => member.id)
         .toSet()
         .toList();

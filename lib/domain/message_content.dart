@@ -208,3 +208,15 @@ String formatMentionText(
     return '@${name?.isNotEmpty == true ? name : type == 'app' ? '应用' : '成员'}';
   });
 }
+
+/// 将服务端引用摘要转换成可读内容，避免缺失摘要时直接暴露内部消息 ID。
+String formatMessageReferenceText(
+    String content, Iterable<({String id, String name})> contacts,
+    {String? messageId, String fallback = '[消息]'}) {
+  final value = content.trim();
+  if (value.isEmpty ||
+      (messageId != null && value.toLowerCase() == messageId.toLowerCase())) {
+    return fallback;
+  }
+  return formatMentionText(value, contacts);
+}

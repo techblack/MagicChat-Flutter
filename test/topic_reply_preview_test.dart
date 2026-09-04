@@ -14,14 +14,21 @@ void main() {
               createdAt: '2026-07-20T04:01:00Z',
               id: 'reply-1',
               sender: TopicSourceSender(id: 'u1', type: 'user'),
-              summary: '请查看最新计划'),
+              summary: '请让 {(@user/u2)} 查看最新计划'),
         ]);
     await tester.pumpWidget(MaterialApp(
         home: Scaffold(
-            body:
-                TopicReplyPreview(topic: topic, onOpen: (id) => opened = id))));
+            body: TopicReplyPreview(
+                topic: topic,
+                contactsFuture: Future.value(const [
+                  Contact(id: 'u1', name: 'Alice'),
+                  Contact(id: 'u2', name: 'Bob'),
+                ]),
+                onOpen: (id) => opened = id))));
+    await tester.pumpAndSettle();
 
-    expect(find.textContaining('请查看最新计划'), findsOneWidget);
+    expect(find.text('Alice：请让 @Bob 查看最新计划'), findsOneWidget);
+    expect(find.textContaining('u2'), findsNothing);
     expect(find.text('查看话题'), findsOneWidget);
     await tester.tap(find.byType(TopicReplyPreview));
     expect(opened, 'topic-1');

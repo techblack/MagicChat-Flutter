@@ -75,6 +75,33 @@ void main() {
     expect(message.topic?.recentReplies.single.summary, 'topic reply');
   });
 
+  test('仅返回引用消息 ID 时保留引用关系并隐藏原始 ID', () async {
+    final repository = HttpMagicChatRepository(
+      serverUrl: 'https://chat.example.com',
+      sessionToken: 'token',
+      client: MockClient((_) async => http.Response(
+          jsonEncode({
+            'data': {
+              'messages': [
+                {
+                  'id': 'message-2',
+                  'seq': 2,
+                  'body': {'type': 'text', 'content': 'new content'},
+                  'sender': {'id': 'user-2'},
+                  'reply_to_message_id': 'message-1',
+                }
+              ]
+            }
+          }),
+          200)),
+    );
+
+    final message = (await repository.messages('conversation-1')).single;
+    expect(message.replyTo?.id, 'message-1');
+    expect(message.replyTo?.text, '[消息]');
+    expect(message.author, '成员');
+  });
+
   test('历史撤回消息使用撤回占位，不读取缺失正文', () async {
     final repository = HttpMagicChatRepository(
       serverUrl: 'https://chat.example.com',

@@ -39,6 +39,7 @@ class ConversationTopicsDialog extends StatefulWidget {
 
 class _ConversationTopicsDialogState extends State<ConversationTopicsDialog> {
   final _topics = <ChatConversation>[];
+  late final Future<List<Contact>> _contactsFuture;
   String _status = 'all';
   String? _nextCursor;
   Object? _error;
@@ -47,6 +48,7 @@ class _ConversationTopicsDialogState extends State<ConversationTopicsDialog> {
   @override
   void initState() {
     super.initState();
+    _contactsFuture = widget.repository.contacts();
     _load();
   }
 
@@ -174,7 +176,7 @@ class _ConversationTopicsDialogState extends State<ConversationTopicsDialog> {
                 title: Row(
                   children: [
                     Expanded(
-                      child: Text(topic.title,
+                      child: Text(topic.displayTitle,
                           maxLines: 1, overflow: TextOverflow.ellipsis),
                     ),
                     if (metadata?.archived == true)
@@ -189,10 +191,21 @@ class _ConversationTopicsDialogState extends State<ConversationTopicsDialog> {
                       ),
                   ],
                 ),
-                subtitle: Text(
-                  topic.preview.isEmpty ? '暂无回复' : topic.preview,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                subtitle: FutureBuilder<List<Contact>>(
+                  future: _contactsFuture,
+                  builder: (context, snapshot) => Text(
+                    topic.preview.isEmpty
+                        ? '暂无回复'
+                        : formatMentionText(
+                            topic.preview,
+                            (snapshot.data ?? const <Contact>[])
+                                .map((contact) => (
+                                      id: contact.id,
+                                      name: contact.displayName,
+                                    ))),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
                 trailing: metadata?.participating == true
                     ? const Icon(Icons.person_outline, size: 18)
@@ -244,6 +257,7 @@ class TopicDetailDialog extends StatefulWidget {
 }
 
 class _TopicDetailDialogState extends State<TopicDetailDialog> {
+  late final Future<List<Contact>> _contactsFuture;
   TopicDetail? _detail;
   Object? _error;
   bool _loading = true;
@@ -252,6 +266,7 @@ class _TopicDetailDialogState extends State<TopicDetailDialog> {
   @override
   void initState() {
     super.initState();
+    _contactsFuture = widget.repository.contacts();
     _load();
   }
 
@@ -352,7 +367,10 @@ class _TopicDetailDialogState extends State<TopicDetailDialog> {
                   )
                 : detail == null
                     ? const Text('话题不存在')
-                    : _buildDetail(detail),
+                    : FutureBuilder<List<Contact>>(
+                        future: _contactsFuture,
+                        builder: (context, snapshot) => _buildDetail(
+                            detail, snapshot.data ?? const <Contact>[])),
       ),
       actions: [
         if (detail != null && detail.canParticipate)
@@ -382,11 +400,18 @@ class _TopicDetailDialogState extends State<TopicDetailDialog> {
     );
   }
 
-  Widget _buildDetail(TopicDetail detail) {
+  Widget _buildDetail(TopicDetail detail, List<Contact> contacts) {
     final source = detail.sourceMessage;
     final body = source.revokedAt != null
         ? '消息已撤回'
         : MessageContent.parse(source.body).text;
+    final names = {
+      for (final contact in contacts) contact.id: contact.displayName,
+    };
+    final labels = contacts.map((contact) => (
+          id: contact.id,
+          name: contact.displayName,
+        ));
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -399,7 +424,8 @@ class _TopicDetailDialogState extends State<TopicDetailDialog> {
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),
-          Text('父会话：${detail.parentConversation.name}'),
+          Text(
+              '父会话：${detail.parentConversation.name == detail.parentConversation.id ? '会话' : detail.parentConversation.name}'),
           const SizedBox(height: 12),
           Card(
             child: Padding(
@@ -407,13 +433,20 @@ class _TopicDetailDialogState extends State<TopicDetailDialog> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(source.sender.name.isEmpty ? '用户' : source.sender.name,
+                  Text(
+                      names[source.sender.id] ??
+                          (source.sender.name.isEmpty ||
+                                  source.sender.name == source.sender.id
+                              ? '成员'
+                              : source.sender.name),
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                   const SizedBox(height: 6),
-                  Text(body.isEmpty ? source.summary : body),
+                  Text(formatMentionText(
+                      body.isEmpty ? source.summary : body, labels)),
                   if (source.replyTo != null) ...[
                     const SizedBox(height: 8),
-                    Text('回复：${source.replyTo!.summary}',
+                    Text(
+                        '回复 ${names[source.replyTo!.sender.id] ?? (source.replyTo!.sender.name.isEmpty || source.replyTo!.sender.name == source.replyTo!.sender.id ? '成员' : source.replyTo!.sender.name)}：${formatMessageReferenceText(source.replyTo!.summary, labels, messageId: source.replyTo!.id)}',
                         style: Theme.of(context).textTheme.bodySmall),
                   ],
                 ],

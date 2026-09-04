@@ -234,12 +234,7 @@ class RichDocumentView extends StatelessWidget {
     final alt = node.getAttribute('alt') is String
         ? (node.getAttribute('alt') as String).trim()
         : '';
-    final fileId = node.getAttribute('fileId');
-    final label = alt.isNotEmpty
-        ? alt
-        : fileId is String && fileId.isNotEmpty
-            ? '图片：$fileId'
-            : '图片';
+    final label = alt.isNotEmpty ? alt : '图片';
     final width = (node.getAttribute('width') as num?)?.toDouble();
     final image = url == null
         ? _imagePlaceholder(context, label)

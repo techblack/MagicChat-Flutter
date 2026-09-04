@@ -48,7 +48,7 @@ flutter build linux
 
 CI 会执行格式、静态检查、单元测试，并构建 Web Release 与 Linux Debug 产物。
 
-推送与 `pubspec.yaml` 版本一致的 `v*` 标签后，Release 工作流会构建并发布完整的跨平台产物：Android 通用/分 ABI APK 与 AAB、未签名 iOS IPA、macOS、Windows、Linux、Web 压缩包及 SHA-256 校验文件。Android 当前沿用项目的测试签名，iOS 产物需要使用自己的 Apple 开发者证书重新签名；正式上架应用商店前需配置对应平台的发布签名。
+推送与 `pubspec.yaml` 版本一致的 `v*` 标签后，Release 工作流会构建并发布完整的跨平台产物：Android 通用/分 ABI APK 与 AAB、未签名 iOS IPA、macOS、Windows、Linux、Web 压缩包及 SHA-256 校验文件。Android 发布产物使用 GitHub Actions Secrets 中保存的固定 Release 证书，工作流会对照 [`android/release-signing-certificate.sha256`](android/release-signing-certificate.sha256) 校验所有 APK 与 AAB；iOS 产物仍需要使用自己的 Apple 开发者证书重新签名。
 
 macOS Release 为方便未配置 Apple Developer 证书时测试，关闭了 App Sandbox，并使用未经 Apple 公证的临时签名。只应从本仓库 Release 下载并核对 `SHA256SUMS.txt`；解压并移动到“应用程序”后执行：
 

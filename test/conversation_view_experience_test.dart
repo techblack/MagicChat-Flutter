@@ -45,6 +45,14 @@ void main() {
     expect(find.text('可以自由选择复制的正文'), findsOneWidget);
   });
 
+  testWidgets('引用回复显示对应消息和联系人名称，不显示原始 ID', (tester) async {
+    await _pumpConversation(tester, _ReplyReferenceRepository());
+
+    expect(find.text('回复 Bob：原消息提到 @Alice'), findsOneWidget);
+    expect(find.text('quoted-message'), findsNothing);
+    expect(find.textContaining('{(@user/alice)}'), findsNothing);
+  });
+
   testWidgets('图片消息只显示图片并按原始比例调整尺寸', (tester) async {
     final repository = _ImageRepository()..primeCache();
     await _pumpConversation(tester, repository, settle: false);
@@ -223,6 +231,39 @@ class _ImageRepository extends _ExperienceRepository {
 
   @override
   Future<Uint8List?> downloadAttachment(String fileId) async => _images[fileId];
+}
+
+class _ReplyReferenceRepository extends _ExperienceRepository {
+  @override
+  Future<List<ChatMessage>> messages(String conversationId,
+          {int? beforeSeq, int limit = 50}) async =>
+      const [
+        ChatMessage(
+            id: 'quoted-message',
+            conversationId: 'conversation-1',
+            sequence: 1,
+            authorId: 'bob',
+            author: 'bob',
+            text: '原消息提到 {(@user/alice)}'),
+        ChatMessage(
+            id: 'reply-message',
+            conversationId: 'conversation-1',
+            sequence: 2,
+            authorId: 'alice',
+            author: 'alice',
+            text: '收到',
+            replyTo: MessageReply(
+                id: 'quoted-message',
+                authorId: 'bob',
+                author: 'bob',
+                text: 'quoted-message')),
+      ];
+
+  @override
+  Future<List<Contact>> contacts({String keyword = ''}) async => const [
+        Contact(id: 'alice', name: 'Alice'),
+        Contact(id: 'bob', name: 'Bob'),
+      ];
 }
 
 class _BubbleRepository extends _ExperienceRepository {
