@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magicchat_client/data/repository.dart';
+import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/settings/settings_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -83,4 +84,32 @@ void main() {
     expect(find.text('系统通知权限未开启，请在系统设置中允许通知'), findsOneWidget);
     expect((tester.widget<SwitchListTile>(toggle)).value, isFalse);
   });
+
+  testWidgets('账户信息加载失败可重试', (tester) async {
+    final repository = _RetryProfileRepository();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SettingsPage(
+                repository: repository,
+                serverUrl: 'https://chat.example.com'))));
+    await tester.pumpAndSettle();
+
+    expect(find.text('账户信息加载失败'), findsOneWidget);
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+    expect(find.text('恢复后的用户'), findsOneWidget);
+    expect(repository.attempts, 2);
+  });
+}
+
+class _RetryProfileRepository extends DemoRepository {
+  var attempts = 0;
+
+  @override
+  Future<CurrentUser> currentUser() async {
+    attempts++;
+    if (attempts == 1) throw StateError('offline');
+    return const CurrentUser(
+        id: 'user-1', name: '恢复后的用户', email: 'user@example.com');
+  }
 }
