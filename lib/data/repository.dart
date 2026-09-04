@@ -1014,10 +1014,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
               filename: upload.name, contentType: _mediaType(upload.mimeType))
           : await http.MultipartFile.fromPath('file', upload.path,
               filename: upload.name, contentType: _mediaType(upload.mimeType)));
-    final response = await _client.send(request).timeout(requestTimeout);
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('群头像上传失败（HTTP ${response.statusCode}）');
-    }
+    await _sendMultipartRequest(request, fallbackMessage: '群头像上传失败');
   }
 
   @override
@@ -1288,12 +1285,9 @@ class HttpMagicChatRepository implements MagicChatRepository {
               filename: upload.name, contentType: _mediaType(upload.mimeType))
           : await http.MultipartFile.fromPath('file', upload.path,
               filename: upload.name, contentType: _mediaType(upload.mimeType)));
-    final response = await _client.send(request).timeout(requestTimeout);
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('头像上传失败（HTTP ${response.statusCode}）');
-    }
-    final text = await response.stream.bytesToString();
-    final value = _data(jsonDecode(text))['user'];
+    final response =
+        await _sendMultipartRequest(request, fallbackMessage: '头像上传失败');
+    final value = _data(response)['user'];
     if (value is! Map<String, dynamic>)
       throw const FormatException('用户信息响应格式不正确');
     return _userFromJson(value);
@@ -1331,7 +1325,8 @@ class HttpMagicChatRepository implements MagicChatRepository {
     return value;
   }
 
-  MagicChatRequestException _requestException(int statusCode, String body) {
+  MagicChatRequestException _requestException(int statusCode, String body,
+      {String fallbackMessage = '请求失败'}) {
     String? code;
     String? message;
     try {
@@ -1349,9 +1344,30 @@ class HttpMagicChatRepository implements MagicChatRepository {
         code: code,
         message: message?.trim().isNotEmpty == true
             ? message!.trim()
-            : '请求失败（HTTP $statusCode）');
+            : '$fallbackMessage（HTTP $statusCode）');
     if (exception.isUnauthorized) _onUnauthorized?.call();
     return exception;
+  }
+
+  Future<Map<String, dynamic>> _sendMultipartRequest(
+      http.MultipartRequest request,
+      {required String fallbackMessage}) async {
+    final response = await _client.send(request).timeout(requestTimeout);
+    final text = await response.stream.bytesToString();
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw _requestException(response.statusCode, text,
+          fallbackMessage: fallbackMessage);
+    }
+    if (text.isEmpty) return const {};
+    final value = jsonDecode(text);
+    if (value is Map<String, dynamic> && value['success'] == false) {
+      throw _requestException(response.statusCode, text,
+          fallbackMessage: fallbackMessage);
+    }
+    if (value is! Map<String, dynamic>) {
+      throw const FormatException('服务端响应格式不正确');
+    }
+    return value;
   }
 
   Map<String, dynamic> _data(dynamic value) {
@@ -1787,10 +1803,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
             filename: upload.name, contentType: _mediaType(upload.mimeType))
         : await http.MultipartFile.fromPath(field, upload.path,
             filename: upload.name, contentType: _mediaType(upload.mimeType)));
-    final response = await _client.send(request).timeout(requestTimeout);
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('附件发送失败（HTTP ${response.statusCode}）');
-    }
+    await _sendMultipartRequest(request, fallbackMessage: '附件发送失败');
   }
 
   http.MediaType _mediaType(String value) {
@@ -2065,13 +2078,10 @@ class HttpMagicChatRepository implements MagicChatRepository {
               filename: upload.name, contentType: _mediaType(upload.mimeType))
           : await http.MultipartFile.fromPath('file', upload.path,
               filename: upload.name, contentType: _mediaType(upload.mimeType)));
-    final response = await _client.send(request).timeout(requestTimeout);
-    final text = await response.stream.bytesToString();
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('上传应用头像失败（HTTP ${response.statusCode}）');
-    }
-    if (text.isEmpty) throw const FormatException('应用响应格式不正确');
-    return _ownedAppFromEnvelope(_data(jsonDecode(text)));
+    final response =
+        await _sendMultipartRequest(request, fallbackMessage: '上传应用头像失败');
+    if (response.isEmpty) throw const FormatException('应用响应格式不正确');
+    return _ownedAppFromEnvelope(_data(response));
   }
 
   OwnedApp _ownedAppFromEnvelope(Map<String, dynamic> data) {
