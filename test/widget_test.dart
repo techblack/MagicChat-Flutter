@@ -71,9 +71,53 @@ void main() {
         .pumpWidget(MaterialApp(home: AppShell(repository: DemoRepository())));
     await tester.pump();
     expect(find.text('MagicChat'), findsOneWidget);
-    expect(find.text('消息'), findsOneWidget);
+    expect(find.text('消息'), findsWidgets);
     expect(find.text('联系人'), findsOneWidget);
     expect(find.text('项目'), findsOneWidget);
+  });
+
+  testWidgets('主导航显示未读数和当前模块', (tester) async {
+    tester.view.physicalSize = const Size(500, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester
+        .pumpWidget(MaterialApp(home: AppShell(repository: DemoRepository())));
+    await tester.pumpAndSettle();
+
+    expect(find.descendant(of: find.byType(Badge), matching: find.text('2')),
+        findsWidgets);
+    await tester.tap(find.byIcon(Icons.people_outline));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('app-section-title')), findsOneWidget);
+    expect(find.text('联系人'), findsWidgets);
+  });
+
+  testWidgets('移动端聊天详情收起全局导航并可返回', (tester) async {
+    tester.view.physicalSize = const Size(500, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester
+        .pumpWidget(MaterialApp(home: AppShell(repository: DemoRepository())));
+    await tester.pumpAndSettle();
+
+    expect(MediaQuery.sizeOf(tester.element(find.byType(AppShell))).width, 500);
+    expect(find.byType(NavigationBar), findsOneWidget);
+    await tester.enterText(find.byType(TextField).first, 'MagicChat');
+    await tester.pump();
+    expect(find.text('团队群聊'), findsNothing);
+    await tester.tap(find.text('MagicChat 小助手'));
+    await tester.pumpAndSettle();
+    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.byTooltip('返回会话列表'), findsOneWidget);
+    expect(find.byTooltip('搜索'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('返回会话列表'));
+    await tester.pumpAndSettle();
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.text('MagicChat 小助手'), findsOneWidget);
+    expect(find.text('团队群聊'), findsNothing);
   });
 
   testWidgets('会话草稿按会话恢复', (tester) async {

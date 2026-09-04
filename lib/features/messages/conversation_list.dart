@@ -31,6 +31,19 @@ bool matchesConversationFilter(
   };
 }
 
+int conversationUnreadCount(ChatConversation conversation) {
+  if (conversation.unread > 0) return conversation.unread;
+  return conversation.lastMessageSeq > conversation.lastReadSeq ||
+          conversation.lastMentionedSeq > conversation.lastReadSeq ||
+          conversation.lastChoiceSeq > conversation.lastReadSeq
+      ? 1
+      : 0;
+}
+
+int totalConversationUnread(Iterable<ChatConversation> conversations) =>
+    conversations.fold(
+        0, (total, item) => total + conversationUnreadCount(item));
+
 bool matchesConversationQuery(ChatConversation conversation, String query) {
   final keyword = query.trim().toLowerCase();
   if (keyword.isEmpty) return true;

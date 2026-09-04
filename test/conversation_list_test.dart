@@ -42,6 +42,24 @@ void main() {
         ['app', 'group', 'direct']);
   });
 
+  test('导航未读数包含普通未读和独立提醒', () {
+    const conversations = [
+      ChatConversation(id: 'normal', title: '普通', unread: 3),
+      ChatConversation(
+          id: 'mention', title: '提及', lastReadSeq: 4, lastMentionedSeq: 6),
+      ChatConversation(
+          id: 'covered',
+          title: '已计数提醒',
+          unread: 2,
+          lastReadSeq: 4,
+          lastChoiceSeq: 6),
+      ChatConversation(
+          id: 'sequence', title: '序号未读', lastMessageSeq: 8, lastReadSeq: 7),
+    ];
+
+    expect(totalConversationUnread(conversations), 7);
+  });
+
   test('未读和类型筛选按话题父会话类型匹配', () {
     const topic = ChatConversation(
         id: 'topic',

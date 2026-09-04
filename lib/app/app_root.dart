@@ -799,6 +799,7 @@ class _AppShellState extends State<AppShell> {
   int? _focusMessageSequence;
   String? _focusContactId;
   String? _focusProjectId;
+  int _unreadCount = 0;
   final _conversationHistory = <String>[];
   final _contactCacheStore = ContactCacheStore();
   StreamSubscription<Map<String, dynamic>>? _realtimeSubscription;
@@ -922,7 +923,9 @@ class _AppShellState extends State<AppShell> {
           onSelect: _selectConversationFromList,
           onOpenConversation: _openConversation,
           onBack: _backConversation,
+          onSearch: () => _showSearch(context),
           onOpenInternalLink: _openInternalMessageLink,
+          onUnreadChanged: _setUnreadCount,
           onMessageFocused: () {
             if (mounted) {
               setState(() {
@@ -963,40 +966,58 @@ class _AppShellState extends State<AppShell> {
           onThemeChanged: widget.onThemeChanged,
           themeMode: widget.themeMode),
     ];
-    const destinations = [
+    final destinations = [
       NavigationDestination(
-          icon: Icon(Icons.chat_bubble_outline),
-          selectedIcon: Icon(Icons.chat_bubble),
+          icon: _NavigationBadgeIcon(
+              icon: Icons.chat_bubble_outline, count: _unreadCount),
+          selectedIcon: _NavigationBadgeIcon(
+              icon: Icons.chat_bubble, count: _unreadCount),
           label: '消息'),
-      NavigationDestination(
+      const NavigationDestination(
           icon: Icon(Icons.people_outline),
           selectedIcon: Icon(Icons.people),
           label: '联系人'),
-      NavigationDestination(
+      const NavigationDestination(
           icon: Icon(Icons.folder_outlined),
           selectedIcon: Icon(Icons.folder),
           label: '项目'),
-      NavigationDestination(
+      const NavigationDestination(
           icon: Icon(Icons.settings_outlined),
           selectedIcon: Icon(Icons.settings),
           label: '设置'),
     ];
+    const sectionTitles = ['消息', '联系人', '项目', '设置'];
+    final compactConversation =
+        !wide && _index == 0 && _selectedConversation != null;
     return PopScope<void>(
       canPop: _selectedConversation == null && _index == 0,
       onPopInvokedWithResult: (didPop, result) {
         if (!didPop) _handleSystemBack();
       },
       child: Scaffold(
-        appBar: AppBar(
-            title: const Text('MagicChat',
-                style:
-                    TextStyle(fontWeight: FontWeight.w700, letterSpacing: -.2)),
-            actions: [
-              IconButton(
-                  onPressed: () => _showSearch(context),
-                  icon: const Icon(Icons.search),
-                  tooltip: '搜索')
-            ]),
+        appBar: compactConversation
+            ? null
+            : AppBar(
+                title: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('MagicChat',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    Text(sectionTitles[_index],
+                        key: const ValueKey('app-section-title'),
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
+                            letterSpacing: 0)),
+                  ],
+                ),
+                actions: [
+                    IconButton(
+                        onPressed: () => _showSearch(context),
+                        icon: const Icon(Icons.search),
+                        tooltip: '搜索')
+                  ]),
         body: Row(children: [
           if (wide)
             NavigationRail(
@@ -1013,7 +1034,7 @@ class _AppShellState extends State<AppShell> {
                     .toList()),
           Expanded(child: IndexedStack(index: _index, children: pages))
         ]),
-        bottomNavigationBar: wide
+        bottomNavigationBar: wide || compactConversation
             ? null
             : NavigationBar(
                 backgroundColor: Theme.of(context).colorScheme.surface,
@@ -1023,6 +1044,11 @@ class _AppShellState extends State<AppShell> {
                 destinations: destinations),
       ),
     );
+  }
+
+  void _setUnreadCount(int value) {
+    if (!mounted || value == _unreadCount) return;
+    setState(() => _unreadCount = value);
   }
 
   void _selectConversationFromList(String id) {
@@ -1127,4 +1153,18 @@ class _AppShellState extends State<AppShell> {
       ),
     );
   }
+}
+
+class _NavigationBadgeIcon extends StatelessWidget {
+  const _NavigationBadgeIcon({required this.icon, required this.count});
+
+  final IconData icon;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) => Badge(
+        isLabelVisible: count > 0,
+        label: Text(count > 99 ? '99+' : '$count'),
+        child: Icon(icon),
+      );
 }
