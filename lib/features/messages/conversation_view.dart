@@ -1204,10 +1204,9 @@ class _ConversationViewState extends State<ConversationView> {
                                     }
                                   },
                                   child: Container(
-                                      padding:
-                                          _highlightedMessageId == message.id
-                                              ? const EdgeInsets.all(2)
-                                              : EdgeInsets.zero,
+                                      padding: _highlightedMessageId == message.id
+                                          ? const EdgeInsets.all(2)
+                                          : EdgeInsets.zero,
                                       decoration: _highlightedMessageId == message.id
                                           ? BoxDecoration(
                                               color: Theme.of(context)
@@ -1228,9 +1227,8 @@ class _ConversationViewState extends State<ConversationView> {
                                               widget.onOpenConversation,
                                           onOpenInternalLink:
                                               widget.onOpenInternalLink,
-                                          onForwardMessage: (id) =>
-                                              _showForwardDialog(
-                                                  conversationId, [id]),
+                                          onForwardMessage: (id) => _showForwardDialog(
+                                              conversationId, [id]),
                                           contactsFuture: _contactsFuture,
                                           isGroupConversation:
                                               _isGroupConversation,
