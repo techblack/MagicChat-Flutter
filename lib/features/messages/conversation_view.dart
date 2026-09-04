@@ -84,6 +84,8 @@ class _ConversationViewState extends State<ConversationView> {
   final _selectedMessageIds = <String>{};
   List<ChatMessage> _visibleMessages = const [];
   final _contactCacheStore = ContactCacheStore();
+  final _preloadedImages = <String, _CachedImageData>{};
+  final _preloadedAttachmentUrls = <String, Uri>{};
   MessageReply? _replyTo;
   ChatConversation? _conversation;
   TopicDetail? _topicDetail;
@@ -469,21 +471,75 @@ class _ConversationViewState extends State<ConversationView> {
       _messagePage = history is MessagePage ? history : null;
       _hasMoreOlder = _messagePage?.hasMoreBefore ?? true;
       _lastOlderBeforeSeq = null;
+      await _preloadComplexMessages(id, history);
       unawaited(_refreshMessageSnapshots(id, history));
       return history;
     }
     final cached = await _readCachedMessages(id);
-    if (cached.isNotEmpty) unawaited(_refreshMessages(id));
-    if (cached.isNotEmpty) return cached;
+    if (cached.isNotEmpty) {
+      await _preloadComplexMessages(id, cached);
+      unawaited(_refreshMessages(id));
+      return cached;
+    }
     final fresh = await widget.repository.messages(id);
     _messagePage = fresh is MessagePage ? fresh : null;
     _hasMoreOlder = _messagePage?.hasMoreBefore ?? true;
     _lastOlderBeforeSeq = null;
+    await _preloadComplexMessages(id, fresh);
     unawaited(_cacheMessages(id, fresh));
     // 消息接口返回的 choice/reaction 可能来自旧缓存或断线前的视图；
     // 快照查询是尽力而为的后台修正，失败时不影响消息首屏加载。
     unawaited(_refreshMessageSnapshots(id, fresh));
     return fresh;
+  }
+
+  /// 在消息列表首次布局前准备会改变高度或需要网络资源的消息内容。
+  /// 这样首屏不会先绘制占位控件，再因附件/图片完成加载而整体位移。
+  Future<void> _preloadComplexMessages(
+      String conversationId, List<ChatMessage> messages) async {
+    final imageIds = <String>{};
+    final attachmentIds = <String>{};
+    for (final message in messages) {
+      final fileId = message.rawBody['file_id'];
+      if (fileId is! String || fileId.isEmpty) continue;
+      if (message.contentType == 'image') {
+        imageIds.add(fileId);
+      } else if (message.contentType == 'file') {
+        attachmentIds.add(fileId);
+      }
+    }
+    if (imageIds.isEmpty && attachmentIds.isEmpty) return;
+
+    await Future.wait([
+      ...imageIds.map((fileId) async {
+        final data = await _loadCachedConversationImage(
+          repository: widget.repository,
+          cacheScope: widget.cacheScope,
+          fileId: fileId,
+        ).timeout(const Duration(seconds: 5), onTimeout: () => null);
+        if (mounted &&
+            widget.conversationId == conversationId &&
+            data?.bytes != null) {
+          _preloadedImages[fileId] = data!;
+        }
+      }),
+      ...attachmentIds.map((fileId) async {
+        try {
+          final uri = await widget.repository
+              .attachmentUrl(fileId)
+              .timeout(const Duration(seconds: 5), onTimeout: () => null);
+          if (mounted &&
+              widget.conversationId == conversationId &&
+              uri != null &&
+              (uri.scheme == 'http' || uri.scheme == 'https')) {
+            _preloadedAttachmentUrls[fileId] = uri;
+          }
+        } catch (_) {
+          // 预加载失败时保留原有消息，点击附件仍会再次尝试加载。
+        }
+      }),
+    ]);
+    if (!mounted || widget.conversationId != conversationId) return;
   }
 
   Future<void> _refreshMessages(String id) async {
@@ -499,6 +555,7 @@ class _ConversationViewState extends State<ConversationView> {
       for (final message in fresh) message.id: message,
     }.values.toList()
       ..sort((a, b) => (a.sequence ?? 0).compareTo(b.sequence ?? 0));
+    await _preloadComplexMessages(id, merged);
     await _cacheMessages(id, merged);
     if (!mounted || widget.conversationId != id) return;
     setState(() {
@@ -708,6 +765,8 @@ class _ConversationViewState extends State<ConversationView> {
             {..._olderMessages, ...snapshot}.map((item) => item.id).toSet();
         final added =
             older.where((item) => !existing.contains(item.id)).toList();
+        await _preloadComplexMessages(id, added);
+        if (!mounted || widget.conversationId != id) return;
         if (olderPage is MessagePage) {
           _messagePage = olderPage;
           _hasMoreOlder = olderPage.hasMoreBefore && added.isNotEmpty;
@@ -883,6 +942,8 @@ class _ConversationViewState extends State<ConversationView> {
       _highlightedMessageId = null;
       _historyMode = widget.focusMessageId != null;
       _messageKeys.clear();
+      _preloadedImages.clear();
+      _preloadedAttachmentUrls.clear();
       _seenRealtimeMessageIds
         ..clear()
         ..addAll(_realtimeConversationMessages());
@@ -901,6 +962,8 @@ class _ConversationViewState extends State<ConversationView> {
       _hasMoreOlder = true;
       _lastOlderBeforeSeq = null;
       _messagePage = null;
+      _preloadedImages.clear();
+      _preloadedAttachmentUrls.clear();
       _messagesFuture = _loadMessages();
       _positioningConversationId = null;
       _positionedConversationId = null;
@@ -1141,10 +1204,9 @@ class _ConversationViewState extends State<ConversationView> {
                                     }
                                   },
                                   child: Container(
-                                      padding:
-                                          _highlightedMessageId == message.id
-                                              ? const EdgeInsets.all(2)
-                                              : EdgeInsets.zero,
+                                      padding: _highlightedMessageId == message.id
+                                          ? const EdgeInsets.all(2)
+                                          : EdgeInsets.zero,
                                       decoration: _highlightedMessageId == message.id
                                           ? BoxDecoration(
                                               color: Theme.of(context)
@@ -1165,16 +1227,18 @@ class _ConversationViewState extends State<ConversationView> {
                                               widget.onOpenConversation,
                                           onOpenInternalLink:
                                               widget.onOpenInternalLink,
-                                          onForwardMessage: (id) =>
-                                              _showForwardDialog(
-                                                  conversationId, [id]),
+                                          onForwardMessage: (id) => _showForwardDialog(
+                                              conversationId, [id]),
                                           contactsFuture: _contactsFuture,
                                           isGroupConversation:
                                               _isGroupConversation,
                                           onOpenMemberConversation:
                                               _openMemberConversation,
                                           onReeditMessage: _reeditMessage,
-                                          cacheScope: widget.cacheScope)),
+                                          cacheScope: widget.cacheScope,
+                                          preloadedImages: _preloadedImages,
+                                          preloadedAttachmentUrls:
+                                              _preloadedAttachmentUrls)),
                                 ),
                               ))
                           .toList(),
@@ -1936,7 +2000,9 @@ class _MessageBubble extends StatelessWidget {
       this.isGroupConversation = false,
       this.onOpenMemberConversation,
       this.onReeditMessage,
-      this.cacheScope});
+      this.cacheScope,
+      this.preloadedImages = const {},
+      this.preloadedAttachmentUrls = const {}});
   final ChatMessage message;
   final MagicChatRepository repository;
   final String conversationId;
@@ -1950,6 +2016,8 @@ class _MessageBubble extends StatelessWidget {
   final Future<void> Function(Contact contact)? onOpenMemberConversation;
   final ValueChanged<ChatMessage>? onReeditMessage;
   final MessageCacheScope? cacheScope;
+  final Map<String, _CachedImageData> preloadedImages;
+  final Map<String, Uri> preloadedAttachmentUrls;
 
   Future<void> _showImageViewer(BuildContext context, Uri? uri,
       {Uint8List? bytes}) async {
@@ -2349,65 +2417,91 @@ class _MessageBubble extends StatelessWidget {
                   repository: repository,
                   cacheScope: cacheScope,
                   fileId: message.rawBody['file_id'] as String,
+                  initialData: preloadedImages[message.rawBody['file_id']],
                   onTap: (data) =>
                       _showImageViewer(context, data?.uri, bytes: data?.bytes),
                 )
               else
                 FutureBuilder<Uri?>(
-                  future: repository
-                      .attachmentUrl(message.rawBody['file_id'] as String),
+                  future: preloadedAttachmentUrls[
+                              message.rawBody['file_id'] as String] ==
+                          null
+                      ? repository
+                          .attachmentUrl(message.rawBody['file_id'] as String)
+                      : null,
+                  initialData: preloadedAttachmentUrls[
+                      message.rawBody['file_id'] as String],
                   builder: (context, snapshot) {
                     if (snapshot.hasError) {
-                      return const Padding(
-                          padding: EdgeInsets.only(top: 8),
-                          child: Text('附件暂时无法加载'));
+                      return const SizedBox(
+                          height: 80,
+                          child: Align(
+                              alignment: Alignment.topLeft,
+                              child: Padding(
+                                  padding: EdgeInsets.only(top: 8),
+                                  child: Text('附件暂时无法加载'))));
                     }
                     if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Padding(
-                          padding: EdgeInsets.only(top: 8),
-                          child: SizedBox(
-                              height: 40,
-                              child:
-                                  CircularProgressIndicator(strokeWidth: 2)));
+                      return const SizedBox(
+                          height: 80,
+                          child: Align(
+                              alignment: Alignment.topLeft,
+                              child: Padding(
+                                  padding: EdgeInsets.only(top: 8),
+                                  child: SizedBox(
+                                      height: 40,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2)))));
                     }
                     if (!snapshot.hasData) {
-                      return const SizedBox(height: 40);
+                      return const SizedBox(height: 80);
                     }
                     final uri = snapshot.data;
                     if (uri == null) {
-                      return const SizedBox(height: 40);
+                      return const SizedBox(height: 80);
                     }
                     final name = message.rawBody['name'];
                     final size = message.rawBody['size_bytes'];
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (name is String && name.trim().isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 6),
-                            child: Text(name.trim(),
-                                maxLines: 1, overflow: TextOverflow.ellipsis),
-                          ),
-                        TextButton.icon(
-                            onPressed: () async {
-                              try {
-                                await _cacheAttachment(
-                                    message.rawBody['file_id'] as String, uri);
-                                if (!context.mounted) return;
-                                await launchUrl(uri,
-                                    mode: LaunchMode.externalApplication);
-                              } catch (error) {
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('附件加载失败：$error')));
-                                }
-                              }
-                            },
-                            icon: const Icon(Icons.download_outlined),
-                            label: Text(size is num
-                                ? '打开附件 · ${_formatAttachmentSize(size)}'
-                                : '打开附件')),
-                      ],
+                    // URL 解析是异步的；预留完整附件操作区高度，避免
+                    // 首屏加载后消息列表从上到下重新排版。
+                    return SizedBox(
+                      height: 80,
+                      child: Align(
+                        alignment: Alignment.topLeft,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (name is String && name.trim().isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: Text(name.trim(),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis),
+                              ),
+                            TextButton.icon(
+                                onPressed: () async {
+                                  try {
+                                    await _cacheAttachment(
+                                        message.rawBody['file_id'] as String,
+                                        uri);
+                                    if (!context.mounted) return;
+                                    await launchUrl(uri,
+                                        mode: LaunchMode.externalApplication);
+                                  } catch (error) {
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(SnackBar(
+                                              content: Text('附件加载失败：$error')));
+                                    }
+                                  }
+                                },
+                                icon: const Icon(Icons.download_outlined),
+                                label: Text(size is num
+                                    ? '打开附件 · ${_formatAttachmentSize(size)}'
+                                    : '打开附件')),
+                          ],
+                        ),
+                      ),
                     );
                   },
                 ),
@@ -2709,12 +2803,14 @@ class _CachedConversationImage extends StatefulWidget {
     required this.repository,
     required this.cacheScope,
     required this.fileId,
+    this.initialData,
     required this.onTap,
   });
 
   final MagicChatRepository repository;
   final MessageCacheScope? cacheScope;
   final String fileId;
+  final _CachedImageData? initialData;
   final ValueChanged<_CachedImageData?> onTap;
 
   @override
@@ -2723,68 +2819,32 @@ class _CachedConversationImage extends StatefulWidget {
 }
 
 class _CachedConversationImageState extends State<_CachedConversationImage> {
-  final _cache = LocalAssetCache();
   Future<_CachedImageData?>? _future;
-
-  String get _cacheKey {
-    final scope = widget.cacheScope;
-    final owner = scope == null ? '' : '${scope.serverUrl}|${scope.userId}|';
-    return 'attachment|$owner${widget.fileId}';
-  }
 
   @override
   void initState() {
     super.initState();
-    _future = _load();
+    _future =
+        widget.initialData == null ? _load() : Future.value(widget.initialData);
   }
 
   @override
   void didUpdateWidget(covariant _CachedConversationImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.fileId != widget.fileId ||
-        oldWidget.cacheScope != widget.cacheScope) {
-      _future = _load();
+        oldWidget.cacheScope != widget.cacheScope ||
+        oldWidget.initialData != widget.initialData) {
+      _future = widget.initialData == null
+          ? _load()
+          : Future.value(widget.initialData);
     }
   }
 
-  Future<_CachedImageData?> _load() async {
-    Uint8List? cached;
-    try {
-      cached = await _cache.read(_cacheKey);
-    } catch (_) {
-      cached = null;
-    }
-    if (cached != null) return _CachedImageData(bytes: cached);
-    Uri? uri;
-    try {
-      uri = await widget.repository.attachmentUrl(widget.fileId);
-    } catch (_) {
-      uri = null;
-    }
-    Uint8List? bytes;
-    if (uri != null) {
-      try {
-        bytes = await widget.repository.downloadResource(uri);
-      } catch (_) {
-        bytes = null;
-      }
-    }
-    if (bytes == null) {
-      try {
-        bytes = await widget.repository.downloadAttachment(widget.fileId);
-      } catch (_) {
-        bytes = null;
-      }
-    }
-    if (bytes != null && bytes.isNotEmpty) {
-      try {
-        await _cache.write(_cacheKey, bytes);
-      } catch (_) {
-        // 图片已经在内存中，缓存目录不可写不阻断当前消息显示。
-      }
-    }
-    return _CachedImageData(bytes: bytes, uri: uri);
-  }
+  Future<_CachedImageData?> _load() => _loadCachedConversationImage(
+        repository: widget.repository,
+        cacheScope: widget.cacheScope,
+        fileId: widget.fileId,
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -2792,10 +2852,12 @@ class _CachedConversationImageState extends State<_CachedConversationImage> {
     final width = available.clamp(180.0, 320.0).toDouble();
     return FutureBuilder<_CachedImageData?>(
       future: _future,
+      initialData: widget.initialData,
       builder: (context, snapshot) {
         final data = snapshot.data;
         final bytes = data?.bytes;
-        final child = snapshot.connectionState == ConnectionState.waiting
+        final child = snapshot.connectionState == ConnectionState.waiting &&
+                !snapshot.hasData
             ? const CircularProgressIndicator(strokeWidth: 2)
             : data == null || bytes == null
                 ? GestureDetector(
@@ -2827,6 +2889,53 @@ class _CachedConversationImageState extends State<_CachedConversationImage> {
       },
     );
   }
+}
+
+Future<_CachedImageData?> _loadCachedConversationImage({
+  required MagicChatRepository repository,
+  required MessageCacheScope? cacheScope,
+  required String fileId,
+}) async {
+  final cache = LocalAssetCache();
+  final owner =
+      cacheScope == null ? '' : '${cacheScope.serverUrl}|${cacheScope.userId}|';
+  final key = 'attachment|$owner$fileId';
+  Uint8List? cached;
+  try {
+    cached = await cache.read(key);
+  } catch (_) {
+    cached = null;
+  }
+  if (cached != null) return _CachedImageData(bytes: cached);
+  Uri? uri;
+  try {
+    uri = await repository.attachmentUrl(fileId);
+  } catch (_) {
+    uri = null;
+  }
+  Uint8List? bytes;
+  if (uri != null) {
+    try {
+      bytes = await repository.downloadResource(uri);
+    } catch (_) {
+      bytes = null;
+    }
+  }
+  if (bytes == null) {
+    try {
+      bytes = await repository.downloadAttachment(fileId);
+    } catch (_) {
+      bytes = null;
+    }
+  }
+  if (bytes != null && bytes.isNotEmpty) {
+    try {
+      await cache.write(key, bytes);
+    } catch (_) {
+      // 图片已经在内存中，缓存目录不可写不阻断当前消息显示。
+    }
+  }
+  return _CachedImageData(bytes: bytes, uri: uri);
 }
 
 class _CachedImageData {

@@ -1214,7 +1214,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
               item['created_at'] is String ? item['created_at'] as String : '',
           unread: (item['unread_count'] as num?)?.toInt() ?? 0,
           pinned: item['pinned'] == true,
-          muted: item['notification_muted'] == true,
+          muted: item['notification_muted'] == true || item['muted'] == true,
           lastMessageAt: item['last_message_at'] is String
               ? item['last_message_at'] as String
               : '',
@@ -1647,7 +1647,8 @@ class HttpMagicChatRepository implements MagicChatRepository {
   Future<bool> setConversationMuted(String conversationId, bool muted) async {
     final value = await _request(muted ? 'PUT' : 'DELETE',
         '/api/client/conversations/${Uri.encodeComponent(conversationId)}/mute');
-    return _data(value)['muted'] == true;
+    final data = _data(value);
+    return data['muted'] == true || data['notification_muted'] == true;
   }
 
   @override
