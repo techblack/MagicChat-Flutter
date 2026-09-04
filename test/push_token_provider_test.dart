@@ -6,6 +6,32 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:magicchat_client/data/push_service.dart';
 import 'package:magicchat_client/data/push_token_provider.dart';
+import 'package:magicchat_client/data/push_registration_store.dart';
+
+class _MemoryPushRegistrationStore extends PushRegistrationStore {
+  StoredPushInstallation? installation;
+  StoredPushGrant? grant;
+
+  @override
+  Future<StoredPushInstallation?> readInstallation() async => installation;
+
+  @override
+  Future<void> writeInstallation(StoredPushInstallation value) async {
+    installation = value;
+  }
+
+  @override
+  Future<void> clearInstallation() async => installation = null;
+
+  @override
+  Future<StoredPushGrant?> readGrant() async => grant;
+
+  @override
+  Future<void> writeGrant(StoredPushGrant value) async => grant = value;
+
+  @override
+  Future<void> clearGrant() async => grant = null;
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -211,5 +237,93 @@ void main() {
           .having((error) => error.code, 'code', 'push_disabled')
           .having((error) => error.message, 'message', '服务器未开启推送')),
     );
+  });
+
+  test('设备令牌经 Gateway 换取授权并注册到私有 Server', () async {
+    final channel = MethodChannel('test/push-device-token');
+    channel.setMockMethodCallHandler((call) async {
+      if (call.method == 'getDeviceToken') {
+        return {
+          'provider': 'apns',
+          'platform': 'ios',
+          'environment': 'production',
+          'token': 'a' * 64,
+        };
+      }
+      return null;
+    });
+    addTearDown(() => channel.setMockMethodCallHandler(null));
+
+    final requests = <http.Request>[];
+    final client = MockClient((request) async {
+      requests.add(request);
+      if (request.url.host == 'push.example.com' &&
+          request.url.path == '/api/v1/installations') {
+        return http.Response(
+            jsonEncode({
+              'installation_id': 'install-1',
+              'management_token': 'manage-1'
+            }),
+            201);
+      }
+      if (request.url.host == 'push.example.com' &&
+          request.url.path == '/api/v1/installations/install-1/active-grant') {
+        return http.Response(
+            jsonEncode({
+              'grant_id': 'grant-1',
+              'send_token': 'send-1',
+              'expires_at': '2999-01-01T00:00:00Z',
+            }),
+            201);
+      }
+      if (request.url.host == 'chat.example.com' &&
+          request.url.path == '/api/client/push/grants') {
+        return http.Response(jsonEncode({'success': true, 'data': {}}), 200);
+      }
+      return http.Response('', 204);
+    });
+    final service = PushService(
+      client: client,
+      gateway: PushGatewayService(
+          client: client, gatewayUrl: 'https://push.example.com'),
+      registrationStore: _MemoryPushRegistrationStore(),
+    );
+
+    final registered = await service.registerPlatformGrant(
+        serverUrl: 'https://chat.example.com',
+        sessionToken: 'session-1',
+        platform: 'ios',
+        provider: const PushTokenProvider(
+            channel: MethodChannel('test/push-device-token')));
+
+    expect(registered, isTrue);
+    expect(
+        requests.map((request) =>
+            '${request.method} ${request.url.host}${request.url.path}'),
+        [
+          'POST push.example.com/api/v1/installations',
+          'POST push.example.com/api/v1/installations/install-1/active-grant',
+          'PUT chat.example.com/api/client/push/grants',
+        ]);
+    expect(jsonDecode(requests[0].body)['provider_token'], 'a' * 64);
+    expect(jsonDecode(requests[2].body), {
+      'expires_at': '2999-01-01T00:00:00.000Z',
+      'grant_id': 'grant-1',
+      'installation_id': 'install-1',
+      'platform': 'ios',
+      'send_token': 'send-1',
+    });
+
+    expect(
+        await service.revokePlatformGrant(
+            serverUrl: 'https://chat.example.com',
+            sessionToken: 'session-1',
+            provider: const PushTokenProvider(
+                channel: MethodChannel('test/push-device-token'))),
+        isTrue);
+    expect(requests[3].method, 'POST');
+    expect(requests[3].url.path, '/api/client/push/grants/install-1/revoke');
+    expect(requests[4].method, 'DELETE');
+    expect(requests[4].url.path, '/api/v1/grants/grant-1');
   });
 }
