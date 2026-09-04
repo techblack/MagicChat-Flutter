@@ -48,6 +48,12 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
     });
   }
 
+  Future<void> _refresh() async {
+    final future = widget.repository.apps();
+    setState(() => _appsFuture = future);
+    await future;
+  }
+
   Future<void> _create() async {
     final input = await _showAppForm();
     if (input == null || !mounted) return;
@@ -229,7 +235,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
             final apps = snapshot.data!;
             if (apps.isEmpty) {
               return RefreshIndicator(
-                onRefresh: () async => _load(),
+                onRefresh: _refresh,
                 child: ListView(
                   children: const [
                     SizedBox(height: 220),
@@ -239,7 +245,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
               );
             }
             return RefreshIndicator(
-              onRefresh: () async => _load(),
+              onRefresh: _refresh,
               child: ListView.separated(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
                 itemCount: apps.length,
