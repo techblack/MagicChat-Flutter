@@ -222,6 +222,51 @@ void main() {
     await session.close();
     serverDocument.destroy();
   });
+
+  test('协作会话断线后重连并保留当前文档状态', () async {
+    final first = _FakeChannel();
+    final second = _FakeChannel();
+    final channels = [first, second];
+    var connection = 0;
+    final session = DocumentCollaborationSession(
+        serverUrl: 'https://chat.example.com',
+        token: 'session-token',
+        documentId: 'doc-reconnect',
+        documentType: 'markdown',
+        connector: (_, __) => channels[connection++]);
+
+    await session.connect();
+    first.emit(
+        encodeHocuspocusAuthenticatedFrame(documentName: 'doc-reconnect'));
+    await Future<void>.delayed(Duration.zero);
+    final serverDocument = yjs.Doc(yjs.DocOpts(guid: 'doc-reconnect'));
+    serverDocument.getText('markdown')!.insert(0, '重连前正文');
+    final initial = yjs.createEncoder();
+    yjs.writeVarString(initial, 'doc-reconnect');
+    yjs.writeVarUint(initial, HocuspocusMessageType.sync);
+    yjs.writeSyncStep2(initial, serverDocument);
+    first.emit(yjs.toUint8Array(initial));
+    await Future<void>.delayed(Duration.zero);
+    expect(session.status, DocumentCollaborationStatus.synced);
+
+    await session.reconnect();
+    expect(session.status, DocumentCollaborationStatus.connecting);
+    expect(second.sent, hasLength(1));
+    second.emit(
+        encodeHocuspocusAuthenticatedFrame(documentName: 'doc-reconnect'));
+    await Future<void>.delayed(Duration.zero);
+    final resync = yjs.createEncoder();
+    yjs.writeVarString(resync, 'doc-reconnect');
+    yjs.writeVarUint(resync, HocuspocusMessageType.sync);
+    yjs.writeSyncStep2(resync, serverDocument);
+    second.emit(yjs.toUint8Array(resync));
+    await Future<void>.delayed(Duration.zero);
+
+    expect(session.status, DocumentCollaborationStatus.synced);
+    expect(session.text, '重连前正文');
+    await session.close();
+    serverDocument.destroy();
+  });
 }
 
 void _insertParagraphs(yjs.YXmlFragment body, String value) {
