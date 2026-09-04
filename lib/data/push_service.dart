@@ -28,6 +28,18 @@ class PushGrant {
   final DateTime expiresAt;
 }
 
+class PushRequestException implements Exception {
+  const PushRequestException(
+      {required this.statusCode, required this.message, this.code});
+
+  final int statusCode;
+  final String? code;
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 /// 私有 Server 推送授权生命周期。设备厂商 Token 由各平台插件提供，不写入普通配置。
 class PushService {
   static const requestTimeout = Duration(seconds: 30);
@@ -81,8 +93,9 @@ class PushService {
             }))
         .timeout(requestTimeout);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('注册推送失败（HTTP ${response.statusCode}）');
+      throw _requestError(response, '注册推送失败');
     }
+    _throwIfBusinessFailure(response, '注册推送失败');
   }
 
   /// 撤销当前平台插件暴露的授权，返回是否找到可撤销的授权。
@@ -97,24 +110,31 @@ class PushService {
     await revokeGrant(
         serverUrl: serverUrl,
         sessionToken: sessionToken,
-        installationId: grant.installationId);
+        installationId: grant.installationId,
+        grantId: grant.grantId);
     return true;
   }
 
   Future<void> revokeGrant(
       {required String serverUrl,
       required String sessionToken,
-      required String installationId}) async {
+      required String installationId,
+      required String grantId}) async {
     final base = Uri.parse(serverUrl.endsWith('/') ? serverUrl : '$serverUrl/');
     final response = await _client
-        .delete(
+        .post(
             base.resolve(
-                'api/client/push/grants/${Uri.encodeComponent(installationId)}'),
-            headers: _sessionHeaders(sessionToken))
+                'api/client/push/grants/${Uri.encodeComponent(installationId)}/revoke'),
+            headers: {
+              ..._sessionHeaders(sessionToken),
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({'grant_id': grantId}))
         .timeout(requestTimeout);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('撤销推送失败（HTTP ${response.statusCode}）');
+      throw _requestError(response, '撤销推送失败');
     }
+    _throwIfBusinessFailure(response, '撤销推送失败');
   }
 
   Future<({String conversationId, String messageId})> resolveRoute(
@@ -123,17 +143,20 @@ class PushService {
       required String routeToken}) async {
     final base = Uri.parse(serverUrl.endsWith('/') ? serverUrl : '$serverUrl/');
     final response = await _client
-        .get(
-            base.resolve(
-                'api/client/push/routes/${Uri.encodeComponent(routeToken)}'),
-            headers: _sessionHeaders(sessionToken))
+        .post(base.resolve('api/client/push/routes/resolve'),
+            headers: {
+              ..._sessionHeaders(sessionToken),
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({'route_token': routeToken}))
         .timeout(requestTimeout);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('打开通知失败（HTTP ${response.statusCode}）');
+      throw _requestError(response, '打开通知失败');
     }
+    _throwIfBusinessFailure(response, '打开通知失败');
     final decoded = jsonDecode(response.body);
     // 客户端接口的成功响应使用 `{success, data}` 包装；滚动升级期间仍兼容
-    // 直接返回路由对象的旧网关。
+    // 直接返回路由对象的旧网关响应体。
     final value = decoded is Map<String, dynamic> &&
             decoded['data'] is Map<String, dynamic>
         ? decoded['data'] as Map<String, dynamic>
@@ -147,5 +170,41 @@ class PushService {
       conversationId: value['conversation_id'] as String,
       messageId: value['message_id'] as String
     );
+  }
+
+  void _throwIfBusinessFailure(http.Response response, String fallbackMessage) {
+    try {
+      final value = jsonDecode(response.body);
+      if (value is Map<String, dynamic> && value['success'] == false) {
+        throw _requestError(response, fallbackMessage);
+      }
+    } on PushRequestException {
+      rethrow;
+    } catch (_) {
+      // 非 JSON 成功响应由具体 API 的格式校验处理。
+    }
+  }
+
+  PushRequestException _requestError(
+      http.Response response, String fallbackMessage) {
+    String? code;
+    String? message;
+    try {
+      final value = jsonDecode(response.body);
+      final error = value is Map<String, dynamic> ? value['error'] : null;
+      if (error is Map<String, dynamic>) {
+        code = error['code'] is String ? error['code'] as String : null;
+        message =
+            error['message'] is String ? error['message'] as String : null;
+      }
+    } catch (_) {
+      // 非 JSON 错误响应回退到状态信息。
+    }
+    return PushRequestException(
+        statusCode: response.statusCode,
+        code: code,
+        message: message?.trim().isNotEmpty == true
+            ? message!.trim()
+            : '$fallbackMessage（HTTP ${response.statusCode}）');
   }
 }

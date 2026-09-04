@@ -142,9 +142,11 @@ void main() {
             provider: const PushTokenProvider(
                 channel: MethodChannel('test/push-revoke'))),
         isTrue);
-    expect(requests.single.method, 'DELETE');
-    expect(requests.single.url.path, '/api/client/push/grants/install-1');
+    expect(requests.single.method, 'POST');
+    expect(
+        requests.single.url.path, '/api/client/push/grants/install-1/revoke');
     expect(requests.single.headers['Authorization'], 'Bearer session-1');
+    expect(jsonDecode(requests.single.body), {'grant_id': 'grant-1'});
   });
 
   test('解析服务端通知路由 success/data 响应', () async {
@@ -169,8 +171,9 @@ void main() {
 
     expect(route.conversationId, 'conversation-1');
     expect(route.messageId, 'message-1');
-    expect(requests.single.url.path, '/api/client/push/routes/route%2Ftoken');
+    expect(requests.single.url.path, '/api/client/push/routes/resolve');
     expect(requests.single.headers['Authorization'], 'Bearer session-1');
+    expect(jsonDecode(requests.single.body), {'route_token': 'route/token'});
   });
 
   test('通知路由响应缺少 data 字段时拒绝', () async {
@@ -184,6 +187,29 @@ void main() {
           sessionToken: 'session-1',
           routeToken: 'route-token'),
       throwsA(isA<FormatException>()),
+    );
+  });
+
+  test('推送接口保留服务端业务错误消息', () async {
+    final service = PushService(
+        client: MockClient((_) async => http.Response(
+              jsonEncode({
+                'success': false,
+                'error': {'code': 'push_disabled', 'message': '服务器未开启推送'},
+              }),
+              503,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            )));
+
+    await expectLater(
+      service.resolveRoute(
+          serverUrl: 'https://chat.example.com',
+          sessionToken: 'session-1',
+          routeToken: 'route-token'),
+      throwsA(isA<PushRequestException>()
+          .having((error) => error.statusCode, 'statusCode', 503)
+          .having((error) => error.code, 'code', 'push_disabled')
+          .having((error) => error.message, 'message', '服务器未开启推送')),
     );
   });
 }
