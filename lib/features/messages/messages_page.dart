@@ -271,113 +271,125 @@ class _ConversationListState extends State<_ConversationList> {
         final conversations = orderConversations(snapshot.data!).where((item) =>
             matchesConversationFilter(item, _filter) &&
             matchesConversationQuery(item, _query));
-        return ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            itemCount: conversations.isEmpty ? 2 : conversations.length + 1,
-            separatorBuilder: (_, __) => const SizedBox(height: 2),
-            itemBuilder: (context, i) {
-              if (i == 0) {
-                return _conversationFilters(context);
-              }
-              if (conversations.isEmpty) {
-                final colors = Theme.of(context).colorScheme;
-                return Padding(
-                    padding: const EdgeInsets.all(32),
-                    child: Center(
-                        child:
-                            Column(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(Icons.forum_outlined,
-                          color: colors.outline, size: 36),
-                      const SizedBox(height: 10),
-                      Text('没有匹配的会话',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodyMedium
-                              ?.copyWith(color: colors.onSurfaceVariant)),
-                    ])));
-              }
-              final c = conversations.elementAt(i - 1);
-              final mentionUnread = c.lastMentionedSeq > c.lastReadSeq;
-              final choiceUnread = c.lastChoiceSeq > c.lastReadSeq;
-              final hasUnread = c.unread > 0 || mentionUnread || choiceUnread;
-              final titleStyle = TextStyle(
-                  fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w500);
-              final subtitleStyle =
-                  TextStyle(fontWeight: hasUnread ? FontWeight.w600 : null);
-              final statusIcons = <Widget>[
-                if (c.pinned)
-                  const Padding(
-                      padding: EdgeInsets.only(left: 6),
-                      child:
-                          Icon(Icons.push_pin, semanticLabel: '已置顶', size: 16)),
-                if (c.muted)
-                  const Padding(
-                      padding: EdgeInsets.only(left: 4),
-                      child: Icon(Icons.notifications_off,
-                          semanticLabel: '消息免打扰', size: 16)),
-              ];
-              return ListTile(
-                  minVerticalPadding: 10,
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
-                  selected: c.id == widget.selectedId,
-                  selectedTileColor:
-                      Theme.of(context).colorScheme.primaryContainer,
-                  leading: CachedAvatar(
-                      repository: widget.repository,
-                      cacheScope: widget.cacheScope,
-                      avatarUri: _resolveAssetUri(widget.serverUrl, c.avatar),
-                      name: c.title,
-                      radius: 23),
-                  title: statusIcons.isEmpty
-                      ? Text(c.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: titleStyle)
-                      : Row(children: [
-                          Expanded(
-                              child: Text(c.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: titleStyle)),
-                          ...statusIcons,
-                        ]),
-                  subtitle: Text(
-                      c.announcement.isNotEmpty
-                          ? '公告：${c.announcement}'
-                          : c.preview,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: subtitleStyle),
-                  trailing: !hasUnread
-                      ? null
-                      : Row(mainAxisSize: MainAxisSize.min, children: [
-                          if (mentionUnread)
-                            const Icon(Icons.alternate_email,
-                                size: 17, semanticLabel: '有人提及你'),
-                          if (choiceUnread)
-                            const Icon(Icons.checklist,
-                                size: 17, semanticLabel: '有待响应的选择题'),
-                          if (c.unread > 0) Badge(label: Text('${c.unread}')),
-                        ]),
-                  onTap: () async {
-                    widget.onSelect(c.id);
-                    if (hasUnread && c.lastMessageSeq > c.lastReadSeq) {
-                      try {
-                        final result = await widget.repository
-                            .markConversationRead(c.id, c.lastMessageSeq);
-                        widget.realtimeStore?.markConversationRead(result);
-                        if (mounted) setState(_reload);
-                      } catch (_) {
-                        // 打开会话不应被已读接口失败阻断。
+        return RefreshIndicator(
+          onRefresh: _refresh,
+          child: ListView.separated(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              itemCount: conversations.isEmpty ? 2 : conversations.length + 1,
+              separatorBuilder: (_, __) => const SizedBox(height: 2),
+              itemBuilder: (context, i) {
+                if (i == 0) {
+                  return _conversationFilters(context);
+                }
+                if (conversations.isEmpty) {
+                  final colors = Theme.of(context).colorScheme;
+                  return Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: Center(
+                          child:
+                              Column(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.forum_outlined,
+                            color: colors.outline, size: 36),
+                        const SizedBox(height: 10),
+                        Text('没有匹配的会话',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(color: colors.onSurfaceVariant)),
+                      ])));
+                }
+                final c = conversations.elementAt(i - 1);
+                final mentionUnread = c.lastMentionedSeq > c.lastReadSeq;
+                final choiceUnread = c.lastChoiceSeq > c.lastReadSeq;
+                final hasUnread = c.unread > 0 || mentionUnread || choiceUnread;
+                final titleStyle = TextStyle(
+                    fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w500);
+                final subtitleStyle =
+                    TextStyle(fontWeight: hasUnread ? FontWeight.w600 : null);
+                final statusIcons = <Widget>[
+                  if (c.pinned)
+                    const Padding(
+                        padding: EdgeInsets.only(left: 6),
+                        child: Icon(Icons.push_pin,
+                            semanticLabel: '已置顶', size: 16)),
+                  if (c.muted)
+                    const Padding(
+                        padding: EdgeInsets.only(left: 4),
+                        child: Icon(Icons.notifications_off,
+                            semanticLabel: '消息免打扰', size: 16)),
+                ];
+                return ListTile(
+                    minVerticalPadding: 10,
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                    selected: c.id == widget.selectedId,
+                    selectedTileColor:
+                        Theme.of(context).colorScheme.primaryContainer,
+                    leading: CachedAvatar(
+                        repository: widget.repository,
+                        cacheScope: widget.cacheScope,
+                        avatarUri: _resolveAssetUri(widget.serverUrl, c.avatar),
+                        name: c.title,
+                        radius: 23),
+                    title: statusIcons.isEmpty
+                        ? Text(c.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: titleStyle)
+                        : Row(children: [
+                            Expanded(
+                                child: Text(c.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: titleStyle)),
+                            ...statusIcons,
+                          ]),
+                    subtitle: Text(
+                        c.announcement.isNotEmpty
+                            ? '公告：${c.announcement}'
+                            : c.preview,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: subtitleStyle),
+                    trailing: !hasUnread
+                        ? null
+                        : Row(mainAxisSize: MainAxisSize.min, children: [
+                            if (mentionUnread)
+                              const Icon(Icons.alternate_email,
+                                  size: 17, semanticLabel: '有人提及你'),
+                            if (choiceUnread)
+                              const Icon(Icons.checklist,
+                                  size: 17, semanticLabel: '有待响应的选择题'),
+                            if (c.unread > 0) Badge(label: Text('${c.unread}')),
+                          ]),
+                    onTap: () async {
+                      widget.onSelect(c.id);
+                      if (hasUnread && c.lastMessageSeq > c.lastReadSeq) {
+                        try {
+                          final result = await widget.repository
+                              .markConversationRead(c.id, c.lastMessageSeq);
+                          widget.realtimeStore?.markConversationRead(result);
+                          if (mounted) setState(_reload);
+                        } catch (_) {
+                          // 打开会话不应被已读接口失败阻断。
+                        }
                       }
-                    }
-                  },
-                  onLongPress: () => _showConversationActions(context, c));
-            });
+                    },
+                    onLongPress: () => _showConversationActions(context, c));
+              }),
+        );
       });
+
+  Future<void> _refresh() async {
+    final future = _loadConversations();
+    setState(() {
+      _future = future;
+    });
+    await future;
+  }
 
   Widget _conversationFilters(BuildContext context) => Column(children: [
         TextField(
