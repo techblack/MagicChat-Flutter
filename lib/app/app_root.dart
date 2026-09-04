@@ -280,28 +280,40 @@ class LoginPage extends StatefulWidget {
       {required this.onLogin,
       required this.onCodeLogin,
       this.initialServer,
+      this.authService,
       super.key});
   final Future<void> Function(String server, String email, String password)
       onLogin;
   final Future<void> Function(String server, String email, String code)
       onCodeLogin;
   final String? initialServer;
+  final AuthService? authService;
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
 
 class _LoginPageState extends State<LoginPage> {
+  final _formKey = GlobalKey<FormState>();
+  final _serverFieldKey = GlobalKey<FormFieldState<String>>();
+  final _emailFieldKey = GlobalKey<FormFieldState<String>>();
   late final TextEditingController _server = TextEditingController(
       text: widget.initialServer ?? 'https://app.jiying.chat');
   final _email = TextEditingController();
   final _password = TextEditingController();
   final _code = TextEditingController();
-  bool _busy = false;
+  bool _submitting = false;
+  bool _sendingCode = false;
   bool _codeMode = false;
+  bool _passwordVisible = false;
   bool _infoLoading = false;
   ClientAppInfo? _appInfo;
   String? _error;
+  String? _serverStatus;
   int _infoGeneration = 0;
+  int _resendIn = 0;
+  Timer? _resendTimer;
+
+  late final AuthService _authService = widget.authService ?? AuthService();
 
   @override
   void initState() {
@@ -310,31 +322,43 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _loadAppInfo() async {
-    final server = _server.text.trim();
-    if (server.isEmpty || _infoLoading) return;
-    final generation = ++_infoGeneration;
-    setState(() => _infoLoading = true);
+    String server;
     try {
-      final info = await AuthService().fetchClientInfo(serverUrl: server);
+      server = normalizeServerUrl(_server.text);
+    } catch (error) {
+      if (mounted) setState(() => _serverStatus = _errorText(error));
+      return;
+    }
+    if (_infoLoading) return;
+    final generation = ++_infoGeneration;
+    setState(() {
+      _infoLoading = true;
+      _serverStatus = null;
+    });
+    try {
+      final info = await _authService.fetchClientInfo(serverUrl: server);
       if (!mounted ||
           generation != _infoGeneration ||
-          _server.text.trim() != server) return;
+          normalizeServerUrl(_server.text) != server) {
+        return;
+      }
       setState(() {
+        _server.text = server;
         _appInfo = info;
+        _serverStatus = _loginCapabilityText(info);
         if (!info.passwordLoginEnabled && info.emailCodeLoginEnabled) {
           _codeMode = true;
         } else if (!info.emailCodeLoginEnabled) {
           _codeMode = false;
         }
       });
-    } catch (_) {
-      // 连接失败时保留密码登录，便于用户修正地址后重试。
+    } catch (error) {
+      if (mounted && generation == _infoGeneration) {
+        setState(() => _serverStatus = '连接检查失败：${_errorText(error)}');
+      }
     } finally {
       if (mounted) {
-        final changedWhileLoading =
-            generation != _infoGeneration && _server.text.trim() != server;
         setState(() => _infoLoading = false);
-        if (changedWhileLoading) unawaited(_loadAppInfo());
       }
     }
   }
@@ -345,12 +369,131 @@ class _LoginPageState extends State<LoginPage> {
     setState(() {
       _appInfo = null;
       _error = null;
+      _serverStatus = null;
       _codeMode = false;
     });
   }
 
+  String _loginCapabilityText(ClientAppInfo info) {
+    final methods = <String>[
+      if (info.passwordLoginEnabled) '密码',
+      if (info.emailCodeLoginEnabled) '邮箱验证码',
+    ];
+    return methods.isEmpty
+        ? '服务器已连接，但未开放可用登录方式'
+        : '服务器已连接 · 支持${methods.join('、')}登录';
+  }
+
+  String? _validateServer(String? value) {
+    try {
+      normalizeServerUrl(value ?? '');
+      return null;
+    } on FormatException catch (error) {
+      return error.message;
+    }
+  }
+
+  String? _validateEmail(String? value) {
+    final email = value?.trim() ?? '';
+    if (email.isEmpty) return '请输入邮箱';
+    if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email)) {
+      return '请输入有效的邮箱地址';
+    }
+    return null;
+  }
+
+  String? _validateSecret(String? value) {
+    if (_codeMode) {
+      return RegExp(r'^\d{8}$').hasMatch(value?.trim() ?? '')
+          ? null
+          : '请输入 8 位邮箱验证码';
+    }
+    return (value ?? '').isEmpty ? '请输入密码' : null;
+  }
+
+  String _errorText(Object error) {
+    if (error is FormatException) return error.message;
+    if (error is TimeoutException) return '请求超时，请检查网络和服务器地址';
+    final message = error
+        .toString()
+        .replaceFirst(RegExp(r'^(Exception|ClientException):\s*'), '');
+    if (message.contains('Failed host lookup') ||
+        message.contains('Connection refused') ||
+        message.contains('XMLHttpRequest error')) {
+      return '无法连接到服务器，请检查网络和服务器地址';
+    }
+    return message;
+  }
+
+  Future<void> _requestEmailCode() async {
+    if (_submitting || _sendingCode || _resendIn > 0) return;
+    final valid = (_serverFieldKey.currentState?.validate() ?? false) &
+        (_emailFieldKey.currentState?.validate() ?? false);
+    if (!valid) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _sendingCode = true;
+      _error = null;
+    });
+    try {
+      final server = normalizeServerUrl(_server.text);
+      final result = await _authService.requestEmailCode(
+          serverUrl: server, email: _email.text.trim());
+      if (!mounted) return;
+      _server.text = server;
+      _startResendTimer(result.retryAfterSeconds);
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('验证码已发送，${result.expiresInSeconds} 秒内有效')));
+    } catch (error) {
+      if (mounted) setState(() => _error = _errorText(error));
+    } finally {
+      if (mounted) setState(() => _sendingCode = false);
+    }
+  }
+
+  void _startResendTimer(int seconds) {
+    _resendTimer?.cancel();
+    setState(() => _resendIn = seconds);
+    if (seconds <= 0) return;
+    _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted || _resendIn <= 1) {
+        timer.cancel();
+        if (mounted) setState(() => _resendIn = 0);
+        return;
+      }
+      setState(() => _resendIn--);
+    });
+  }
+
+  Future<void> _submit() async {
+    if (_submitting ||
+        _sendingCode ||
+        !(_formKey.currentState?.validate() ?? false)) {
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    final server = normalizeServerUrl(_server.text);
+    setState(() {
+      _submitting = true;
+      _error = null;
+      _server.text = server;
+    });
+    try {
+      if (_codeMode) {
+        await widget.onCodeLogin(server, _email.text.trim(), _code.text.trim());
+      } else {
+        await widget.onLogin(server, _email.text.trim(), _password.text);
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = _errorText(error));
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
   @override
   void dispose() {
+    _resendTimer?.cancel();
     _server.dispose();
     _email.dispose();
     _password.dispose();
@@ -360,174 +503,266 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      body: Center(
-          child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Card(
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        body: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) => SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints:
+                    BoxConstraints(minHeight: constraints.maxHeight - 48),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    child: Card(
                       child: Padding(
-                          padding: const EdgeInsets.fromLTRB(28, 28, 28, 24),
-                          child:
-                              Column(mainAxisSize: MainAxisSize.min, children: [
-                            Container(
+                        padding: const EdgeInsets.fromLTRB(28, 28, 28, 24),
+                        child: Form(
+                          key: _formKey,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
                                 width: 64,
                                 height: 64,
                                 decoration: BoxDecoration(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .primaryContainer,
-                                    shape: BoxShape.circle),
-                                child: Icon(Icons.forum_rounded,
-                                    size: 32,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onPrimaryContainer)),
-                            const SizedBox(height: 16),
-                            Text('登录 MagicChat',
-                                style:
-                                    Theme.of(context).textTheme.headlineSmall),
-                            const SizedBox(height: 6),
-                            Text('安全、私密地连接你的团队',
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .primaryContainer,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  Icons.forum_rounded,
+                                  size: 32,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onPrimaryContainer,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Text('登录 MagicChat',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .headlineSmall),
+                              const SizedBox(height: 6),
+                              Text(
+                                '连接你的团队工作空间',
                                 style: Theme.of(context)
                                     .textTheme
                                     .bodyMedium
                                     ?.copyWith(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .onSurfaceVariant)),
-                            const SizedBox(height: 24),
-                            TextField(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
+                                    ),
+                              ),
+                              const SizedBox(height: 24),
+                              TextFormField(
+                                key: _serverFieldKey,
                                 controller: _server,
+                                keyboardType: TextInputType.url,
+                                textInputAction: TextInputAction.next,
+                                autofillHints: const [AutofillHints.url],
+                                validator: _validateServer,
                                 decoration: InputDecoration(
-                                    labelText: '服务器地址',
-                                    prefixIcon: Icon(Icons.dns),
-                                    suffixIcon: IconButton(
-                                        tooltip: '读取登录能力',
-                                        onPressed:
-                                            _infoLoading ? null : _loadAppInfo,
-                                        icon: _infoLoading
-                                            ? const SizedBox.square(
-                                                dimension: 18,
-                                                child:
-                                                    CircularProgressIndicator(
-                                                        strokeWidth: 2))
-                                            : const Icon(Icons.refresh))),
-                                onChanged: _onServerChanged,
-                                onEditingComplete: _loadAppInfo),
-                            const SizedBox(height: 12),
-                            TextField(
-                                controller: _email,
-                                keyboardType: TextInputType.emailAddress,
-                                decoration:
-                                    const InputDecoration(labelText: '邮箱')),
-                            const SizedBox(height: 8),
-                            if (_appInfo?.emailCodeLoginEnabled == true &&
-                                _appInfo?.passwordLoginEnabled == true)
-                              Align(
-                                  alignment: Alignment.centerRight,
-                                  child: TextButton(
-                                      onPressed: _busy
-                                          ? null
-                                          : () => setState(
-                                              () => _codeMode = !_codeMode),
-                                      child: Text(
-                                          _codeMode ? '使用密码登录' : '使用邮箱验证码登录'))),
-                            if (_codeMode &&
-                                _appInfo?.emailCodeLoginEnabled == true) ...[
-                              TextField(
-                                  controller: _code,
-                                  keyboardType: TextInputType.number,
-                                  decoration: InputDecoration(
-                                      labelText: '邮箱验证码',
-                                      suffixIcon: TextButton(
-                                          onPressed: _busy
-                                              ? null
-                                              : () async {
-                                                  try {
-                                                    await AuthService()
-                                                        .requestEmailCode(
-                                                            serverUrl: _server
-                                                                .text
-                                                                .trim(),
-                                                            email: _email.text
-                                                                .trim());
-                                                    if (mounted)
-                                                      ScaffoldMessenger.of(
-                                                              context)
-                                                          .showSnackBar(
-                                                              const SnackBar(
-                                                                  content: Text(
-                                                                      '验证码已发送')));
-                                                  } catch (error) {
-                                                    if (mounted)
-                                                      setState(() => _error =
-                                                          error.toString());
-                                                  }
-                                                },
-                                          child: const Text('发送')))),
-                            ] else if (_appInfo?.passwordLoginEnabled != false)
-                              TextField(
-                                  controller: _password,
-                                  obscureText: true,
-                                  decoration:
-                                      const InputDecoration(labelText: '密码')),
-                            if (_error != null)
-                              Padding(
-                                  padding: const EdgeInsets.only(top: 12),
-                                  child: Text(_error!,
-                                      style: TextStyle(
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .error))),
-                            const SizedBox(height: 20),
-                            SizedBox(
-                                width: double.infinity,
-                                child: FilledButton(
-                                    onPressed: _busy ||
-                                            (_codeMode &&
-                                                _appInfo?.emailCodeLoginEnabled !=
-                                                    true) ||
-                                            (!_codeMode &&
-                                                _appInfo?.passwordLoginEnabled ==
-                                                    false)
-                                        ? null
-                                        : () async {
-                                            setState(() {
-                                              _busy = true;
-                                              _error = null;
-                                            });
-                                            try {
-                                              if (_codeMode) {
-                                                await widget.onCodeLogin(
-                                                    _server.text.trim(),
-                                                    _email.text.trim(),
-                                                    _code.text.trim());
-                                              } else {
-                                                await widget.onLogin(
-                                                    _server.text.trim(),
-                                                    _email.text.trim(),
-                                                    _password.text);
-                                              }
-                                            } catch (error) {
-                                              if (mounted) {
-                                                setState(() =>
-                                                    _error = error.toString());
-                                              }
-                                            } finally {
-                                              if (mounted) {
-                                                setState(() => _busy = false);
-                                              }
-                                            }
-                                          },
-                                    child: _busy
+                                  labelText: '服务器地址',
+                                  hintText: 'https://chat.example.com',
+                                  prefixIcon: const Icon(Icons.dns_outlined),
+                                  suffixIcon: IconButton(
+                                    tooltip: '检查服务器',
+                                    onPressed:
+                                        _infoLoading ? null : _loadAppInfo,
+                                    icon: _infoLoading
                                         ? const SizedBox.square(
                                             dimension: 18,
                                             child: CircularProgressIndicator(
-                                                strokeWidth: 2))
-                                        : const Text('登录')))
-                          ])))))));
+                                                strokeWidth: 2),
+                                          )
+                                        : const Icon(Icons.refresh),
+                                  ),
+                                ),
+                                onChanged: _onServerChanged,
+                                onFieldSubmitted: (_) => _loadAppInfo(),
+                              ),
+                              if (_serverStatus != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Icon(
+                                        _appInfo == null
+                                            ? Icons.info_outline
+                                            : Icons.check_circle_outline,
+                                        size: 17,
+                                        color: _appInfo == null
+                                            ? Theme.of(context)
+                                                .colorScheme
+                                                .onSurfaceVariant
+                                            : Theme.of(context)
+                                                .colorScheme
+                                                .primary,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          _serverStatus!,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              const SizedBox(height: 12),
+                              TextFormField(
+                                key: _emailFieldKey,
+                                controller: _email,
+                                keyboardType: TextInputType.emailAddress,
+                                textInputAction: TextInputAction.next,
+                                autofillHints: const [
+                                  AutofillHints.username,
+                                  AutofillHints.email,
+                                ],
+                                autocorrect: false,
+                                validator: _validateEmail,
+                                decoration: const InputDecoration(
+                                  labelText: '邮箱',
+                                  prefixIcon: Icon(Icons.mail_outline),
+                                ),
+                              ),
+                              if (_appInfo?.emailCodeLoginEnabled == true &&
+                                  _appInfo?.passwordLoginEnabled == true)
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: TextButton(
+                                    onPressed: _submitting || _sendingCode
+                                        ? null
+                                        : () => setState(
+                                            () => _codeMode = !_codeMode),
+                                    child: Text(
+                                        _codeMode ? '使用密码登录' : '使用邮箱验证码登录'),
+                                  ),
+                                )
+                              else
+                                const SizedBox(height: 12),
+                              if (_codeMode &&
+                                  _appInfo?.emailCodeLoginEnabled == true)
+                                TextFormField(
+                                  controller: _code,
+                                  keyboardType: TextInputType.number,
+                                  textInputAction: TextInputAction.done,
+                                  autofillHints: const [
+                                    AutofillHints.oneTimeCode
+                                  ],
+                                  maxLength: 8,
+                                  validator: _validateSecret,
+                                  onFieldSubmitted: (_) => _submit(),
+                                  decoration: InputDecoration(
+                                    labelText: '邮箱验证码',
+                                    prefixIcon:
+                                        const Icon(Icons.password_outlined),
+                                    counterText: '',
+                                    suffixIcon: TextButton(
+                                      onPressed: _submitting ||
+                                              _sendingCode ||
+                                              _resendIn > 0
+                                          ? null
+                                          : _requestEmailCode,
+                                      child: _sendingCode
+                                          ? const SizedBox.square(
+                                              dimension: 16,
+                                              child: CircularProgressIndicator(
+                                                  strokeWidth: 2),
+                                            )
+                                          : Text(_resendIn > 0
+                                              ? '${_resendIn}s'
+                                              : '发送'),
+                                    ),
+                                  ),
+                                )
+                              else if (_appInfo?.passwordLoginEnabled != false)
+                                TextFormField(
+                                  controller: _password,
+                                  obscureText: !_passwordVisible,
+                                  textInputAction: TextInputAction.done,
+                                  autofillHints: const [AutofillHints.password],
+                                  validator: _validateSecret,
+                                  onFieldSubmitted: (_) => _submit(),
+                                  decoration: InputDecoration(
+                                    labelText: '密码',
+                                    prefixIcon: const Icon(Icons.lock_outline),
+                                    suffixIcon: IconButton(
+                                      tooltip:
+                                          _passwordVisible ? '隐藏密码' : '显示密码',
+                                      onPressed: () => setState(() =>
+                                          _passwordVisible = !_passwordVisible),
+                                      icon: Icon(_passwordVisible
+                                          ? Icons.visibility_off_outlined
+                                          : Icons.visibility_outlined),
+                                    ),
+                                  ),
+                                ),
+                              if (_error != null)
+                                Semantics(
+                                  liveRegion: true,
+                                  child: Container(
+                                    width: double.infinity,
+                                    margin: const EdgeInsets.only(top: 12),
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .errorContainer,
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      _error!,
+                                      style: TextStyle(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onErrorContainer,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              const SizedBox(height: 20),
+                              SizedBox(
+                                width: double.infinity,
+                                child: FilledButton(
+                                  onPressed: _submitting ||
+                                          _sendingCode ||
+                                          (_codeMode &&
+                                              _appInfo?.emailCodeLoginEnabled !=
+                                                  true) ||
+                                          (!_codeMode &&
+                                              _appInfo?.passwordLoginEnabled ==
+                                                  false)
+                                      ? null
+                                      : _submit,
+                                  child: _submitting
+                                      ? const SizedBox.square(
+                                          dimension: 18,
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2),
+                                        )
+                                      : const Text('登录'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
 }
 
 class AppShell extends StatefulWidget {

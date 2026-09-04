@@ -3,7 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:magicchat_client/main.dart';
 import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/data/repository.dart';
+import 'package:magicchat_client/data/auth_service.dart';
 import 'package:magicchat_client/domain/models.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _HistoryRepository extends DemoRepository {
@@ -32,6 +35,37 @@ class _HistoryRepository extends DemoRepository {
 }
 
 void main() {
+  testWidgets('登录表单校验输入并规范化服务器地址', (tester) async {
+    final service = AuthService(
+        client: MockClient((_) async => http.Response(
+            '{"data":{"password_login_enabled":true,"email_code_login_enabled":false,"third_party_providers":[]}}',
+            200)));
+    String? submittedServer;
+    await tester.pumpWidget(MaterialApp(
+      home: LoginPage(
+        initialServer: 'chat.example.com/',
+        authService: service,
+        onLogin: (server, email, password) async => submittedServer = server,
+        onCodeLogin: (_, __, ___) async {},
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('登录'));
+    await tester.pump();
+    expect(find.text('请输入邮箱'), findsOneWidget);
+    expect(find.text('请输入密码'), findsOneWidget);
+    expect(submittedServer, isNull);
+
+    await tester.enterText(
+        find.widgetWithText(TextFormField, '邮箱'), 'alice@example.com');
+    await tester.enterText(find.widgetWithText(TextFormField, '密码'), 'secret');
+    await tester.tap(find.text('登录'));
+    await tester.pumpAndSettle();
+
+    expect(submittedServer, 'https://chat.example.com');
+  });
+
   testWidgets('显示跨端导航入口', (tester) async {
     await tester
         .pumpWidget(MaterialApp(home: AppShell(repository: DemoRepository())));
