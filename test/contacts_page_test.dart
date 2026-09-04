@@ -73,6 +73,25 @@ void main() {
     expect(repository.joinedGroupId, 'group-public');
     expect(opened, 'group-public');
   });
+
+  testWidgets('联系人列表支持下拉刷新', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(500, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final repository = _RefreshContactsRepository();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: ContactsPage(repository: repository))));
+    await tester.pumpAndSettle();
+    final requestsBeforeRefresh = repository.requests;
+    expect(requestsBeforeRefresh, greaterThanOrEqualTo(1));
+
+    await tester.drag(find.text('刷新联系人'), const Offset(0, 420));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    expect(repository.requests, requestsBeforeRefresh + 1);
+    expect(find.text('刷新联系人'), findsOneWidget);
+  });
 }
 
 class _FriendRepository extends DemoRepository {
@@ -148,5 +167,17 @@ class _GroupRepository extends DemoRepository {
   Future<ChatConversation> joinGroupConversation(String conversationId) async {
     joinedGroupId = conversationId;
     return ChatConversation(id: conversationId, title: '公开群组', type: 'group');
+  }
+}
+
+class _RefreshContactsRepository extends DemoRepository {
+  var requests = 0;
+
+  @override
+  Future<ContactDirectory> contactDirectory({String keyword = ''}) async {
+    requests++;
+    return const ContactDirectory(
+        contacts: [Contact(id: 'refresh-user', name: '刷新联系人')],
+        mode: 'organization');
   }
 }

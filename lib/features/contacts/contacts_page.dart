@@ -75,6 +75,14 @@ class _ContactsPageState extends State<ContactsPage> {
     });
   }
 
+  Future<void> _refresh() async {
+    final future = _loadDirectory();
+    setState(() {
+      _directoryFuture = future;
+    });
+    await future;
+  }
+
   void _openInitialContact(ContactDirectory directory) {
     final id = widget.initialContactId;
     if (id == null || id.isEmpty || id == _openedInitialContactId) return;
@@ -181,58 +189,68 @@ class _ContactsPageState extends State<ContactsPage> {
     }
     final contacts = snapshot.data!.contacts;
     if (contacts.isEmpty) {
-      return const Center(child: Text('暂无联系人'));
+      return RefreshIndicator(
+          onRefresh: _refresh,
+          child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: const [
+                SizedBox(height: 220, child: Center(child: Text('暂无联系人'))),
+              ]));
     }
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      itemCount: contacts.length,
-      itemBuilder: (context, index) {
-        final raw = contacts[index];
-        final contact = widget.realtimeStore?.contacts[raw.id] ?? raw;
-        widget.realtimeStore?.contacts[contact.id] = contact;
-        final avatarUri = _contactAvatarUri(widget.serverUrl, contact.avatar);
-        return ListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          leading: CachedAvatar(
-              repository: widget.repository,
-              cacheScope: widget.cacheScope,
-              avatarUri: avatarUri,
-              name: contact.displayName,
-              radius: 22,
-              backgroundColor: contact.type == 'app'
-                  ? Theme.of(context).colorScheme.secondaryContainer
-                  : Theme.of(context).colorScheme.primaryContainer),
-          title: Text(contact.displayName),
-          subtitle: Text(
-              contact.type == 'group'
-                  ? '${contact.memberCount} 人 · ${contact.joined ? '已加入' : contact.visibility == 'public' ? '公开群组' : '群组'}'
-                  : contact.online
-                      ? '在线'
-                      : '离线',
-              style: TextStyle(
-                  color: contact.type == 'group'
-                      ? Theme.of(context).colorScheme.onSurfaceVariant
-                      : contact.online
-                          ? Colors.green.shade700
-                          : Theme.of(context).colorScheme.onSurfaceVariant)),
-          trailing: contact.type == 'group'
-              ? Icon(contact.joined
-                  ? Icons.check_circle_outline
-                  : Icons.public_outlined)
-              : Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                      color: contact.online
-                          ? Colors.green
-                          : Theme.of(context).colorScheme.outlineVariant,
-                      shape: BoxShape.circle)),
-          onTap: () => _openConversation(contact),
-        );
-      },
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        itemCount: contacts.length,
+        itemBuilder: (context, index) {
+          final raw = contacts[index];
+          final contact = widget.realtimeStore?.contacts[raw.id] ?? raw;
+          widget.realtimeStore?.contacts[contact.id] = contact;
+          final avatarUri = _contactAvatarUri(widget.serverUrl, contact.avatar);
+          return ListTile(
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            leading: CachedAvatar(
+                repository: widget.repository,
+                cacheScope: widget.cacheScope,
+                avatarUri: avatarUri,
+                name: contact.displayName,
+                radius: 22,
+                backgroundColor: contact.type == 'app'
+                    ? Theme.of(context).colorScheme.secondaryContainer
+                    : Theme.of(context).colorScheme.primaryContainer),
+            title: Text(contact.displayName),
+            subtitle: Text(
+                contact.type == 'group'
+                    ? '${contact.memberCount} 人 · ${contact.joined ? '已加入' : contact.visibility == 'public' ? '公开群组' : '群组'}'
+                    : contact.online
+                        ? '在线'
+                        : '离线',
+                style: TextStyle(
+                    color: contact.type == 'group'
+                        ? Theme.of(context).colorScheme.onSurfaceVariant
+                        : contact.online
+                            ? Colors.green.shade700
+                            : Theme.of(context).colorScheme.onSurfaceVariant)),
+            trailing: contact.type == 'group'
+                ? Icon(contact.joined
+                    ? Icons.check_circle_outline
+                    : Icons.public_outlined)
+                : Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                        color: contact.online
+                            ? Colors.green
+                            : Theme.of(context).colorScheme.outlineVariant,
+                        shape: BoxShape.circle)),
+            onTap: () => _openConversation(contact),
+          );
+        },
+      ),
     );
   }
 
