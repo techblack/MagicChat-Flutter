@@ -66,6 +66,25 @@ void main() {
     expect(submittedServer, 'https://chat.example.com');
   });
 
+  testWidgets('登录页显示会话过期提示', (tester) async {
+    final service = AuthService(
+        client: MockClient((_) async => http.Response(
+            '{"data":{"password_login_enabled":true,"email_code_login_enabled":false,"third_party_providers":[]}}',
+            200)));
+    await tester.pumpWidget(MaterialApp(
+      home: LoginPage(
+        initialServer: 'https://chat.example.com',
+        initialError: '登录已过期，请重新登录',
+        authService: service,
+        onLogin: (_, __, ___) async {},
+        onCodeLogin: (_, __, ___) async {},
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('登录已过期，请重新登录'), findsOneWidget);
+  });
+
   testWidgets('显示跨端导航入口', (tester) async {
     await tester
         .pumpWidget(MaterialApp(home: AppShell(repository: DemoRepository())));

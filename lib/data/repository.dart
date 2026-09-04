@@ -869,19 +869,36 @@ class DemoRepository implements MagicChatRepository {
           createdAt: DateTime.now().toIso8601String());
 }
 
+class MagicChatRequestException implements Exception {
+  const MagicChatRequestException(
+      {required this.statusCode, required this.message, this.code});
+
+  final int statusCode;
+  final String? code;
+  final String message;
+
+  bool get isUnauthorized => statusCode == 401 || code == 'unauthorized';
+
+  @override
+  String toString() => message;
+}
+
 /// 服务端 `/api/client/` 的最小 HTTP 实现。所有响应先按 unknown 解码，再做字段校验。
 class HttpMagicChatRepository implements MagicChatRepository {
   static const requestTimeout = Duration(seconds: 30);
   HttpMagicChatRepository(
       {required String serverUrl,
       required this.sessionToken,
-      http.Client? client})
+      http.Client? client,
+      void Function()? onUnauthorized})
       : baseUri =
             Uri.parse(serverUrl.endsWith('/') ? serverUrl : '$serverUrl/'),
-        _client = client ?? createMagicChatHttpClient();
+        _client = client ?? createMagicChatHttpClient(),
+        _onUnauthorized = onUnauthorized;
   final Uri baseUri;
   final String sessionToken;
   final http.Client _client;
+  final void Function()? _onUnauthorized;
   String? _currentUserId;
   final _projectUsers = <String, ProjectUser>{};
   final _contactCacheStore = ContactCacheStore();
@@ -1304,10 +1321,37 @@ class HttpMagicChatRepository implements MagicChatRepository {
         .timeout(requestTimeout);
     final text = await response.stream.bytesToString();
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('请求失败（HTTP ${response.statusCode}）');
+      throw _requestException(response.statusCode, text);
     }
     if (text.isEmpty) return null;
-    return jsonDecode(text);
+    final value = jsonDecode(text);
+    if (value is Map<String, dynamic> && value['success'] == false) {
+      throw _requestException(response.statusCode, text);
+    }
+    return value;
+  }
+
+  MagicChatRequestException _requestException(int statusCode, String body) {
+    String? code;
+    String? message;
+    try {
+      final value = jsonDecode(body);
+      final error = value is Map<String, dynamic> ? value['error'] : null;
+      if (error is Map<String, dynamic>) {
+        if (error['code'] is String) code = error['code'] as String;
+        if (error['message'] is String) message = error['message'] as String;
+      }
+    } catch (_) {
+      // 非 JSON 错误响应回退到 HTTP 状态信息。
+    }
+    final exception = MagicChatRequestException(
+        statusCode: statusCode,
+        code: code,
+        message: message?.trim().isNotEmpty == true
+            ? message!.trim()
+            : '请求失败（HTTP $statusCode）');
+    if (exception.isUnauthorized) _onUnauthorized?.call();
+    return exception;
   }
 
   Map<String, dynamic> _data(dynamic value) {

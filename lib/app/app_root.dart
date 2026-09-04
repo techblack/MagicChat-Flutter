@@ -22,7 +22,9 @@ class _MagicChatAppState extends State<MagicChatApp> {
   final _realtimeStore = RealtimeStore();
   ThemeMode _themeMode = ThemeMode.system;
   String? _serverUrl;
+  String? _loginError;
   bool _loading = true;
+  bool _sessionExpiring = false;
 
   @override
   void initState() {
@@ -39,7 +41,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
     setState(() {
       _serverUrl = server;
       _repository = server != null && token != null
-          ? HttpMagicChatRepository(serverUrl: server, sessionToken: token)
+          ? _createRepository(server, token)
           : null;
       _realtime = server != null && token != null
           ? RealtimeSession(
@@ -69,14 +71,16 @@ class _MagicChatAppState extends State<MagicChatApp> {
     if (!mounted || token == null) return;
     await const SessionStore().saveAccount(StoredAccount(
         id: '$server|$email', serverUrl: server, token: token, email: email));
-    setState(() => _repository =
-        HttpMagicChatRepository(serverUrl: server, sessionToken: token));
-    setState(() => _serverUrl = server);
-    setState(() => _realtime = RealtimeSession(
-        realtime: MagicChatRealtime(
-            serverUrl: server,
-            sessionToken: token,
-            connector: connectWithAuthorization)));
+    setState(() {
+      _serverUrl = server;
+      _loginError = null;
+      _repository = _createRepository(server, token);
+      _realtime = RealtimeSession(
+          realtime: MagicChatRealtime(
+              serverUrl: server,
+              sessionToken: token,
+              connector: connectWithAuthorization));
+    });
     unawaited(_registerPush(server, token));
   }
 
@@ -91,8 +95,8 @@ class _MagicChatAppState extends State<MagicChatApp> {
         id: '$server|$email', serverUrl: server, token: token, email: email));
     setState(() {
       _serverUrl = server;
-      _repository =
-          HttpMagicChatRepository(serverUrl: server, sessionToken: token);
+      _loginError = null;
+      _repository = _createRepository(server, token);
       _realtime = RealtimeSession(
           realtime: MagicChatRealtime(
               serverUrl: server,
@@ -124,13 +128,49 @@ class _MagicChatAppState extends State<MagicChatApp> {
     }
   }
 
+  HttpMagicChatRepository _createRepository(String server, String token) =>
+      HttpMagicChatRepository(
+          serverUrl: server,
+          sessionToken: token,
+          onUnauthorized: () => unawaited(_expireSession(server, token)));
+
+  Future<void> _expireSession(String server, String token) async {
+    final current = _repository;
+    if (current is! HttpMagicChatRepository ||
+        current.sessionToken != token ||
+        _serverUrl != server) {
+      return;
+    }
+    if (_sessionExpiring) return;
+    _sessionExpiring = true;
+    await _realtime?.close();
+    await const SessionStore().clear();
+    await MessageCacheStore().clearAll();
+    await ContactCacheStore().clearAll();
+    await LocalAssetCache().clearAll();
+    if (mounted) {
+      setState(() {
+        _repository = null;
+        _realtime = null;
+        _loginError = '登录已过期，请重新登录';
+      });
+    }
+    _sessionExpiring = false;
+  }
+
   Future<void> _logout() async {
     final prefs = await SharedPreferences.getInstance();
     final server = prefs.getString('magicchat.server_url');
     final token = await const SessionStore().readToken();
     if (server != null && token != null) await _revokePush(server, token);
     if (server != null) {
-      await AuthService().logout(serverUrl: server);
+      try {
+        await AuthService().logout(serverUrl: server);
+      } catch (_) {
+        // 远端不可达时仍完成本地注销。
+      }
+    } else {
+      await const SessionStore().clear();
     }
     await prefs.remove('magicchat.server_url');
     await MessageCacheStore().clearAll();
@@ -142,6 +182,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
         _repository = null;
         _realtime = null;
         _serverUrl = null;
+        _loginError = null;
       });
     }
   }
@@ -172,6 +213,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
         _repository = null;
         _realtime = null;
         _serverUrl = normalized;
+        _loginError = null;
       });
   }
 
@@ -189,8 +231,8 @@ class _MagicChatAppState extends State<MagicChatApp> {
     if (!mounted) return;
     setState(() {
       _serverUrl = account.serverUrl;
-      _repository = HttpMagicChatRepository(
-          serverUrl: account.serverUrl, sessionToken: account.token);
+      _loginError = null;
+      _repository = _createRepository(account.serverUrl, account.token);
       _realtime = RealtimeSession(
           realtime: MagicChatRealtime(
               serverUrl: account.serverUrl,
@@ -260,7 +302,8 @@ class _MagicChatAppState extends State<MagicChatApp> {
                 ? LoginPage(
                     onLogin: _login,
                     onCodeLogin: _loginWithCode,
-                    initialServer: _serverUrl)
+                    initialServer: _serverUrl,
+                    initialError: _loginError)
                 : AppShell(
                     key: ValueKey(_repository),
                     repository: _repository!,
@@ -280,6 +323,7 @@ class LoginPage extends StatefulWidget {
       {required this.onLogin,
       required this.onCodeLogin,
       this.initialServer,
+      this.initialError,
       this.authService,
       super.key});
   final Future<void> Function(String server, String email, String password)
@@ -287,6 +331,7 @@ class LoginPage extends StatefulWidget {
   final Future<void> Function(String server, String email, String code)
       onCodeLogin;
   final String? initialServer;
+  final String? initialError;
   final AuthService? authService;
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -307,7 +352,7 @@ class _LoginPageState extends State<LoginPage> {
   bool _passwordVisible = false;
   bool _infoLoading = false;
   ClientAppInfo? _appInfo;
-  String? _error;
+  late String? _error = widget.initialError;
   String? _serverStatus;
   int _infoGeneration = 0;
   int _resendIn = 0;

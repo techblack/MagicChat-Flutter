@@ -8,6 +8,28 @@ import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
 
 void main() {
+  test('HTTP 仓库保留服务端错误并通知会话失效', () async {
+    var unauthorizedCount = 0;
+    final repository = HttpMagicChatRepository(
+      serverUrl: 'https://chat.example.com',
+      sessionToken: 'expired-token',
+      onUnauthorized: () => unauthorizedCount++,
+      client: MockClient((_) async => _jsonResponse({
+            'success': false,
+            'error': {'code': 'unauthorized', 'message': '会话已失效'},
+          }, statusCode: 401)),
+    );
+
+    await expectLater(
+      repository.currentUser(),
+      throwsA(isA<MagicChatRequestException>()
+          .having((error) => error.statusCode, 'statusCode', 401)
+          .having((error) => error.code, 'code', 'unauthorized')
+          .having((error) => error.message, 'message', '会话已失效')),
+    );
+    expect(unauthorizedCount, 1);
+  });
+
   test('HTTP 消息解析选择状态及选项统计', () async {
     final repository = HttpMagicChatRepository(
       serverUrl: 'https://chat.example.com',

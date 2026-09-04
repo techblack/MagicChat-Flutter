@@ -4,7 +4,7 @@ Flutter 工程与现有客户端并行演进，页面层通过 `MagicChatReposit
 
 | 现有能力 | Flutter 入口 | 状态 |
 | --- | --- | --- |
-| 登录、Server 会话 | 启动登录页、`AuthService`、`SessionStore`、设置页 | 密码/邮箱验证码登录、Native HTTP/Bearer 与 Web HttpOnly Cookie、退出登录、服务器切换、实时连接清理、主题持久化已接入 |
+| 登录、Server 会话 | 启动登录页、`AuthService`、`SessionStore`、设置页 | 密码/邮箱验证码登录、Native HTTP/Bearer 与 Web HttpOnly Cookie、退出登录、服务器切换、实时连接清理、会话过期自动返回登录页、离线本地注销和主题持久化已接入 |
 | 账户资料 | 设置页 | `/api/client/me` 查询、昵称修改、头像选择及严格 256x256 WebP 裁剪上传已接入；`user.profile.updated` 会触发设置页刷新 |
 | 多账户 | 设置页、`SessionStore` | 安全存储多个 Server 账户、切换和长按删除、需重新登录账户的密码认证 UI 已接入 |
 | 本地存储 | 设置页、`StorageService` | 跨平台缓存占用统计、路径展示和清理已接入 |
