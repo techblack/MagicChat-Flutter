@@ -1,6 +1,7 @@
 # MagicChat Flutter
 
 [![CI](https://github.com/techblack/MagicChat-Flutter/actions/workflows/ci.yml/badge.svg)](https://github.com/techblack/MagicChat-Flutter/actions/workflows/ci.yml)
+[![Release](https://github.com/techblack/MagicChat-Flutter/actions/workflows/release.yml/badge.svg)](https://github.com/techblack/MagicChat-Flutter/actions/workflows/release.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 
 MagicChat 的跨平台 Flutter 客户端。一套代码覆盖 Android、iOS、Windows、macOS、Linux 和 Web，支持连接自托管 MagicChat Server。
@@ -46,6 +47,8 @@ flutter build linux
 ```
 
 CI 会执行格式、静态检查、单元测试，并构建 Web Release 与 Linux Debug 产物。
+
+推送与 `pubspec.yaml` 版本一致的 `v*` 标签后，Release 工作流会构建并发布完整的跨平台产物：Android 通用/分 ABI APK 与 AAB、未签名 iOS IPA、macOS、Windows、Linux、Web 压缩包及 SHA-256 校验文件。Android 当前沿用项目的测试签名，iOS 产物需要使用自己的 Apple 开发者证书重新签名；正式上架应用商店前需配置对应平台的发布签名。
 
 Android 推送默认保持安全降级；发布包需要 JPush 时，在构建环境注入应用密钥（不要提交到仓库）：
 

@@ -1,0 +1,196 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate tag against pubspec version
+        shell: bash
+        run: |
+          app_version="$(sed -n 's/^version: *\([^+]*\).*/\1/p' pubspec.yaml)"
+          test -n "$app_version"
+          test "$GITHUB_REF_NAME" = "v$app_version"
+
+  android:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Build Android release artifacts
+        shell: bash
+        run: |
+          mkdir -p dist
+          flutter build apk --release
+          cp build/app/outputs/flutter-apk/app-release.apk dist/MagicChat-Android-universal.apk
+          flutter build apk --release --split-per-abi
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk dist/MagicChat-Android-armeabi-v7a.apk
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk dist/MagicChat-Android-arm64-v8a.apk
+          cp build/app/outputs/flutter-apk/app-x86_64-release.apk dist/MagicChat-Android-x86_64.apk
+          flutter build appbundle --release
+          cp build/app/outputs/bundle/release/app-release.aab dist/MagicChat-Android.aab
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-android
+          path: dist/*
+          if-no-files-found: error
+
+  linux:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install Linux build dependencies
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev
+          libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+      - run: flutter pub get
+      - name: Build Linux release artifact
+        shell: bash
+        run: |
+          flutter build linux --release
+          mkdir -p dist
+          tar -C build/linux/x64/release/bundle -czf dist/MagicChat-Linux-x64.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: dist/*
+          if-no-files-found: error
+
+  windows:
+    needs: validate
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Build Windows release artifact
+        shell: pwsh
+        run: |
+          flutter build windows --release
+          New-Item -ItemType Directory -Force dist
+          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "dist\MagicChat-Windows-x64.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: dist/*
+          if-no-files-found: error
+
+  apple:
+    needs: validate
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Build macOS release artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+          flutter build macos --release
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/macos/Build/Products/Release/MagicChat.app \
+            dist/MagicChat-macOS.zip
+      - name: Build unsigned iOS release artifact
+        shell: bash
+        run: |
+          flutter build ios --release --no-codesign
+          mkdir -p dist/Payload
+          ditto build/ios/iphoneos/Runner.app dist/Payload/Runner.app
+          ditto -c -k --sequesterRsrc --keepParent \
+            dist/Payload dist/MagicChat-iOS-unsigned.ipa
+          rm -rf dist/Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-apple
+          path: dist/*
+          if-no-files-found: error
+
+  web:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Build Web release artifact
+        shell: bash
+        run: |
+          flutter build web --release
+          mkdir -p dist
+          (cd build/web && zip -qr ../../dist/MagicChat-Web.zip .)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-web
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: [android, linux, windows, apple, web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+      - name: Generate checksums
+        shell: bash
+        run: |
+          (cd release-assets && sha256sum -- * > ../SHA256SUMS.txt)
+          mv SHA256SUMS.txt release-assets/
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: MagicChat ${{ github.ref_name }}
+          generate_release_notes: true
+          body: |
+            所有产物均由该标签对应源码通过 GitHub Actions 构建。
+
+            - Android APK/AAB 沿用项目当前测试签名，仅用于测试和侧载；正式上架前请配置发布签名。
+            - iOS IPA 未签名，需要使用自己的 Apple 开发者证书重新签名后安装。
+            - Web 产物需要部署到 Web 服务器，不能直接以 `file://` 方式运行。
+          files: release-assets/*
+          fail_on_unmatched_files: true
