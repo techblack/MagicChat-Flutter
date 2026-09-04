@@ -8,7 +8,15 @@ Uri? _resolveAssetUri(String? serverUrl, String value) {
   return server == null ? null : server.resolve(value);
 }
 
-void main() => runApp(const MagicChatApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  if (!kIsWeb &&
+      kReleaseMode &&
+      defaultTargetPlatform == TargetPlatform.macOS) {
+    await FilePicker.skipEntitlementsChecks();
+  }
+  runApp(const MagicChatApp());
+}
 
 class MagicChatApp extends StatefulWidget {
   const MagicChatApp({super.key});

@@ -126,19 +126,23 @@ jobs:
           mkdir -p dist
           flutter build macos --release
           app="build/macos/Build/Products/Release/MagicChat.app"
-          entitlements="$RUNNER_TEMP/MagicChat.entitlements.plist"
-          codesign -d --entitlements :- "$app" > "$entitlements"
-          for capability in \
-            com.apple.security.network.client \
-            com.apple.security.device.audio-input \
-            com.apple.security.device.camera \
-            com.apple.security.files.user-selected.read-write; do
-            test "$(/usr/libexec/PlistBuddy -c "Print :$capability" "$entitlements")" = true
-          done
-          /usr/libexec/PlistBuddy -c "Print :keychain-access-groups" "$entitlements" >/dev/null
+          codesign --verify --deep --strict --verbose=4 "$app"
+          if codesign -d --entitlements :- "$app" 2>/dev/null \
+            | grep -q '<key>com.apple.security.app-sandbox</key>'; then
+            echo "macOS Release must not enable App Sandbox" >&2
+            exit 1
+          fi
           for usage in NSCameraUsageDescription NSLocalNetworkUsageDescription NSMicrophoneUsageDescription; do
             test -n "$(/usr/libexec/PlistBuddy -c "Print :$usage" "$app/Contents/Info.plist")"
           done
+          open -n "$app"
+          for _ in {1..10}; do
+            pid="$(pgrep -x MagicChat || true)"
+            test -n "$pid" && break
+            sleep 1
+          done
+          test -n "${pid:-}"
+          kill "$pid"
           ditto -c -k --sequesterRsrc --keepParent \
             "$app" dist/MagicChat-macOS.zip
       - name: Build unsigned iOS release artifact
@@ -204,6 +208,7 @@ jobs:
 
             - Android APK/AAB 沿用项目当前测试签名，仅用于测试和侧载；正式上架前请配置发布签名。
             - iOS IPA 未签名，需要使用自己的 Apple 开发者证书重新签名后安装。
+            - macOS 产物关闭了 App Sandbox，使用临时签名且未经 Apple 公证。下载并移动到 `/Applications` 后需执行 `xattr -dr com.apple.quarantine /Applications/MagicChat.app` 才能启动。
             - Web 产物需要部署到 Web 服务器，不能直接以 `file://` 方式运行。
           files: release-assets/*
           fail_on_unmatched_files: true
