@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:yjs_dart/yjs_dart.dart' as yjs;
 
 import '../../data/repository.dart';
 import '../../data/document_collaboration.dart';
@@ -121,6 +122,20 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     }
   }
 
+  Future<void> _editTextNode(yjs.YXmlText node) async {
+    final session = widget.collaboration;
+    if (session == null ||
+        session.status != DocumentCollaborationStatus.synced) {
+      return;
+    }
+    final value = await showDialog<String>(
+        context: context,
+        builder: (_) => _TextBlockDialog(initialText: node.toString()));
+    if (value != null && mounted) {
+      session.replaceXmlText(node, value);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(
@@ -183,7 +198,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                           child: Text(widget.collaboration!.status ==
                                   DocumentCollaborationStatus.error
                               ? '协作连接已断开 · 点击右上角重新连接'
-                              : '富文档安全编辑 · 现有内容只读，可追加标准内容块')),
+                              : '富文档安全编辑 · 长按文本块可编辑，可追加标准内容块')),
                     ])),
                 const SizedBox(height: 8),
                 RichDocumentToolbar(
@@ -193,7 +208,9 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                         unawaited(_appendBlock(initialType: type))),
                 const SizedBox(height: 8),
                 Expanded(
-                    child: RichDocumentView(body: widget.collaboration!.body)),
+                    child: RichDocumentView(
+                        body: widget.collaboration!.body,
+                        onEditText: _editTextNode)),
               ])
             : Column(children: [
                 MarkdownEditorToolbar(
@@ -305,6 +322,45 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
         ? '$status · ${session.collaboratorCount} 人在线'
         : status;
   }
+}
+
+class _TextBlockDialog extends StatefulWidget {
+  const _TextBlockDialog({required this.initialText});
+
+  final String initialText;
+
+  @override
+  State<_TextBlockDialog> createState() => _TextBlockDialogState();
+}
+
+class _TextBlockDialogState extends State<_TextBlockDialog> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initialText);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('编辑文本块'),
+        content: TextField(
+            controller: _controller,
+            autofocus: true,
+            minLines: 2,
+            maxLines: 8,
+            decoration: const InputDecoration(
+                hintText: '输入文本', border: OutlineInputBorder())),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context), child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, _controller.text),
+              child: const Text('保存')),
+        ],
+      );
 }
 
 String _richBlockLabel(RichDocumentBlockType type) => switch (type) {

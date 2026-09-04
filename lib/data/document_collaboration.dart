@@ -127,6 +127,20 @@ class DocumentCollaborationSession extends ChangeNotifier {
     });
   }
 
+  /// 更新一个已有的 XML 文本叶子，保留该叶子的 marks 属性。
+  void replaceXmlText(yjs.YXmlText node, String value) {
+    if (documentType != 'document' ||
+        status != DocumentCollaborationStatus.synced ||
+        node.toString() == value) {
+      return;
+    }
+    final marks = _marksFor(node);
+    _document.transact((_) {
+      _clearText(node);
+      if (value.isNotEmpty) node.insert(0, value, marks);
+    });
+  }
+
   /// 在富文档末尾追加一个标准 Tiptap XML block。
   ///
   /// 返回 `false` 表示当前不是已同步的富文档或正文为空；此时调用方可
@@ -211,8 +225,9 @@ class DocumentCollaborationSession extends ChangeNotifier {
       final node = textNodes[i];
       final next = i < lines.length ? lines[i] : '';
       if (node.toString() == next) continue;
-      if (node.length > 0) node.delete(0, node.length);
-      if (next.isNotEmpty) node.insert(0, next);
+      final marks = _marksFor(node);
+      _clearText(node);
+      if (next.isNotEmpty) node.insert(0, next, marks);
       if (i >= lines.length && node.parent is yjs.YXmlElement) {
         final paragraph = node.parent!;
         if (paragraph.name == 'paragraph' && paragraph.length == 1) {
@@ -241,6 +256,19 @@ class DocumentCollaborationSession extends ChangeNotifier {
       } else if (child is yjs.YXmlFragment) {
         _collectXmlTextNodes(child, result);
       }
+    }
+  }
+
+  Map<String, Object?> _marksFor(yjs.YXmlText node) {
+    final delta = node.toDelta();
+    if (delta.isEmpty) return const {};
+    final attributes = delta.first['attributes'];
+    return attributes is Map ? Map<String, Object?>.from(attributes) : const {};
+  }
+
+  void _clearText(yjs.YXmlText node) {
+    while (node.toString().isNotEmpty) {
+      node.delete(0, 1);
     }
   }
 

@@ -179,6 +179,52 @@ void main() {
     expect(find.byTooltip('重新连接'), findsOneWidget);
     expect(find.text('协作连接已断开 · 点击右上角重新连接'), findsOneWidget);
   });
+
+  testWidgets('富文档文本块编辑对话框回写协作正文', (tester) async {
+    final channel = _FakeChannel();
+    final session = DocumentCollaborationSession(
+        serverUrl: 'https://chat.example.com',
+        token: 'session-token',
+        documentId: 'document-text-edit',
+        documentType: 'document',
+        connector: (_, __) => channel);
+    addTearDown(session.close);
+    await tester.pumpWidget(MaterialApp(
+        home: DocumentEditorPage(
+            repository: DemoRepository(),
+            document: const ProjectDocument(
+                id: 'document-text-edit',
+                projectId: 'project-1',
+                title: '可编辑文档',
+                documentType: 'document'),
+            collaboration: session)));
+    await tester.pump();
+    channel.emit(
+        encodeHocuspocusAuthenticatedFrame(documentName: 'document-text-edit'));
+    await tester.pump();
+
+    final serverDocument = yjs.Doc(yjs.DocOpts(guid: 'document-text-edit'));
+    final body =
+        serverDocument.get<yjs.YXmlFragment>('body', yjs.YXmlFragment.new)!;
+    _insertParagraphs(body, '原始文本');
+    final incoming = yjs.createEncoder();
+    yjs.writeVarString(incoming, 'document-text-edit');
+    yjs.writeVarUint(incoming, HocuspocusMessageType.sync);
+    yjs.writeSyncStep2(incoming, serverDocument);
+    channel.emit(yjs.toUint8Array(incoming));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.longPress(find.text('原始文本'));
+    await tester.pumpAndSettle();
+    expect(find.text('编辑文本块'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).last, '编辑后文本');
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+
+    expect(session.text, '编辑后文本');
+    serverDocument.destroy();
+  });
 }
 
 void _insertParagraphs(yjs.YXmlFragment body, String value) {
