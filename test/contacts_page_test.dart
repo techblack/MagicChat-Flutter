@@ -23,7 +23,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repository.lastSearch, 'alice@example.com');
-    expect(find.text('Alice'), findsOneWidget);
+    expect(find.widgetWithText(ListTile, 'Alice'), findsOneWidget);
     await tester.tap(find.widgetWithText(FilledButton, '添加好友'));
     await tester.pumpAndSettle();
 
@@ -91,6 +91,29 @@ void main() {
 
     expect(repository.requests, requestsBeforeRefresh + 1);
     expect(find.text('刷新联系人'), findsOneWidget);
+  });
+
+  testWidgets('联系人搜索输入后防抖查询并支持清除', (tester) async {
+    final repository = _SearchContactsRepository();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: ContactsPage(repository: repository))));
+    await tester.pumpAndSettle();
+
+    final search = find.byType(TextField).first;
+    await tester.enterText(search, 'Alice');
+    await tester.pump(const Duration(milliseconds: 299));
+    expect(repository.keywords, isNot(contains('Alice')));
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pumpAndSettle();
+    expect(repository.keywords.last, 'Alice');
+    expect(find.widgetWithText(ListTile, 'Alice'), findsOneWidget);
+    expect(repository.keywords.where((keyword) => keyword == 'Alice'),
+        hasLength(1));
+
+    await tester.tap(find.byTooltip('清除搜索'));
+    await tester.pumpAndSettle();
+    expect(repository.keywords.last, isEmpty);
+    expect(repository.keywords, hasLength(3));
   });
 }
 
@@ -179,5 +202,19 @@ class _RefreshContactsRepository extends DemoRepository {
     return const ContactDirectory(
         contacts: [Contact(id: 'refresh-user', name: '刷新联系人')],
         mode: 'organization');
+  }
+}
+
+class _SearchContactsRepository extends DemoRepository {
+  final keywords = <String>[];
+
+  @override
+  Future<ContactDirectory> contactDirectory({String keyword = ''}) async {
+    keywords.add(keyword);
+    return ContactDirectory(contacts: [
+      Contact(
+          id: keyword.isEmpty ? 'bob' : 'alice',
+          name: keyword.isEmpty ? 'Bob' : 'Alice')
+    ], mode: 'organization');
   }
 }
