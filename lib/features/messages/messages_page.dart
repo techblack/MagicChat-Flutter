@@ -244,10 +244,17 @@ class _ConversationListState extends State<_ConversationList> {
     super.dispose();
   }
 
-  void _reload() => _future = _loadConversations();
+  void _reload() {
+    _future = _loadConversations();
+  }
 
   Future<List<ChatConversation>> _loadConversations() async {
     final conversations = await widget.repository.conversations();
+    if (widget.realtimeStore != null) {
+      for (final conversation in conversations) {
+        widget.realtimeStore!.conversations[conversation.id] = conversation;
+      }
+    }
     if (mounted) {
       widget.onUnreadChanged?.call(totalConversationUnread(conversations));
     }
@@ -307,6 +314,7 @@ class _ConversationListState extends State<_ConversationList> {
                     fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w500);
                 final subtitleStyle =
                     TextStyle(fontWeight: hasUnread ? FontWeight.w600 : null);
+                final messageTime = _conversationTime(c);
                 final statusIcons = <Widget>[
                   if (c.pinned)
                     const Padding(
@@ -354,17 +362,20 @@ class _ConversationListState extends State<_ConversationList> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: subtitleStyle),
-                    trailing: !hasUnread
-                        ? null
-                        : Row(mainAxisSize: MainAxisSize.min, children: [
-                            if (mentionUnread)
-                              const Icon(Icons.alternate_email,
-                                  size: 17, semanticLabel: '有人提及你'),
-                            if (choiceUnread)
-                              const Icon(Icons.checklist,
-                                  size: 17, semanticLabel: '有待响应的选择题'),
-                            if (c.unread > 0) Badge(label: Text('${c.unread}')),
-                          ]),
+                    trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                      if (messageTime != null)
+                        Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: Text(messageTime,
+                                style: Theme.of(context).textTheme.labelSmall)),
+                      if (mentionUnread)
+                        const Icon(Icons.alternate_email,
+                            size: 17, semanticLabel: '有人提及你'),
+                      if (choiceUnread)
+                        const Icon(Icons.checklist,
+                            size: 17, semanticLabel: '有待响应的选择题'),
+                      if (c.unread > 0) Badge(label: Text('${c.unread}')),
+                    ]),
                     onTap: () async {
                       widget.onSelect(c.id);
                       if (hasUnread && c.lastMessageSeq > c.lastReadSeq) {
@@ -420,6 +431,23 @@ class _ConversationListState extends State<_ConversationList> {
                   .toList()),
         )
       ]);
+
+  String? _conversationTime(ChatConversation conversation) {
+    final value = conversation.lastMessageAt.isNotEmpty
+        ? conversation.lastMessageAt
+        : conversation.createdAt;
+    final parsed = DateTime.tryParse(value);
+    if (parsed == null) return null;
+    final local = parsed.toLocal();
+    final now = DateTime.now();
+    final sameDay = local.year == now.year &&
+        local.month == now.month &&
+        local.day == now.day;
+    String twoDigits(int number) => number.toString().padLeft(2, '0');
+    final time = '${twoDigits(local.hour)}:${twoDigits(local.minute)}';
+    if (sameDay) return time;
+    return '${twoDigits(local.month)}-${twoDigits(local.day)}';
+  }
 
   Future<void> _showConversationActions(
       BuildContext context, ChatConversation conversation) async {

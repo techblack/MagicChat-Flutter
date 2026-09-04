@@ -1,5 +1,22 @@
 part of '../../main.dart';
 
+String? formatMessageTime(String value, {DateTime? now}) {
+  final parsed = DateTime.tryParse(value.trim());
+  if (parsed == null) return null;
+  final local = parsed.toLocal();
+  final current = (now ?? DateTime.now()).toLocal();
+  final sameDay = local.year == current.year &&
+      local.month == current.month &&
+      local.day == current.day;
+  String twoDigits(int number) => number.toString().padLeft(2, '0');
+  final time = '${twoDigits(local.hour)}:${twoDigits(local.minute)}';
+  if (sameDay) return time;
+  final date = '${twoDigits(local.month)}-${twoDigits(local.day)}';
+  return local.year == current.year
+      ? '$date $time'
+      : '${local.year}-$date $time';
+}
+
 class ConversationView extends StatefulWidget {
   const ConversationView(
       {required this.repository,
@@ -326,6 +343,8 @@ class _ConversationViewState extends State<ConversationView> {
       authorId: authorId,
       conversationId: value['conversation_id'] as String?,
       sequence: (value['sequence'] as num?)?.toInt(),
+      createdAt:
+          value['created_at'] is String ? value['created_at'] as String : '',
       contentType: '${value['content_type'] ?? 'text'}',
       rawBody: value['raw_body'] is Map
           ? Map<String, dynamic>.from(value['raw_body'] as Map)
@@ -386,6 +405,7 @@ class _ConversationViewState extends State<ConversationView> {
                   'author_id': message.authorId,
                   'conversation_id': message.conversationId,
                   'sequence': message.sequence,
+                  'created_at': message.createdAt,
                   'content_type': message.contentType,
                   'raw_body': message.rawBody,
                   'text': message.text,
@@ -546,6 +566,7 @@ class _ConversationViewState extends State<ConversationView> {
         authorId: message.authorId,
         conversationId: message.conversationId,
         sequence: message.sequence,
+        createdAt: message.createdAt,
         contentType: message.contentType,
         rawBody: message.rawBody,
         mine: message.mine,
@@ -1117,12 +1138,11 @@ class _ConversationViewState extends State<ConversationView> {
                                           conversationId, message);
                                     }
                                   },
-                                  child: AnimatedContainer(
-                                      duration:
-                                          const Duration(milliseconds: 180),
-                                      padding: _highlightedMessageId == message.id
-                                          ? const EdgeInsets.all(2)
-                                          : EdgeInsets.zero,
+                                  child: Container(
+                                      padding:
+                                          _highlightedMessageId == message.id
+                                              ? const EdgeInsets.all(2)
+                                              : EdgeInsets.zero,
                                       decoration: _highlightedMessageId == message.id
                                           ? BoxDecoration(
                                               color: Theme.of(context)
@@ -1143,8 +1163,9 @@ class _ConversationViewState extends State<ConversationView> {
                                               widget.onOpenConversation,
                                           onOpenInternalLink:
                                               widget.onOpenInternalLink,
-                                          onForwardMessage: (id) => _showForwardDialog(
-                                              conversationId, [id]),
+                                          onForwardMessage: (id) =>
+                                              _showForwardDialog(
+                                                  conversationId, [id]),
                                           contactsFuture: _contactsFuture,
                                           isGroupConversation:
                                               _isGroupConversation,
@@ -2063,15 +2084,25 @@ class _MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final messageTime = formatMessageTime(message.createdAt);
     if (message.contentType == 'system_event') {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-        child: Text(
-          message.text,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+        child: Column(
+          children: [
+            Text(
+              message.text,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+            if (messageTime != null)
+              Text(messageTime,
+                  key: ValueKey('message-time-${message.id}'),
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          ],
         ),
       );
     }
@@ -2119,61 +2150,63 @@ class _MessageBubble extends StatelessWidget {
         if (!revoked && message.replyTo != null)
           _replyPreview(context, message.replyTo!, mine, colors),
         if (!mine)
-          FutureBuilder<List<Contact>>(
-              future: contactsFuture,
-              builder: (context, snapshot) {
-                final contact = _findContact(snapshot.data);
-                final contactName = snapshot.hasData
-                    ? _contactName(contact) ?? _nonIdAuthor
-                    : '';
-                final avatarContact = contact ??
-                    (message.authorId == null
-                        ? null
-                        : Contact(
-                            id: message.authorId!,
-                            name: _nonIdAuthor,
-                          ));
-                final canOpenProfile = snapshot.hasData &&
-                    avatarContact != null &&
-                    (avatarContact.type == 'user' || contact == null);
-                return Row(mainAxisSize: MainAxisSize.min, children: [
-                  Semantics(
-                    button: canOpenProfile,
-                    label: canOpenProfile
-                        ? '${avatarContact.displayName}的头像'
-                        : null,
-                    child: InkWell(
-                      key: ValueKey('message-avatar-${message.id}'),
-                      customBorder: const CircleBorder(),
-                      onTap: !canOpenProfile
-                          ? null
-                          : () {
-                              if (isGroupConversation &&
-                                  onOpenMemberConversation != null) {
-                                unawaited(
-                                    onOpenMemberConversation!(avatarContact));
-                              } else {
-                                _showContactPanel(context, avatarContact);
-                              }
-                            },
-                      child: _avatar(context, contact ?? avatarContact,
-                          snapshot.hasData ? _nonIdAuthor : ''),
-                    ),
-                  ),
-                  if (contactName.isNotEmpty) ...[
-                    const SizedBox(width: 6),
-                    Text(contactName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context)
-                            .textTheme
-                            .labelMedium
-                            ?.copyWith(
-                                color: colors.primary,
-                                fontWeight: FontWeight.w600)),
-                  ],
-                ]);
-              }),
+          SizedBox(
+              height: 28,
+              child: FutureBuilder<List<Contact>>(
+                  future: contactsFuture,
+                  builder: (context, snapshot) {
+                    final contact = _findContact(snapshot.data);
+                    final contactName = snapshot.hasData
+                        ? _contactName(contact) ?? _nonIdAuthor
+                        : '';
+                    final avatarContact = contact ??
+                        (message.authorId == null
+                            ? null
+                            : Contact(
+                                id: message.authorId!,
+                                name: _nonIdAuthor,
+                              ));
+                    final canOpenProfile = snapshot.hasData &&
+                        avatarContact != null &&
+                        (avatarContact.type == 'user' || contact == null);
+                    return Row(mainAxisSize: MainAxisSize.min, children: [
+                      Semantics(
+                        button: canOpenProfile,
+                        label: canOpenProfile
+                            ? '${avatarContact.displayName}的头像'
+                            : null,
+                        child: InkWell(
+                          key: ValueKey('message-avatar-${message.id}'),
+                          customBorder: const CircleBorder(),
+                          onTap: !canOpenProfile
+                              ? null
+                              : () {
+                                  if (isGroupConversation &&
+                                      onOpenMemberConversation != null) {
+                                    unawaited(onOpenMemberConversation!(
+                                        avatarContact));
+                                  } else {
+                                    _showContactPanel(context, avatarContact);
+                                  }
+                                },
+                          child: _avatar(context, contact ?? avatarContact,
+                              snapshot.hasData ? _nonIdAuthor : ''),
+                        ),
+                      ),
+                      if (contactName.isNotEmpty) ...[
+                        const SizedBox(width: 6),
+                        Text(contactName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelMedium
+                                ?.copyWith(
+                                    color: colors.primary,
+                                    fontWeight: FontWeight.w600)),
+                      ],
+                    ]);
+                  })),
         if (!hasVoicePlayer)
           Row(mainAxisSize: MainAxisSize.min, children: [
             if (prefix != null) Icon(prefix, size: 18),
@@ -2460,7 +2493,15 @@ class _MessageBubble extends StatelessWidget {
                                       text: reaction.text,
                                       reacted: !reaction.reactedByMe)
                                   : null)))
-                      .toList()))
+                      .toList())),
+        if (messageTime != null)
+          Align(
+              alignment: Alignment.centerRight,
+              child: Text(messageTime,
+                  key: ValueKey('message-time-${message.id}'),
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: (mine ? colors.onPrimary : colors.onSurfaceVariant)
+                          .withValues(alpha: .8))))
       ]),
     );
   }

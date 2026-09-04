@@ -25,9 +25,11 @@ class RealtimeStore extends ChangeNotifier {
         announcement: current.announcement,
         isPublic: current.isPublic,
         avatar: current.avatar,
+        createdAt: current.createdAt,
         unread: result.unreadCount,
         pinned: current.pinned,
         muted: current.muted,
+        lastMessageAt: current.lastMessageAt,
         lastMessageSeq: current.lastMessageSeq,
         lastReadSeq: result.lastReadSeq,
         lastMentionedSeq: current.lastMentionedSeq,
@@ -48,8 +50,9 @@ class RealtimeStore extends ChangeNotifier {
     lastEvent = event;
     switch (event) {
       case 'message.created':
+        _upsertMessage(payload, countUnread: true);
       case 'message.updated':
-        _upsertMessage(payload);
+        _upsertMessage(payload, countUnread: false);
       case 'message.reactions_updated':
         _patchReactions(payload);
       case 'message.choice_updated':
@@ -112,6 +115,7 @@ class RealtimeStore extends ChangeNotifier {
         authorId: current.authorId,
         conversationId: current.conversationId,
         sequence: current.sequence,
+        createdAt: current.createdAt,
         contentType: current.contentType,
         rawBody: current.rawBody,
         mine: current.mine,
@@ -155,6 +159,7 @@ class RealtimeStore extends ChangeNotifier {
         authorId: current.authorId,
         conversationId: current.conversationId,
         sequence: current.sequence,
+        createdAt: current.createdAt,
         contentType: current.contentType,
         rawBody: current.rawBody,
         mine: current.mine,
@@ -168,7 +173,8 @@ class RealtimeStore extends ChangeNotifier {
         reactions: current.reactions);
   }
 
-  void _upsertMessage(Map<String, dynamic> payload) {
+  void _upsertMessage(Map<String, dynamic> payload,
+      {required bool countUnread}) {
     final nested = payload['message'];
     if (nested is Map<String, dynamic>) payload = nested;
     final id = payload['id'];
@@ -203,6 +209,9 @@ class RealtimeStore extends ChangeNotifier {
         ? MessageTopic.fromJson(rawTopic)
         : previous?.topic;
     final sequence = (payload['seq'] as num?)?.toInt() ?? previous?.sequence;
+    final createdAt = payload['created_at'] is String
+        ? payload['created_at'] as String
+        : previous?.createdAt ?? '';
     final author = nickname is String && nickname.trim().isNotEmpty
         ? nickname.trim()
         : name is String && name.trim().isNotEmpty
@@ -230,6 +239,7 @@ class RealtimeStore extends ChangeNotifier {
     messages[id] = ChatMessage(
         id: id,
         sequence: sequence,
+        createdAt: createdAt,
         conversationId: resolvedConversationId,
         authorId: resolvedSenderId,
         author: author,
@@ -252,6 +262,42 @@ class RealtimeStore extends ChangeNotifier {
             : payload.containsKey('reactions')
                 ? _reactions(payload['reactions'])
                 : previous?.reactions ?? const []);
+    _patchConversationFromMessage(resolvedConversationId, sequence, createdAt,
+        body.text, resolvedSenderId,
+        countUnread: countUnread);
+  }
+
+  void _patchConversationFromMessage(String? conversationId, int? sequence,
+      String createdAt, String summary, String? senderId,
+      {required bool countUnread}) {
+    if (conversationId == null || conversationId.isEmpty) return;
+    final current = conversations[conversationId];
+    if (current == null) return;
+    if (sequence != null && sequence < current.lastMessageSeq) return;
+    final unread =
+        !countUnread || (senderId != null && senderId == currentUserId)
+            ? current.unread
+            : current.unread + 1;
+    conversations[conversationId] = ChatConversation(
+        id: current.id,
+        title: current.title,
+        preview: summary.isNotEmpty ? summary : current.preview,
+        announcement: current.announcement,
+        isPublic: current.isPublic,
+        avatar: current.avatar,
+        createdAt: current.createdAt,
+        unread: unread,
+        pinned: current.pinned,
+        muted: current.muted,
+        lastMessageAt: createdAt.isNotEmpty ? createdAt : current.lastMessageAt,
+        lastMessageSeq: sequence ?? current.lastMessageSeq,
+        lastReadSeq: current.lastReadSeq,
+        lastMentionedSeq: current.lastMentionedSeq,
+        lastChoiceSeq: current.lastChoiceSeq,
+        type: current.type,
+        members: current.members,
+        canSend: current.canSend,
+        topic: current.topic);
   }
 
   List<MessageReaction> _reactions(Object? value) => value is List
@@ -290,17 +336,22 @@ class RealtimeStore extends ChangeNotifier {
         announcement: current.announcement,
         isPublic: current.isPublic,
         avatar: current.avatar,
+        createdAt: current.createdAt,
         unread: current.unread,
         pinned: payload['pinned'] is bool
             ? payload['pinned'] as bool
             : current.pinned,
         muted:
             payload['muted'] is bool ? payload['muted'] as bool : current.muted,
+        lastMessageAt: payload['last_message_at'] is String
+            ? payload['last_message_at'] as String
+            : current.lastMessageAt,
         lastMessageSeq: (payload['last_message_seq'] as num?)?.toInt() ??
             current.lastMessageSeq,
         lastReadSeq: current.lastReadSeq,
         lastMentionedSeq: current.lastMentionedSeq,
         lastChoiceSeq: current.lastChoiceSeq,
+        type: current.type,
         members: current.members,
         canSend: current.canSend,
         topic: current.topic);
@@ -323,9 +374,11 @@ class RealtimeStore extends ChangeNotifier {
         announcement: current.announcement,
         isPublic: current.isPublic,
         avatar: current.avatar,
+        createdAt: current.createdAt,
         unread: current.unread,
         pinned: current.pinned,
         muted: current.muted,
+        lastMessageAt: current.lastMessageAt,
         lastMessageSeq: current.lastMessageSeq,
         lastReadSeq: current.lastReadSeq,
         lastMentionedSeq: event == 'conversation.member_mentioned'
@@ -367,9 +420,11 @@ class RealtimeStore extends ChangeNotifier {
         announcement: current.announcement,
         isPublic: current.isPublic,
         avatar: current.avatar,
+        createdAt: current.createdAt,
         unread: current.unread,
         pinned: current.pinned,
         muted: current.muted,
+        lastMessageAt: current.lastMessageAt,
         lastMessageSeq: current.lastMessageSeq,
         lastReadSeq: current.lastReadSeq,
         lastMentionedSeq: current.lastMentionedSeq,

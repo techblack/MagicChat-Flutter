@@ -23,16 +23,29 @@ class UpdateService {
   const UpdateService({http.Client? client, this.platform}) : _client = client;
   final http.Client? _client;
   final AppUpdatePlatform? platform;
-  static const manifestUrl = 'https://jiying.chat/releases/version.json';
+  static const releaseManifestUrl = 'https://jiying.chat/releases/version.json';
+
+  /// 更新源可在编译时替换为完整 HTTPS manifest URL；默认使用 release 源。
+  static const updateSource = String.fromEnvironment('MAGICCHAT_UPDATE_SOURCE',
+      defaultValue:
+          String.fromEnvironment('UPDATE_SOURCE', defaultValue: 'release'));
   static const currentBuild = 1;
   static const currentVersion = '0.1.0';
 
+  static String get manifestUrl =>
+      updateSource == 'release' ? releaseManifestUrl : updateSource;
+
   Future<AppRelease?> check() async {
     final client = _client ?? http.Client();
-    final separator = manifestUrl.contains('?') ? '&' : '?';
+    final source = Uri.tryParse(manifestUrl);
+    if (source == null || source.scheme != 'https' || source.host.isEmpty) {
+      throw const FormatException('更新源必须是有效的 HTTPS 地址');
+    }
     final response = await client.get(
-        Uri.parse(
-            '$manifestUrl${separator}timestamp=${DateTime.now().millisecondsSinceEpoch}'),
+        source.replace(queryParameters: {
+          ...source.queryParameters,
+          'timestamp': '${DateTime.now().millisecondsSinceEpoch}',
+        }),
         headers: {
           'Accept': 'application/json'
         }).timeout(const Duration(seconds: 15));

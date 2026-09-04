@@ -10,9 +10,11 @@ class ChatConversation {
       this.announcement = '',
       this.isPublic = false,
       this.avatar = '',
+      this.createdAt = '',
       this.unread = 0,
       this.pinned = false,
       this.muted = false,
+      this.lastMessageAt = '',
       this.lastMessageSeq = 0,
       this.lastReadSeq = 0,
       this.lastMentionedSeq = 0,
@@ -27,9 +29,11 @@ class ChatConversation {
   final String announcement;
   final bool isPublic;
   final String avatar;
+  final String createdAt;
   final int unread;
   final bool pinned;
   final bool muted;
+  final String lastMessageAt;
   final int lastMessageSeq;
   final int lastReadSeq;
   final int lastMentionedSeq;
@@ -85,9 +89,14 @@ class ChatConversation {
           : '',
       isPublic: value['visibility'] == 'public' || value['is_public'] == true,
       avatar: value['avatar'] is String ? value['avatar'] as String : '',
+      createdAt:
+          value['created_at'] is String ? value['created_at'] as String : '',
       unread: (value['unread_count'] as num?)?.toInt() ?? 0,
       pinned: value['pinned'] == true,
       muted: value['notification_muted'] == true,
+      lastMessageAt: value['last_message_at'] is String
+          ? value['last_message_at'] as String
+          : '',
       lastMessageSeq: (value['last_message_seq'] as num?)?.toInt() ?? 0,
       lastReadSeq: (value['last_read_seq'] as num?)?.toInt() ?? 0,
       lastMentionedSeq: (value['last_mentioned_seq'] as num?)?.toInt() ?? 0,
@@ -446,6 +455,7 @@ class ChatMessage {
       this.authorId,
       this.conversationId,
       this.sequence,
+      this.createdAt = '',
       this.contentType = 'text',
       this.rawBody = const {},
       this.mine = false,
@@ -457,6 +467,7 @@ class ChatMessage {
   final String id;
   final String? conversationId;
   final int? sequence;
+  final String createdAt;
   final String contentType;
   final Map<String, dynamic> rawBody;
   final String text;

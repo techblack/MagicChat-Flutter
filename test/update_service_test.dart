@@ -4,6 +4,11 @@ import 'package:http/testing.dart';
 import 'package:magicchat_client/data/update_service.dart';
 
 void main() {
+  test('默认使用 release 更新源', () {
+    expect(UpdateService.updateSource, 'release');
+    expect(UpdateService.manifestUrl, UpdateService.releaseManifestUrl);
+  });
+
   test('只接受 HTTPS 下载地址并识别新版本', () async {
     final client = MockClient((request) async => http.Response(
         '{"android":{"version":"0.2.0","build":2,"url":"https://example.com/app.apk"}}',

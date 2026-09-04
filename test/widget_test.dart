@@ -31,6 +31,9 @@ class _HistoryRepository extends DemoRepository {
             id: 'history-${start + index}',
             conversationId: conversationId,
             sequence: start + index,
+            createdAt: DateTime.now()
+                .subtract(Duration(minutes: end - (start + index)))
+                .toIso8601String(),
             author: '成员',
             text: '历史消息 ${start + index}'));
   }
@@ -293,6 +296,8 @@ void main() {
 
     expect(repository.messageRequests, [36]);
     expect(find.text('历史消息 10'), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('message-time-history-10')), findsOneWidget);
     expect(find.text('返回最新消息'), findsOneWidget);
 
     await tester.tap(find.text('返回最新消息'));
