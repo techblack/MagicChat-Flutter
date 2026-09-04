@@ -1435,15 +1435,15 @@ class _ConversationViewState extends State<ConversationView> {
   }
 
   Future<void> _pickAndSendFile(String conversationId) async {
-    final result = await FilePicker.pickFiles(withData: false);
-    if (!mounted || result == null || result.files.single.path == null) {
+    final result = await FilePicker.pickFiles(withData: kIsWeb);
+    final file = result?.files.single;
+    if (!mounted || file == null || (file.path == null && file.bytes == null)) {
       if (mounted && result != null) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('当前平台无法读取所选文件')));
       }
       return;
     }
-    final file = result.files.single;
     if (file.size > 200 * 1024 * 1024) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('文件不能超过 200MiB')));
@@ -1452,9 +1452,10 @@ class _ConversationViewState extends State<ConversationView> {
     setState(() => _sendingFile = true);
     try {
       final upload = AttachmentUpload(
-          path: file.path!,
+          path: file.path ?? '',
           name: file.name,
-          mimeType: _mimeType(file.extension));
+          mimeType: _mimeType(file.extension),
+          bytes: file.bytes);
       if (upload.mimeType.startsWith('image/')) {
         await widget.repository
             .sendImage(conversationId, upload, replyToMessageId: _replyTo?.id);
