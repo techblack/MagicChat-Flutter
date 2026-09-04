@@ -138,7 +138,9 @@ void main() {
 
     await repository.contactDirectory(keyword: 'alice@example.com');
 
-    expect(requested,
-        Uri.parse('https://chat.example.com/api/client/contacts?keyword=alice%40example.com'));
+    expect(
+        requested,
+        Uri.parse(
+            'https://chat.example.com/api/client/contacts?keyword=alice%40example.com'));
   });
 }
