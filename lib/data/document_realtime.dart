@@ -43,7 +43,9 @@ class DocumentRealtime {
   bool _syncRequested = false;
 
   Future<void> connect() async {
+    _closed = true;
     await _subscription?.cancel();
+    await _channel?.sink.close();
     _closed = false;
     _syncRequested = false;
     final channel = connector(_uri, token);
@@ -69,7 +71,7 @@ class DocumentRealtime {
         onError: _events.addError,
         onDone: () {
           if (!_closed) {
-            _events.close();
+            _events.addError(StateError('文档协作连接已断开'));
           }
         });
     await channel.ready;

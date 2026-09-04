@@ -31,6 +31,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
   late final TextEditingController _body = TextEditingController();
   bool _preview = false;
   bool _saving = false;
+  bool _reconnecting = false;
 
   @override
   void initState() {
@@ -104,6 +105,22 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     }
   }
 
+  Future<void> _reconnect() async {
+    final session = widget.collaboration;
+    if (session == null || _reconnecting) return;
+    setState(() => _reconnecting = true);
+    try {
+      await session.reconnect();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('重新连接失败：$error')));
+      }
+    } finally {
+      if (mounted) setState(() => _reconnecting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(
@@ -127,6 +144,15 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                     ? _appendBlock
                     : null,
                 icon: const Icon(Icons.add_box_outlined)),
+          if (widget.collaboration?.status == DocumentCollaborationStatus.error)
+            IconButton(
+                tooltip: '重新连接',
+                onPressed: _reconnecting ? null : _reconnect,
+                icon: _reconnecting
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.sync)),
           IconButton(
               tooltip: '保存标题',
               onPressed: _saving ? null : _save,
@@ -145,10 +171,19 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                     decoration: BoxDecoration(
                         color: Theme.of(context).colorScheme.secondaryContainer,
                         borderRadius: BorderRadius.circular(8)),
-                    child: const Row(children: [
-                      Icon(Icons.visibility_outlined, size: 18),
-                      SizedBox(width: 8),
-                      Expanded(child: Text('富文档安全编辑 · 现有内容只读，可追加标准内容块')),
+                    child: Row(children: [
+                      Icon(
+                          widget.collaboration!.status ==
+                                  DocumentCollaborationStatus.error
+                              ? Icons.error_outline
+                              : Icons.visibility_outlined,
+                          size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                          child: Text(widget.collaboration!.status ==
+                                  DocumentCollaborationStatus.error
+                              ? '协作连接已断开 · 点击右上角重新连接'
+                              : '富文档安全编辑 · 现有内容只读，可追加标准内容块')),
                     ])),
                 const SizedBox(height: 8),
                 RichDocumentToolbar(

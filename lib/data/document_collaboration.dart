@@ -58,6 +58,7 @@ class DocumentCollaborationSession extends ChangeNotifier {
   DocumentCollaborationStatus status = DocumentCollaborationStatus.disconnected;
   bool _closed = false;
   bool _authenticated = false;
+  bool _handlersAttached = false;
 
   /// 当前文档的共享富文档根节点，便于后续接入 XML block 编辑器。
   yjs.YXmlFragment get body => _body;
@@ -84,8 +85,12 @@ class DocumentCollaborationSession extends ChangeNotifier {
     _authenticated = false;
     status = DocumentCollaborationStatus.connecting;
     notifyListeners();
-    _document.on('update', _onDocumentUpdate);
-    _awareness.on('update', _onAwarenessUpdate);
+    if (!_handlersAttached) {
+      _document.on('update', _onDocumentUpdate);
+      _awareness.on('update', _onAwarenessUpdate);
+      _handlersAttached = true;
+    }
+    await _subscription?.cancel();
     _subscription = _realtime.events.listen(_onFrame, onError: (_) {
       _markError();
     }, onDone: _markError);
@@ -96,6 +101,12 @@ class DocumentCollaborationSession extends ChangeNotifier {
       notifyListeners();
       rethrow;
     }
+  }
+
+  /// 重新建立 WebSocket/Hocuspocus 连接，保留当前 Yjs 文档和编辑状态。
+  Future<void> reconnect() async {
+    if (_closed) return;
+    await connect();
   }
 
   void replaceText(String value) {
@@ -340,6 +351,7 @@ class DocumentCollaborationSession extends ChangeNotifier {
     _authenticated = false;
     _document.off('update', _onDocumentUpdate);
     _awareness.off('update', _onAwarenessUpdate);
+    _handlersAttached = false;
     _awareness.destroy();
     await _subscription?.cancel();
     await _realtime.close();

@@ -151,6 +151,34 @@ void main() {
         matchesGoldenFile('evidence/document_collaboration_rich.png'));
     serverDocument.destroy();
   });
+
+  testWidgets('协作断线后显示重新连接入口', (tester) async {
+    final channel = _FakeChannel();
+    final session = DocumentCollaborationSession(
+        serverUrl: 'https://chat.example.com',
+        token: 'session-token',
+        documentId: 'document-reconnect',
+        documentType: 'document',
+        connector: (_, __) => channel);
+    addTearDown(session.close);
+    await tester.pumpWidget(MaterialApp(
+        home: DocumentEditorPage(
+            repository: DemoRepository(),
+            document: const ProjectDocument(
+                id: 'document-reconnect',
+                projectId: 'project-1',
+                title: '协作文档',
+                documentType: 'document'),
+            collaboration: session)));
+    await tester.pump();
+
+    channel.fail();
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byTooltip('重新连接'), findsOneWidget);
+    expect(find.text('协作连接已断开 · 点击右上角重新连接'), findsOneWidget);
+  });
 }
 
 void _insertParagraphs(yjs.YXmlFragment body, String value) {
@@ -187,6 +215,8 @@ class _FakeChannel implements WebSocketChannel {
   Stream<Object?> get stream => _incoming.stream;
 
   void emit(Object? value) => _incoming.add(value);
+
+  void fail() => _incoming.addError(StateError('connection lost'));
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
