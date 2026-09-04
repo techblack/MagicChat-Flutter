@@ -1220,6 +1220,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
               : '',
           lastMessageSeq: (item['last_message_seq'] as num?)?.toInt() ?? 0,
           lastReadSeq: (item['last_read_seq'] as num?)?.toInt() ?? 0,
+          lastMentionedSeq: (item['last_mentioned_seq'] as num?)?.toInt() ?? 0,
           lastChoiceSeq: (item['last_choice_seq'] as num?)?.toInt() ?? 0,
           canSend: item['can_send'] != false,
           topic: item['topic'] is Map<String, dynamic>

@@ -72,6 +72,35 @@ void main() {
         isTrue);
   });
 
+  test('会话列表解析 last_mentioned_seq 提醒字段', () async {
+    final repository = HttpMagicChatRepository(
+      serverUrl: 'https://chat.example.com',
+      sessionToken: 'test-token',
+      client: MockClient((_) async => http.Response(
+          jsonEncode({
+            'data': {
+              'conversations': [
+                {
+                  'id': 'conversation-1',
+                  'name': '工程群',
+                  'type': 'group',
+                  'last_message_seq': 9,
+                  'last_read_seq': 5,
+                  'last_mentioned_seq': 8,
+                }
+              ]
+            }
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'})),
+    );
+
+    final conversation = (await repository.conversations()).single;
+
+    expect(conversation.lastMentionedSeq, 8);
+    expect(conversation.lastChoiceSeq, 0);
+  });
+
   testWidgets('按群成员角色展示对应群聊操作', (tester) async {
     final repository = _RoleRepository('member');
     await tester
