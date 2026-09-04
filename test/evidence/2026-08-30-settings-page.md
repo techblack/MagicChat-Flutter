@@ -10,7 +10,7 @@
 | 命令 | 结果 | 覆盖 |
 | --- | --- | --- |
 | `dart format --set-exit-if-changed lib/features/settings/settings_page.dart test/settings_page_test.dart` | 通过 | 设置页与测试格式 |
-| `flutter test test/settings_page_test.dart` | 通过，1 项 | 设置页入口渲染与截图回归 |
+| `flutter test test/settings_page_test.dart` | 通过，2 项 | 设置页入口渲染、通知权限拒绝回滚与截图回归 |
 | `flutter analyze --no-fatal-infos` | 通过；无 error/warning，仅仓库既有 info | 静态检查 |
 | `git diff --check` | 通过 | 空白错误检查 |
 
@@ -22,4 +22,4 @@
 
 ## 未覆盖项
 
-APNs/JPush 厂商 SDK、富文本 `Y.XmlFragment("body")` 编辑绑定和 Android/iOS/Windows/macOS/Linux 真机矩阵仍按迁移矩阵待后续阶段完成。
+富文本 `Y.XmlFragment("body")` 编辑绑定和 Android/iOS/Windows/macOS/Linux 真机矩阵仍按迁移矩阵待后续阶段完成。
