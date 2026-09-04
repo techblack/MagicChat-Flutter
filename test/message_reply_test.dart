@@ -38,6 +38,7 @@ void main() {
                 {
                   'id': 'message-2',
                   'seq': 2,
+                  'created_at': '2026-09-04T11:22:33Z',
                   'body': {'type': 'text', 'content': 'new content'},
                   'sender': {'id': 'user-2', 'name': 'Alice'},
                   'reply_to': {
@@ -67,6 +68,7 @@ void main() {
 
     final message = (await repository.messages('conversation-1')).single;
     expect(message.replyTo?.id, 'message-1');
+    expect(message.createdAt, '2026-09-04T11:22:33Z');
     expect(message.replyTo?.author, '用户');
     expect(message.replyTo?.text, 'original summary');
     expect(message.topic?.conversationId, 'topic-1');

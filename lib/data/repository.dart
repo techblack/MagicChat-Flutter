@@ -1200,7 +1200,8 @@ class HttpMagicChatRepository implements MagicChatRepository {
         });
   }
 
-  ChatConversation _conversationFromJson(Map<String, dynamic> item) =>
+  ChatConversation _conversationFromJson(
+          Map<String, dynamic> item) =>
       ChatConversation(
           id: '${item['id'] ?? ''}',
           title: '${item['name'] ?? '未命名会话'}',
@@ -1209,9 +1210,14 @@ class HttpMagicChatRepository implements MagicChatRepository {
           announcement: '${item['announcement'] ?? ''}',
           isPublic: item['visibility'] == 'public' || item['is_public'] == true,
           avatar: '${item['avatar'] ?? ''}',
+          createdAt:
+              item['created_at'] is String ? item['created_at'] as String : '',
           unread: (item['unread_count'] as num?)?.toInt() ?? 0,
           pinned: item['pinned'] == true,
           muted: item['notification_muted'] == true,
+          lastMessageAt: item['last_message_at'] is String
+              ? item['last_message_at'] as String
+              : '',
           lastMessageSeq: (item['last_message_seq'] as num?)?.toInt() ?? 0,
           lastReadSeq: (item['last_read_seq'] as num?)?.toInt() ?? 0,
           lastChoiceSeq: (item['last_choice_seq'] as num?)?.toInt() ?? 0,
@@ -1450,6 +1456,8 @@ class HttpMagicChatRepository implements MagicChatRepository {
     return ChatMessage(
         id: '${item['id'] ?? ''}',
         sequence: (item['seq'] as num?)?.toInt(),
+        createdAt:
+            item['created_at'] is String ? item['created_at'] as String : '',
         authorId: senderId is String ? senderId : null,
         author: senderNickname is String && senderNickname.trim().isNotEmpty
             ? senderNickname.trim()
@@ -1688,6 +1696,9 @@ class HttpMagicChatRepository implements MagicChatRepository {
           final chat = ChatMessage(
               id: '${message['id'] ?? ''}',
               sequence: (message['seq'] as num?)?.toInt(),
+              createdAt: message['created_at'] is String
+                  ? message['created_at'] as String
+                  : '',
               authorId: sender is Map<String, dynamic> && sender['id'] is String
                   ? sender['id'] as String
                   : null,

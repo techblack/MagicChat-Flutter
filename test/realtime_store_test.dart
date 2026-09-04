@@ -101,6 +101,30 @@ void main() {
     expect(store.messages['m1']?.mine, isTrue);
   });
 
+  test('实时新消息更新会话时间、预览和排序字段', () {
+    final store = RealtimeStore()..currentUserId = 'me';
+    store.conversations['group'] = const ChatConversation(
+        id: 'group', title: '群聊', type: 'group', lastMessageSeq: 1);
+    store.apply({
+      'event': 'message.created',
+      'cursor': 1,
+      'payload': {
+        'id': 'm2',
+        'conversation_id': 'group',
+        'seq': 2,
+        'created_at': '2026-09-04T12:00:00Z',
+        'sender': {'id': 'u1', 'name': 'Alice'},
+        'body': {'type': 'text', 'content': '最新消息'},
+      }
+    });
+    final conversation = store.conversations['group']!;
+    expect(conversation.lastMessageAt, '2026-09-04T12:00:00Z');
+    expect(conversation.lastMessageSeq, 2);
+    expect(conversation.preview, '最新消息');
+    expect(conversation.unread, 1);
+    expect(conversation.type, 'group');
+  });
+
   test('实时回应更新替换消息回应列表', () {
     final store = RealtimeStore()..setCurrentUserId('me');
     store.messages['m1'] =

@@ -67,6 +67,16 @@ flutter build apk --release
 
 未设置 `JPUSH_APP_KEY` 时不会打包 JPush SDK，其他 Android 构建和测试不受影响。
 
+更新检查默认读取 release 源 `https://jiying.chat/releases/version.json`。构建测试或
+私有发布源时可通过 Dart 编译参数替换完整 manifest 地址：
+
+```bash
+flutter build apk --release \
+  --dart-define=MAGICCHAT_UPDATE_SOURCE=https://download.example.com/version.json
+```
+
+仓库内默认值保持为 `release`，自定义源必须使用 HTTPS。
+
 ## 目录
 
 ```text

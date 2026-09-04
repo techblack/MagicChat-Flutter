@@ -29,6 +29,33 @@ class _RefreshDemoRepository extends DemoRepository {
   }
 }
 
+class _PreferenceDemoRepository extends DemoRepository {
+  var pinned = false;
+  var muted = false;
+
+  @override
+  Future<List<ChatConversation>> conversations() async => [
+        ChatConversation(
+            id: 'preference',
+            title: '偏好会话',
+            preview: '测试置顶和静默',
+            pinned: pinned,
+            muted: muted),
+      ];
+
+  @override
+  Future<bool> setConversationPinned(String conversationId, bool value) async {
+    pinned = value;
+    return value;
+  }
+
+  @override
+  Future<bool> setConversationMuted(String conversationId, bool value) async {
+    muted = value;
+    return value;
+  }
+}
+
 void main() {
   const direct = ChatConversation(
       id: 'direct',
@@ -50,6 +77,22 @@ void main() {
         orderConversations([direct, pinnedApp, unreadGroup])
             .map((item) => item.id),
         ['app', 'group', 'direct']);
+  });
+
+  test('有最后消息时间时按时间倒序排列', () {
+    final values = orderConversations(const [
+      ChatConversation(
+          id: 'older',
+          title: '旧会话',
+          lastMessageAt: '2026-09-04T10:00:00Z',
+          lastMessageSeq: 99),
+      ChatConversation(
+          id: 'newer',
+          title: '新会话',
+          lastMessageAt: '2026-09-04T11:00:00Z',
+          lastMessageSeq: 1),
+    ]);
+    expect(values.map((item) => item.id), ['newer', 'older']);
   });
 
   test('导航未读数包含普通未读和独立提醒', () {
@@ -109,17 +152,33 @@ void main() {
     expect(matchesConversationQuery(conversation, '不存在'), isFalse);
   });
 
+  test('消息时间按本地时间格式化并显示日期边界', () {
+    final now = DateTime(2026, 9, 4, 12, 0);
+    expect(
+        formatMessageTime(DateTime(2026, 9, 4, 9, 5).toUtc().toIso8601String(),
+            now: now),
+        '09:05');
+    expect(
+        formatMessageTime(DateTime(2026, 9, 3, 9, 5).toUtc().toIso8601String(),
+            now: now),
+        '09-03 09:05');
+    expect(formatMessageTime('not-a-date'), isNull);
+  });
+
   test('会话响应解析提及和选择提醒序号', () {
     final conversation = ChatConversation.fromJson({
       'id': 'c1',
       'name': '工程群',
       'last_message_seq': 8,
+      'created_at': '2026-09-03T10:00:00Z',
+      'last_message_at': '2026-09-04T10:00:00Z',
       'last_read_seq': 3,
       'last_mentioned_seq': 6,
       'last_choice_seq': 7,
     });
     expect(conversation.lastMentionedSeq, 6);
     expect(conversation.lastChoiceSeq, 7);
+    expect(conversation.lastMessageAt, '2026-09-04T10:00:00Z');
   });
 
   testWidgets('会话列表支持未读筛选和关键词搜索', (tester) async {
@@ -159,6 +218,25 @@ void main() {
 
     expect(repository.requests, requestsBeforeRefresh + 1);
     expect(find.text('MagicChat 小助手'), findsOneWidget);
+  });
+
+  testWidgets('会话可以置顶并开启静默', (tester) async {
+    final repository = _PreferenceDemoRepository();
+    await tester
+        .pumpWidget(MaterialApp(home: AppShell(repository: repository)));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('偏好会话'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('置顶会话'));
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.push_pin), findsOneWidget);
+
+    await tester.longPress(find.text('偏好会话'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('消息免打扰'));
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.notifications_off), findsOneWidget);
   });
 
   testWidgets('生成会话筛选流程截图', (tester) async {

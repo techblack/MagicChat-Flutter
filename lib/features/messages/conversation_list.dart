@@ -52,12 +52,25 @@ bool matchesConversationQuery(ChatConversation conversation, String query) {
       conversation.announcement.toLowerCase().contains(keyword);
 }
 
-/// 置顶会话优先，其余按最新消息序号倒序；序号相同时用 ID 保证稳定排序。
+/// 置顶会话优先，其余按最后消息时间倒序；旧服务端缺少时间时回退到序号。
 List<ChatConversation> orderConversations(
     Iterable<ChatConversation> conversations) {
   final values = conversations.toList();
   values.sort((left, right) {
     if (left.pinned != right.pinned) return left.pinned ? -1 : 1;
+    final leftAt = DateTime.tryParse(
+            left.lastMessageAt.isNotEmpty ? left.lastMessageAt : left.createdAt)
+        ?.toUtc();
+    final rightAt = DateTime.tryParse(right.lastMessageAt.isNotEmpty
+            ? right.lastMessageAt
+            : right.createdAt)
+        ?.toUtc();
+    if (leftAt != null || rightAt != null) {
+      if (leftAt == null) return 1;
+      if (rightAt == null) return -1;
+      final timestamp = rightAt.compareTo(leftAt);
+      if (timestamp != 0) return timestamp;
+    }
     final sequence = right.lastMessageSeq.compareTo(left.lastMessageSeq);
     if (sequence != 0) return sequence;
     return left.id.compareTo(right.id);
