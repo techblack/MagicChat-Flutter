@@ -19,6 +19,16 @@ class _MentionDemoRepository extends DemoRepository {
       ];
 }
 
+class _RefreshDemoRepository extends DemoRepository {
+  var requests = 0;
+
+  @override
+  Future<List<ChatConversation>> conversations() async {
+    requests++;
+    return super.conversations();
+  }
+}
+
 void main() {
   const direct = ChatConversation(
       id: 'direct',
@@ -130,6 +140,25 @@ void main() {
     await tester.enterText(find.byType(TextField).first, '不存在');
     await tester.pumpAndSettle();
     expect(find.text('没有匹配的会话'), findsOneWidget);
+  });
+
+  testWidgets('会话列表支持下拉刷新并保留内容', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final repository = _RefreshDemoRepository();
+    await tester
+        .pumpWidget(MaterialApp(home: AppShell(repository: repository)));
+    await tester.pumpAndSettle();
+    final requestsBeforeRefresh = repository.requests;
+    expect(requestsBeforeRefresh, greaterThanOrEqualTo(1));
+
+    await tester.drag(find.text('MagicChat 小助手'), const Offset(0, 420));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    expect(repository.requests, requestsBeforeRefresh + 1);
+    expect(find.text('MagicChat 小助手'), findsOneWidget);
   });
 
   testWidgets('生成会话筛选流程截图', (tester) async {
