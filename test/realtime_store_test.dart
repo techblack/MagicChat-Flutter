@@ -101,6 +101,49 @@ void main() {
     expect(store.messages['m1']?.mine, isTrue);
   });
 
+  test('自己的实时消息不增加会话未读数', () {
+    final store = RealtimeStore()..setCurrentUserId('me');
+    store.conversations['c1'] = const ChatConversation(
+        id: 'c1', title: '会话', unread: 3, lastMessageSeq: 4);
+    store.apply({
+      'event': 'message.created',
+      'cursor': 1,
+      'payload': {
+        'id': 'm5',
+        'conversation_id': 'c1',
+        'seq': 5,
+        'sender': {'id': 'me', 'name': '我'},
+        'body': {'type': 'text', 'content': '自己的消息'}
+      }
+    });
+
+    expect(store.conversations['c1']?.unread, 3);
+    expect(store.messages['m5']?.mine, isTrue);
+  });
+
+  test('可在不通知界面的情况下预览实时消息快照', () {
+    final store = RealtimeStore()..setCurrentUserId('me');
+    var notifications = 0;
+    store.addListener(() => notifications++);
+    final message = store.previewMessage({
+      'event': 'message.created',
+      'cursor': 9,
+      'payload': {
+        'id': 'm1',
+        'conversation_id': 'c1',
+        'seq': 1,
+        'created_at': '2026-09-04T12:00:00Z',
+        'sender': {'id': 'user-1', 'name': 'Alice'},
+        'body': {'type': 'text', 'content': '先写缓存'}
+      }
+    });
+
+    expect(message?.text, '先写缓存');
+    expect(store.messages, isEmpty);
+    expect(store.cursor, 0);
+    expect(notifications, 0);
+  });
+
   test('实时新消息更新会话时间、预览和排序字段', () {
     final store = RealtimeStore()..currentUserId = 'me';
     store.conversations['group'] = const ChatConversation(

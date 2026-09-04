@@ -195,7 +195,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(NavigationBar), findsNothing);
     expect(find.byTooltip('返回会话列表'), findsOneWidget);
-    expect(find.byTooltip('搜索'), findsOneWidget);
+    expect(find.byTooltip('检索当前会话'), findsOneWidget);
+    final title = find.byKey(const ValueKey('conversation-header-title'));
+    expect(find.text('MagicChat 小助手'), findsOneWidget);
+    expect(find.ancestor(of: title, matching: find.byType(SafeArea)),
+        findsOneWidget);
+    expect(tester.getCenter(title).dx, 250);
 
     await tester.tap(find.byTooltip('返回会话列表'));
     await tester.pumpAndSettle();

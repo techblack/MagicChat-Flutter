@@ -200,6 +200,13 @@ void main() {
         shouldShowLocalMessageNotification(
             conversationId: 'c1', selectedConversationId: 'c2'),
         isTrue);
+    expect(
+        shouldShowLocalMessageNotification(
+            conversationId: 'c1',
+            selectedConversationId: 'c2',
+            senderId: 'me',
+            currentUserId: 'me'),
+        isFalse);
   });
 
   test('会话响应解析提及和选择提醒序号', () {

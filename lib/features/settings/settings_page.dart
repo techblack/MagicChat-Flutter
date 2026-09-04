@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/auth_service.dart';
 import '../../data/avatar_processor.dart';
+import '../../data/chat_preferences.dart';
 import '../../data/local_notification_service.dart';
 import '../../data/realtime_store.dart';
 import '../../data/repository.dart';
@@ -34,7 +35,9 @@ class SettingsPage extends StatefulWidget {
       this.onAccountSwitch,
       this.onLogout,
       this.onThemeChanged,
+      this.onSendMessageShortcutChanged,
       this.themeMode = ThemeMode.system,
+      this.sendMessageShortcut = MessageSendShortcut.enter,
       super.key});
   final Future<void> Function()? onLogout;
   final MagicChatRepository repository;
@@ -44,7 +47,9 @@ class SettingsPage extends StatefulWidget {
   final ValueChanged<String>? onServerChanged;
   final ValueChanged<StoredAccount>? onAccountSwitch;
   final ValueChanged<ThemeMode>? onThemeChanged;
+  final ValueChanged<MessageSendShortcut>? onSendMessageShortcutChanged;
   final ThemeMode themeMode;
+  final MessageSendShortcut sendMessageShortcut;
   @override
   State<SettingsPage> createState() => _SettingsPageState();
 }
@@ -52,9 +57,11 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   Future<CurrentUser>? _userFuture;
   bool _notificationsEnabled = true;
+  late MessageSendShortcut _sendMessageShortcut;
   @override
   void initState() {
     super.initState();
+    _sendMessageShortcut = widget.sendMessageShortcut;
     widget.realtimeStore?.addListener(_onRealtimeChanged);
     _userFuture = widget.repository.currentUser();
     SharedPreferences.getInstance().then((prefs) {
@@ -67,6 +74,14 @@ class _SettingsPageState extends State<SettingsPage> {
   void _onRealtimeChanged() {
     if (widget.realtimeStore?.lastEvent != 'user.profile.updated') return;
     _reloadUser();
+  }
+
+  @override
+  void didUpdateWidget(covariant SettingsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.sendMessageShortcut != widget.sendMessageShortcut) {
+      _sendMessageShortcut = widget.sendMessageShortcut;
+    }
   }
 
   void _reloadUser() {
@@ -99,6 +114,12 @@ class _SettingsPageState extends State<SettingsPage> {
     }
     await prefs.setBool('magicchat.notifications.enabled', value);
     if (mounted) setState(() => _notificationsEnabled = value);
+  }
+
+  Future<void> _setSendMessageShortcut(MessageSendShortcut value) async {
+    setState(() => _sendMessageShortcut = value);
+    widget.onSendMessageShortcutChanged?.call(value);
+    await const ChatPreferences().writeSendShortcut(value);
   }
 
   Future<void> _showStorage() async {
@@ -455,6 +476,26 @@ class _SettingsPageState extends State<SettingsPage> {
                         value: ThemeMode.system, child: Text('跟随系统')),
                     DropdownMenuItem(value: ThemeMode.light, child: Text('浅色')),
                     DropdownMenuItem(value: ThemeMode.dark, child: Text('深色')),
+                  ])),
+          ListTile(
+              leading: const Icon(Icons.keyboard_outlined),
+              title: const Text('发送快捷键'),
+              subtitle: Text(_sendMessageShortcut == MessageSendShortcut.enter
+                  ? 'Enter 发送，Shift+Enter 换行'
+                  : 'Ctrl/⌘+Enter 发送，Enter 换行'),
+              trailing: DropdownButton<MessageSendShortcut>(
+                  value: _sendMessageShortcut,
+                  onChanged: (value) {
+                    if (value != null) {
+                      _setSendMessageShortcut(value);
+                    }
+                  },
+                  items: const [
+                    DropdownMenuItem(
+                        value: MessageSendShortcut.enter, child: Text('Enter')),
+                    DropdownMenuItem(
+                        value: MessageSendShortcut.commandOrControlEnter,
+                        child: Text('Ctrl/⌘+Enter')),
                   ])),
           SwitchListTile(
               secondary: const Icon(Icons.notifications_outlined),

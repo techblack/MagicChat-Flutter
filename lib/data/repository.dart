@@ -52,7 +52,8 @@ abstract interface class MagicChatRepository {
   Future<bool> setConversationMuted(String conversationId, bool muted);
   Future<ConversationReadResult> markConversationRead(
       String conversationId, int upToSeq);
-  Future<List<MessageSearchResult>> searchMessages(String keyword);
+  Future<List<MessageSearchResult>> searchMessages(String keyword,
+      {String? conversationId, String? senderId, DateTime? from, DateTime? to});
   Future<void> revokeMessage(String conversationId, String messageId);
   Future<void> sendFile(String conversationId, AttachmentUpload upload,
       {String? replyToMessageId});
@@ -464,7 +465,11 @@ class DemoRepository implements MagicChatRepository {
           conversationId: conversationId, lastReadSeq: upToSeq, unreadCount: 0);
 
   @override
-  Future<List<MessageSearchResult>> searchMessages(String keyword) async =>
+  Future<List<MessageSearchResult>> searchMessages(String keyword,
+          {String? conversationId,
+          String? senderId,
+          DateTime? from,
+          DateTime? to}) async =>
       const [];
 
   @override
@@ -1666,8 +1671,23 @@ class HttpMagicChatRepository implements MagicChatRepository {
   }
 
   @override
-  Future<List<MessageSearchResult>> searchMessages(String keyword) async {
-    final encoded = Uri(queryParameters: {'keyword': keyword}).query;
+  Future<List<MessageSearchResult>> searchMessages(String keyword,
+      {String? conversationId,
+      String? senderId,
+      DateTime? from,
+      DateTime? to}) async {
+    final normalizedConversationId = conversationId?.trim();
+    final normalizedSenderId = senderId?.trim();
+    final encoded = Uri(queryParameters: {
+      'keyword': keyword.trim(),
+      if (normalizedConversationId != null &&
+          normalizedConversationId.isNotEmpty)
+        'conversation_id': normalizedConversationId,
+      if (normalizedSenderId != null && normalizedSenderId.isNotEmpty)
+        'sender_id': normalizedSenderId,
+      if (from != null) 'from': from.toUtc().toIso8601String(),
+      if (to != null) 'to': to.toUtc().toIso8601String(),
+    }).query;
     final data =
         _data(await _request('GET', '/api/client/search/messages?$encoded'));
     final values = data['items'];

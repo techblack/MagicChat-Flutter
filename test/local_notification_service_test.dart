@@ -30,4 +30,26 @@ void main() {
     await service.showMessage(conversationId: 'c1', title: '测试', body: '正文');
     expect(showCalled, isFalse);
   });
+
+  test('本地消息通知携带会话和消息路由', () async {
+    const channel = MethodChannel('test/magicchat/notifications-route');
+    Map<Object?, Object?>? arguments;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'requestPermission') return true;
+      if (call.method == 'showMessage') {
+        arguments = Map<Object?, Object?>.from(call.arguments as Map);
+      }
+      return true;
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding
+        .instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null));
+
+    await const LocalNotificationService(channel: channel).showMessage(
+        conversationId: 'c1', messageId: 'm1', title: 'Alice', body: '正文');
+
+    expect(arguments?['conversation_id'], 'c1');
+    expect(arguments?['message_id'], 'm1');
+  });
 }

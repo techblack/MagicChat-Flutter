@@ -12,9 +12,12 @@ bool shouldShowLocalMessageNotification({
   required String conversationId,
   String? selectedConversationId,
   bool muted = false,
+  String? senderId,
+  String? currentUserId,
 }) =>
     conversationId.isNotEmpty &&
     conversationId != selectedConversationId &&
+    (senderId == null || currentUserId == null || senderId != currentUserId) &&
     !muted;
 
 Uri buildThirdPartyLoginUri(String serverUrl, String providerKey) {
@@ -179,6 +182,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
     await MessageCacheStore().clearAll();
     await ContactCacheStore().clearAll();
     await LocalAssetCache().clearAll();
+    await const AppBadgeService().setCount(0);
     if (mounted) {
       setState(() {
         _repository = null;
@@ -211,6 +215,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
     await MessageCacheStore().clearAll();
     await ContactCacheStore().clearAll();
     await LocalAssetCache().clearAll();
+    await const AppBadgeService().setCount(0);
     await _realtime?.close();
     if (mounted) {
       setState(() {
@@ -244,6 +249,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
     await MessageCacheStore().clearAll();
     await ContactCacheStore().clearAll();
     await LocalAssetCache().clearAll();
+    await const AppBadgeService().setCount(0);
     await prefs.setString('magicchat.server_url', normalized);
     if (mounted)
       setState(() {
@@ -265,6 +271,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
     }
     await _realtime?.close();
     await const SessionStore().writeToken(account.token);
+    await const AppBadgeService().setCount(0);
 
     await prefs.setString('magicchat.server_url', account.serverUrl);
     if (!mounted) return;
@@ -934,6 +941,7 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   late final MagicChatRepository _repository = widget.repository;
   String? _currentUserId;
+  bool _identityReady = false;
   int _index = 0;
   String? _selectedConversation;
   String? _focusMessageId;
@@ -941,36 +949,97 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   String? _focusContactId;
   String? _focusProjectId;
   int _unreadCount = 0;
+  MessageSendShortcut _sendMessageShortcut = MessageSendShortcut.enter;
   final _conversationHistory = <String>[];
   final _contactCacheStore = ContactCacheStore();
   StreamSubscription<Map<String, dynamic>>? _realtimeSubscription;
   final _notifications = const LocalNotificationService();
+  final _pushTokenProvider = const PushTokenProvider();
+  final _appBadge = const AppBadgeService();
+  final _messageCacheStore = MessageCacheStore();
+  final _handledNotificationRoutes = <String>{};
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _pushTokenProvider.setRouteOpenedHandler(_openPendingPushRoute);
+    unawaited(_loadChatPreferences());
     final realtime = widget.realtime;
     final store = widget.realtimeStore;
     if (realtime != null && store != null) {
-      unawaited(widget.repository.currentUser().then((user) {
-        store.setCurrentUserId(user.id);
-        unawaited(_rememberCurrentUser(user));
-        if (mounted) setState(() => _currentUserId = user.id);
-      }).catchError((_) {}));
-      _realtimeSubscription = realtime.events.listen((event) {
-        store.apply(event);
-        _notifyIncomingMessage(event);
-      });
-      realtime.connect();
+      unawaited(_startRealtime(realtime, store));
     }
     if (realtime == null || store == null) {
-      unawaited(widget.repository.currentUser().then((user) {
-        unawaited(_rememberCurrentUser(user));
-        if (mounted) setState(() => _currentUserId = user.id);
-      }).catchError((_) {}));
+      unawaited(_loadCurrentUser());
     }
     _resolveNotificationRoute();
+  }
+
+  Future<void> _startRealtime(
+      RealtimeSession realtime, RealtimeStore store) async {
+    final rememberedId = await _readRememberedCurrentUserId();
+    if (!mounted) return;
+    if (rememberedId != null) {
+      store.setCurrentUserId(rememberedId);
+      setState(() {
+        _currentUserId = rememberedId;
+        _identityReady = true;
+      });
+      _listenRealtime(realtime, store);
+      unawaited(_loadCurrentUser(store: store));
+      return;
+    }
+    await _loadCurrentUser(store: store);
+    if (!mounted) return;
+    _listenRealtime(realtime, store);
+  }
+
+  void _listenRealtime(RealtimeSession realtime, RealtimeStore store) {
+    try {
+      _realtimeSubscription ??= realtime.events.asyncMap((event) async {
+        await applyRealtimeEventAfterPersistence(
+            store: store,
+            event: event,
+            persist: (message) => _persistRealtimeMessage(store, message));
+        return event;
+      }).listen((event) {
+        unawaited(_notifyIncomingMessage(event));
+      });
+      realtime.connect();
+    } catch (_) {
+      // RealtimeSession 自身会负责连接重试；初始化失败不阻断缓存浏览。
+    }
+  }
+
+  Future<void> _loadCurrentUser({RealtimeStore? store}) async {
+    try {
+      final user = await widget.repository.currentUser();
+      if (!mounted) return;
+      store?.setCurrentUserId(user.id);
+      await _rememberCurrentUser(user);
+      if (mounted && _currentUserId != user.id) {
+        setState(() => _currentUserId = user.id);
+      }
+    } catch (_) {
+      // 当前用户接口失败不阻断已缓存内容；实时重连后仍可继续刷新。
+    } finally {
+      if (mounted && !_identityReady) {
+        setState(() => _identityReady = true);
+      }
+    }
+  }
+
+  Future<void> _persistRealtimeMessage(
+      RealtimeStore store, ChatMessage message) async {
+    final scope = _messageCacheScope;
+    final conversationId = message.conversationId;
+    if (scope == null || conversationId == null || conversationId.isEmpty)
+      return;
+    final type = store.conversations[conversationId]?.type ?? 'direct';
+    await _messageCacheStore.upsert(
+        scope, conversationId, messageCacheRecord(message),
+        conversationType: type);
   }
 
   Future<void> _rememberCurrentUser(CurrentUser user) async {
@@ -986,6 +1055,34 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           phone: user.phone,
           avatar: user.avatar),
     ]);
+    final key = _rememberedCurrentUserKey;
+    if (key != null) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(key, user.id);
+    }
+  }
+
+  String? get _rememberedCurrentUserKey {
+    final server = widget.serverUrl?.trim();
+    final repository = widget.repository;
+    if (server == null ||
+        server.isEmpty ||
+        repository is! HttpMagicChatRepository) return null;
+    final identity = sha256.convert(utf8.encode(repository.sessionToken));
+    return 'magicchat.current-user.${base64Url.encode(utf8.encode(server)).replaceAll('=', '')}.$identity';
+  }
+
+  Future<String?> _readRememberedCurrentUserId() async {
+    final key = _rememberedCurrentUserKey;
+    if (key == null) return null;
+    final value =
+        (await SharedPreferences.getInstance()).getString(key)?.trim();
+    return value == null || value.isEmpty ? null : value;
+  }
+
+  Future<void> _loadChatPreferences() async {
+    final shortcut = await const ChatPreferences().readSendShortcut();
+    if (mounted) setState(() => _sendMessageShortcut = shortcut);
   }
 
   Future<void> _notifyIncomingMessage(Map<String, dynamic> event) async {
@@ -995,17 +1092,20 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     final message = payload['message'];
     final data = message is Map<String, dynamic> ? message : payload;
     final conversationId = data['conversation_id'];
+    final sender = data['sender'];
+    final senderId = sender is Map<String, dynamic> ? sender['id'] : null;
     if (conversationId is! String ||
         !shouldShowLocalMessageNotification(
             conversationId: conversationId,
             selectedConversationId: _selectedConversation,
+            senderId: senderId is String ? senderId : null,
+            currentUserId: widget.realtimeStore?.currentUserId,
             muted: widget.realtimeStore?.conversations[conversationId]?.muted ==
                 true)) {
       return;
     }
     final prefs = await SharedPreferences.getInstance();
     if (!(prefs.getBool('magicchat.notifications.enabled') ?? true)) return;
-    final sender = data['sender'];
     final title = sender is Map<String, dynamic> && sender['name'] is String
         ? sender['name'] as String
         : '新消息';
@@ -1013,14 +1113,42 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         MessageContent.fromEnvelope(data['body'], revokedAt: data['revoked_at'])
             .text;
     await _notifications.showMessage(
-        conversationId: conversationId, title: title, body: body);
+        conversationId: conversationId,
+        messageId: data['id'] is String ? data['id'] as String : '',
+        title: title,
+        body: body);
   }
 
   Future<void> _resolveNotificationRoute() async {
-    final routeToken = Uri.base.queryParameters['route_token'] ??
-        await const PushTokenProvider().takePendingRouteToken();
-    if (routeToken == null || routeToken.isEmpty || widget.serverUrl == null)
+    final urlToken = Uri.base.queryParameters['route_token'];
+    final pending = await _pushTokenProvider.takePendingRoute();
+    final routeToken = urlToken?.trim().isNotEmpty == true
+        ? urlToken!.trim()
+        : pending?.routeToken ?? '';
+    await _openPendingPushRoute(PendingPushRoute(
+        routeToken: routeToken,
+        conversationId: pending?.conversationId ?? '',
+        messageId: pending?.messageId ?? ''));
+  }
+
+  Future<void> _openPendingPushRoute(PendingPushRoute pending) async {
+    final routeToken = pending.routeToken;
+    if (routeToken.isEmpty) {
+      final conversationId = pending.conversationId;
+      if (conversationId.isEmpty) return;
+      final messageId = pending.messageId;
+      final key = 'message:$conversationId:$messageId';
+      if (!_handledNotificationRoutes.add(key)) return;
+      if (messageId.isEmpty) {
+        _selectConversationFromList(conversationId);
+      } else {
+        _openMessageFromSearch(conversationId, messageId, null);
+      }
       return;
+    }
+    if (widget.serverUrl == null) return;
+    final key = 'token:$routeToken';
+    if (!_handledNotificationRoutes.add(key)) return;
     try {
       final token = await const SessionStore().readToken();
       if (token == null) return;
@@ -1032,6 +1160,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         _openMessageFromSearch(route.conversationId, route.messageId, null);
       }
     } catch (_) {
+      _handledNotificationRoutes.remove(key);
       // 通知路由失效时保留正常首页，不阻断主应用启动。
     }
   }
@@ -1039,8 +1168,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _pushTokenProvider.setRouteOpenedHandler(null);
     _realtimeSubscription?.cancel();
     widget.realtime?.close();
+    unawaited(_messageCacheStore.close());
     super.dispose();
   }
 
@@ -1070,28 +1201,31 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                     : null
             : null;
     final pages = <Widget>[
-      MessagesPage(
-          repository: _repository,
-          serverUrl: widget.serverUrl,
-          realtimeStore: widget.realtimeStore,
-          cacheScope: _messageCacheScope,
-          selectedId: _selectedConversation,
-          focusMessageId: _focusMessageId,
-          focusMessageSequence: _focusMessageSequence,
-          onSelect: _selectConversationFromList,
-          onOpenConversation: _openConversation,
-          onBack: _backConversation,
-          onSearch: () => _showSearch(context),
-          onOpenInternalLink: _openInternalMessageLink,
-          onUnreadChanged: _setUnreadCount,
-          onMessageFocused: () {
-            if (mounted) {
-              setState(() {
-                _focusMessageId = null;
-                _focusMessageSequence = null;
-              });
-            }
-          }),
+      !_identityReady
+          ? const Center(child: CircularProgressIndicator())
+          : MessagesPage(
+              repository: _repository,
+              serverUrl: widget.serverUrl,
+              realtimeStore: widget.realtimeStore,
+              cacheScope: _messageCacheScope,
+              sendMessageShortcut: _sendMessageShortcut,
+              selectedId: _selectedConversation,
+              focusMessageId: _focusMessageId,
+              focusMessageSequence: _focusMessageSequence,
+              onSelect: _selectConversationFromList,
+              onOpenConversation: _openConversation,
+              onBack: _backConversation,
+              onOpenMessage: _openMessageFromSearch,
+              onOpenInternalLink: _openInternalMessageLink,
+              onUnreadChanged: _setUnreadCount,
+              onMessageFocused: () {
+                if (mounted) {
+                  setState(() {
+                    _focusMessageId = null;
+                    _focusMessageSequence = null;
+                  });
+                }
+              }),
       ContactsPage(
           repository: _repository,
           realtimeStore: widget.realtimeStore,
@@ -1122,7 +1256,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           onAccountSwitch: widget.onAccountSwitch,
           onLogout: widget.onLogout,
           onThemeChanged: widget.onThemeChanged,
-          themeMode: widget.themeMode),
+          onSendMessageShortcutChanged: (shortcut) {
+            setState(() => _sendMessageShortcut = shortcut);
+          },
+          themeMode: widget.themeMode,
+          sendMessageShortcut: _sendMessageShortcut),
     ];
     final destinations = [
       NavigationDestination(
@@ -1205,7 +1343,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   }
 
   void _setUnreadCount(int value) {
-    if (!mounted || value == _unreadCount) return;
+    if (!mounted) return;
+    unawaited(_appBadge.setCount(value));
+    if (value == _unreadCount) return;
     setState(() => _unreadCount = value);
   }
 

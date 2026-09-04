@@ -22,9 +22,14 @@ class StorageService {
   final ContactCacheStore _contactCacheStore = ContactCacheStore();
 
   Future<Directory> _cacheDirectory() async => getTemporaryDirectory();
+  Future<Directory> _messageCacheDirectory() async => Directory(
+      '${(await getApplicationSupportDirectory()).path}/message-cache');
   Future<StorageInfo> inspect() async {
-    final directory = await _cacheDirectory();
-    return StorageInfo(path: directory.path, bytes: _size(directory));
+    final temporary = await _cacheDirectory();
+    final messages = await _messageCacheDirectory();
+    return StorageInfo(
+        path: '${temporary.path}\n${messages.path}',
+        bytes: _size(temporary) + _size(messages));
   }
 
   Future<void> clearCache() async {
@@ -40,6 +45,7 @@ class StorageService {
   }
 
   int _size(FileSystemEntity entity) {
+    if (!entity.existsSync()) return 0;
     if (entity is File) return entity.lengthSync();
     if (entity is Directory)
       return entity.listSync().fold<int>(0, (sum, item) => sum + _size(item));
