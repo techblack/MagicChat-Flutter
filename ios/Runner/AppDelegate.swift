@@ -3,13 +3,15 @@ import UIKit
 import UserNotifications
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, UNUserNotificationCenterDelegate {
   private let apnsTokenKey = "magicchat.apns.deviceToken"
+  private let pendingRouteTokenKey = "magicchat.push.pendingRouteToken"
 
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    UNUserNotificationCenter.current().delegate = self
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
@@ -20,28 +22,36 @@ import UserNotifications
       binaryMessenger: engineBridge.applicationRegistrar.messenger()
     )
     push.setMethodCallHandler { [weak self] call, result in
-      guard call.method == "getDeviceToken" else {
-        result(FlutterMethodNotImplemented)
-        return
-      }
-      guard let self,
-            let token = UserDefaults.standard.string(forKey: self.apnsTokenKey),
-            !token.isEmpty else {
-        UIApplication.shared.registerForRemoteNotifications()
+      guard let self else {
         result(nil)
         return
       }
-      #if DEBUG
-      let environment = "development"
-      #else
-      let environment = "production"
-      #endif
-      result([
-        "provider": "apns",
-        "platform": "ios",
-        "environment": environment,
-        "token": token,
-      ])
+      switch call.method {
+      case "getDeviceToken":
+        guard let token = UserDefaults.standard.string(forKey: self.apnsTokenKey),
+              !token.isEmpty else {
+          UIApplication.shared.registerForRemoteNotifications()
+          result(nil)
+          return
+        }
+        #if DEBUG
+        let environment = "development"
+        #else
+        let environment = "production"
+        #endif
+        result([
+          "provider": "apns",
+          "platform": "ios",
+          "environment": environment,
+          "token": token,
+        ])
+      case "getPendingRouteToken":
+        let token = UserDefaults.standard.string(forKey: self.pendingRouteTokenKey)
+        UserDefaults.standard.removeObject(forKey: self.pendingRouteTokenKey)
+        result(token)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
     }
     let notifications = FlutterMethodChannel(
       name: "magicchat/notifications",
@@ -57,6 +67,9 @@ import UserNotifications
             if let error = error {
               result(FlutterError(code: "permission", message: error.localizedDescription, details: nil))
             } else {
+              if granted {
+                UIApplication.shared.registerForRemoteNotifications()
+              }
               result(granted)
             }
           }
@@ -106,5 +119,29 @@ import UserNotifications
   ) {
     UserDefaults.standard.removeObject(forKey: apnsTokenKey)
     super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
+  }
+
+  func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    if let token = routeToken(from: response.notification.request.content.userInfo) {
+      UserDefaults.standard.set(token, forKey: pendingRouteTokenKey)
+    }
+    completionHandler()
+  }
+
+  private func routeToken(from userInfo: [AnyHashable: Any]) -> String? {
+    if let token = userInfo["route_token"] as? String {
+      let value = token.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !value.isEmpty { return value }
+    }
+    if let aps = userInfo["aps"] as? [String: Any],
+       let token = aps["route_token"] as? String {
+      let value = token.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !value.isEmpty { return value }
+    }
+    return nil
   }
 }

@@ -845,7 +845,7 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   late final MagicChatRepository _repository = widget.repository;
   String? _currentUserId;
   int _index = 0;
@@ -863,6 +863,7 @@ class _AppShellState extends State<AppShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     final realtime = widget.realtime;
     final store = widget.realtimeStore;
     if (realtime != null && store != null) {
@@ -946,9 +947,17 @@ class _AppShellState extends State<AppShell> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _realtimeSubscription?.cancel();
     widget.realtime?.close();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_resolveNotificationRoute());
+    }
   }
 
   @override
