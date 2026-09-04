@@ -192,17 +192,24 @@ class AuthService {
   }
 
   Future<void> logout({required String serverUrl}) async {
-    final token = await _sessions.readToken();
-    if (token != null) {
-      final base = _baseUri(serverUrl);
-      final headers = token == SessionStore.cookieSessionToken
-          ? <String, String>{}
-          : {'Authorization': 'Bearer $token'};
-      await _client
-          .post(base.resolve('api/client/auth/logout'), headers: headers)
-          .timeout(requestTimeout);
+    try {
+      final token = await _sessions.readToken();
+      if (token != null) {
+        final base = _baseUri(serverUrl);
+        final headers = token == SessionStore.cookieSessionToken
+            ? <String, String>{}
+            : {'Authorization': 'Bearer $token'};
+        final response = await _client
+            .post(base.resolve('api/client/auth/logout'), headers: headers)
+            .timeout(requestTimeout);
+        if ((response.statusCode < 200 || response.statusCode >= 300) &&
+            response.statusCode != 401) {
+          throw _responseError(response, '退出登录失败');
+        }
+      }
+    } finally {
+      await _sessions.clear();
     }
-    await _sessions.clear();
   }
 
   Uri _baseUri(String serverUrl) =>

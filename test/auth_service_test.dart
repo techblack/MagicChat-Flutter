@@ -132,4 +132,18 @@ void main() {
           .having((error) => error.message, 'message', contains('会话已过期'))),
     );
   });
+
+  test('远端注销失败仍清空本地会话', () async {
+    final sessions = _MemorySessionStore()..token = 'session-token';
+    final service = AuthService(
+      sessions: sessions,
+      client: MockClient((_) async => throw http.ClientException('offline')),
+    );
+
+    await expectLater(
+      service.logout(serverUrl: 'https://chat.example.com'),
+      throwsA(isA<http.ClientException>()),
+    );
+    expect(sessions.token, isNull);
+  });
 }
