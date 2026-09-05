@@ -7,29 +7,29 @@ void main() {
   test('默认使用 release 更新源', () {
     expect(UpdateService.updateSource, 'release');
     expect(UpdateService.manifestUrl, UpdateService.releaseManifestUrl);
-    expect(UpdateService.currentVersion, '0.2.9');
-    expect(UpdateService.currentBuild, 12);
+    expect(UpdateService.currentVersion, '0.3.3');
+    expect(UpdateService.currentBuild, 16);
   });
 
   test('只接受 HTTPS 下载地址并识别新版本', () async {
     final client = MockClient((request) async => http.Response(
-        '{"android":{"version":"0.3.0","build":13,"url":"https://example.com/app.apk"}}',
+        '{"android":{"version":"0.3.4","build":17,"url":"https://example.com/app.apk"}}',
         200));
     final release = await UpdateService(client: client).check();
-    expect(release?.build, 13);
+    expect(release?.build, 17);
     expect(release?.url, startsWith('https://'));
   });
 
   test('按平台选择版本清单并保留对应下载地址', () async {
     final client = MockClient((request) async => http.Response(
         '{"android":{"version":"0.3.0","build":4,"url":"https://example.com/app.apk"},'
-        '"ios":{"version":"0.3.1","build":13,"url":"https://example.com/app.ipa"}}',
+        '"ios":{"version":"0.3.4","build":17,"url":"https://example.com/app.ipa"}}',
         200));
     final release =
         await UpdateService(client: client, platform: AppUpdatePlatform.ios)
             .check();
-    expect(release?.version, '0.3.1');
-    expect(release?.build, 13);
+    expect(release?.version, '0.3.4');
+    expect(release?.build, 17);
     expect(release?.url, 'https://example.com/app.ipa');
   });
 
@@ -45,21 +45,21 @@ void main() {
       expect(request.url.toString(), UpdateService.desktopReleaseApiUrl);
       expect(request.headers['user-agent'], 'MagicChat-Flutter');
       return http.Response(
-          '{"tag_name":"v0.3.0","assets":[{"name":"MagicChat-Windows-x64.zip",'
-          '"browser_download_url":"https://github.com/techblack/MagicChat-Flutter/releases/download/v0.3.0/MagicChat-Windows-x64.zip"}]}',
+          '{"tag_name":"v0.3.4","assets":[{"name":"MagicChat-Windows-x64.zip",'
+          '"browser_download_url":"https://github.com/techblack/MagicChat-Flutter/releases/download/v0.3.4/MagicChat-Windows-x64.zip"}]}',
           200);
     });
     final release =
         await UpdateService(client: client, platform: AppUpdatePlatform.windows)
             .check();
-    expect(release?.version, '0.3.0');
-    expect(release?.build, 3000);
+    expect(release?.version, '0.3.4');
+    expect(release?.build, 3004);
     expect(release?.url, contains('MagicChat-Windows-x64.zip'));
   });
 
   test('桌面端没有对应产物时拒绝响应', () async {
     final client = MockClient(
-        (_) async => http.Response('{"tag_name":"v0.3.0","assets":[]}', 200));
+        (_) async => http.Response('{"tag_name":"v0.3.4","assets":[]}', 200));
     expect(
         () => UpdateService(client: client, platform: AppUpdatePlatform.linux)
             .check(),

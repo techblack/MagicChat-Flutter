@@ -739,7 +739,9 @@ class _ConversationViewState extends State<ConversationView>
     await _preloadReplyTargets(id, merged);
     await _preloadComplexMessages(id, merged);
     try {
-      await _cacheMessages(id, merged);
+      // 刷新只同步本次返回的最新窗口。不能用 write() 重建整库：长会话
+      // 可能已经缓存了数十万条历史，整库删除/重写会阻塞 UI 并丢失历史页。
+      await _upsertCachedMessages(id, fresh);
     } catch (_) {
       // 刷新结果仍应展示；缓存会在后续实时事件或刷新时重试。
     }
@@ -839,7 +841,8 @@ class _ConversationViewState extends State<ConversationView>
     final updated = await _applyMessageSnapshots(conversationId, messages);
     if (!mounted || widget.conversationId != conversationId) return;
     try {
-      await _cacheMessages(conversationId, updated);
+      // 快照修正同样只增量更新受影响的消息，保留其余历史页。
+      await _upsertCachedMessages(conversationId, updated);
     } catch (_) {
       // 快照修正即使无法持久化也应更新当前页面。
     }
@@ -1165,11 +1168,12 @@ class _ConversationViewState extends State<ConversationView>
       }
     });
     if (!changed) return;
-    final cached = await _readCachedMessages(conversationId);
-    if (cached.isEmpty) return;
-    final cachedById = {for (final message in updated) message.id: message};
-    await _cacheMessages(conversationId,
-        cached.map((message) => cachedById[message.id] ?? message).toList());
+    try {
+      // 只写回本页的快照，不读取/重写整段缓存。
+      await _upsertCachedMessages(conversationId, updated);
+    } catch (_) {
+      // 本地缓存失败不影响已经渲染的历史消息。
+    }
   }
 
   GlobalKey _messageKey(String id) =>
