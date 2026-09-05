@@ -1349,7 +1349,14 @@ class CurrentUser {
   final String nickname;
   final String avatar;
   final String phone;
-  String get displayName => nickname.isNotEmpty ? nickname : name;
+  String get displayName {
+    final preferred = nickname.trim();
+    if (preferred.isNotEmpty && preferred != id) return preferred;
+    final fallback = name.trim();
+    if (fallback.isNotEmpty && fallback != id) return fallback;
+    final address = email.trim();
+    return address.isNotEmpty && address != id ? address : '用户';
+  }
 }
 
 /// 当前用户创建的应用配置。

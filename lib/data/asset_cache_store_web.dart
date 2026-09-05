@@ -36,6 +36,12 @@ class LocalAssetCache {
     await prefs.setString(_key(key), base64Encode(copy));
   }
 
+  Future<void> remove(String key) async {
+    _memory.remove(key);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_key(key));
+  }
+
   Future<void> clearAll() async {
     _memory.clear();
     final prefs = await SharedPreferences.getInstance();
