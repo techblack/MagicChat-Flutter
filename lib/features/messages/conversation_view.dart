@@ -607,9 +607,11 @@ class _ConversationViewState extends State<ConversationView>
       }
     }));
     if (!mounted || widget.conversationId != conversationId) return;
+    var resolvedAny = false;
     for (final target in targets.whereType<ChatMessage>()) {
       _replyTargetsById[target.id] = target;
       unresolved.remove(target.id);
+      resolvedAny = true;
     }
 
     // 某些旧服务端只返回引用 ID，不返回引用序号。引用通常指向当前页
@@ -633,6 +635,7 @@ class _ConversationViewState extends State<ConversationView>
             if (unresolved.containsKey(target.id)) {
               unresolved.remove(target.id);
               _replyTargetsById[target.id] = target;
+              resolvedAny = true;
             }
           }
           final nextBefore = history
@@ -647,6 +650,12 @@ class _ConversationViewState extends State<ConversationView>
           break;
         }
       }
+    }
+
+    // 实时消息会先进入 RealtimeStore，再异步补齐引用原文。补齐完成后
+    // 必须触发一次重绘，否则首帧的“[消息]”占位会一直留在气泡中。
+    if (resolvedAny && mounted && widget.conversationId == conversationId) {
+      setState(() {});
     }
   }
 

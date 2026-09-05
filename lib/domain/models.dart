@@ -2,6 +2,8 @@ import 'dart:collection';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'message_content.dart';
+
 class ChatConversation {
   const ChatConversation(
       {required this.id,
@@ -782,11 +784,12 @@ class MessageReply {
                 : '用户';
 
     final body = asMap(value['body']) ?? asMap(payload['body']);
+    final parsedBodyText = body == null ? '' : MessageContent.parse(body).text;
     final candidates = <Object?>[
       value['summary'],
       value['text'],
       value['content'],
-      body?['content'],
+      parsedBodyText,
       payload['summary'],
       payload['text'],
       payload['content'],
