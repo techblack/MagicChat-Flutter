@@ -70,4 +70,29 @@ void main() {
         ['reauth-required', 'ready']);
     expect(jsonDecode(values['magicchat.accounts']!), isA<List>());
   });
+
+  test('注销后删除当前凭据并选择最近可用账号', () async {
+    const store = SessionStore();
+    await store.saveAccount(const StoredAccount(
+        id: 'one', serverUrl: 'https://one.example.com', token: 'token-one'));
+    await store.saveAccount(const StoredAccount(
+        id: 'two',
+        serverUrl: 'https://two.example.com',
+        token: 'token-two',
+        status: 'reauth-required'));
+    await store.saveAccount(const StoredAccount(
+        id: 'three',
+        serverUrl: 'https://three.example.com',
+        token: 'token-three'));
+
+    final removed = await store.removeAccountForSession(
+        serverUrl: 'https://one.example.com', token: 'token-one');
+    final replacement =
+        selectRecentReadyAccount(await store.readAccounts(), removed?.id);
+
+    expect(removed?.id, 'one');
+    expect(replacement?.id, 'three');
+    expect((await store.readAccounts()).map((account) => account.id),
+        ['two', 'three']);
+  });
 }

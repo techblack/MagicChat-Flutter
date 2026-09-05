@@ -165,4 +165,70 @@ void main() {
     );
     expect(sessions.token, isNull);
   });
+
+  test('注销验证码只针对当前认证账号发送并解析重试时间', () async {
+    final sessions = _MemorySessionStore()..token = 'session-token';
+    late http.Request captured;
+    final service = AuthService(
+      sessions: sessions,
+      client: MockClient((request) async {
+        captured = request;
+        return _jsonResponse({
+          'success': true,
+          'data': {
+            'expires_in_seconds': 900,
+            'retry_after_seconds': 60,
+          },
+        });
+      }),
+    );
+
+    final result = await service.requestAccountDeactivationCode(
+        serverUrl: 'https://chat.example.com/base');
+
+    expect(captured.url.path, '/base/api/client/me/deactivation/code');
+    expect(captured.headers['Authorization'], 'Bearer session-token');
+    expect(captured.body, isEmpty);
+    expect(result.expiresInSeconds, 900);
+    expect(result.retryAfterSeconds, 60);
+  });
+
+  test('注销账号提交规范化验证码并保留明确错误码', () async {
+    final sessions = _MemorySessionStore()..token = 'session-token';
+    final requests = <http.Request>[];
+    final service = AuthService(
+      sessions: sessions,
+      client: MockClient((request) async {
+        requests.add(request);
+        if (requests.length == 1) {
+          return _jsonResponse({
+            'success': false,
+            'error': {'code': 'invalid_code', 'message': '验证码错误'},
+          }, statusCode: 401);
+        }
+        return _jsonResponse({'success': true, 'data': {}});
+      }),
+    );
+
+    await expectLater(
+      service.deactivateAccount(
+          serverUrl: 'https://chat.example.com', code: '12345678'),
+      throwsA(isA<AuthRequestException>()
+          .having((error) => error.code, 'code', 'invalid_code')
+          .having((error) => error.statusCode, 'status', 401)
+          .having(isSafeAccountDeactivationRejection, 'safe rejection', true)),
+    );
+    expect(sessions.token, 'session-token');
+
+    await service.deactivateAccount(
+        serverUrl: 'https://chat.example.com', code: '12 34-5678');
+    expect(requests.last.url.path, '/api/client/me/deactivation');
+    expect(requests.last.headers['Content-Type'], 'application/json');
+    expect(jsonDecode(requests.last.body), {'code': '12345678'});
+  });
+
+  test('注销验证码仅保留前 8 位数字', () {
+    expect(normalizeAccountDeactivationCode('12ab 3456-789'), '12345678');
+    expect(normalizeAccountDeactivationCode('abc'), isEmpty);
+  });
 }

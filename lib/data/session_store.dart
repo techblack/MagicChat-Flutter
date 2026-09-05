@@ -149,4 +149,28 @@ class SessionStore {
       // Account persistence is best effort when the desktop keyring is absent.
     }
   }
+
+  Future<StoredAccount?> removeAccountForSession(
+      {required String serverUrl, required String token}) async {
+    final accounts = await readAccounts();
+    StoredAccount? removed;
+    for (final account in accounts) {
+      if (account.serverUrl == serverUrl && account.token == token) {
+        removed = account;
+        break;
+      }
+    }
+    if (removed != null) await removeAccount(removed.id);
+    return removed;
+  }
+}
+
+StoredAccount? selectRecentReadyAccount(
+    Iterable<StoredAccount> accounts, String? excludedAccountId) {
+  for (final account in accounts.toList(growable: false).reversed) {
+    if (account.id != excludedAccountId && account.status == 'ready') {
+      return account;
+    }
+  }
+  return null;
 }
