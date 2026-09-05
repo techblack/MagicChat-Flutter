@@ -206,6 +206,22 @@ String? parseInternalMessagePath(String value) {
   return (documentType: segments[1], documentId: segments[2]);
 }
 
+/// 解析任务对象卡片使用的项目路径。
+({String projectId, String taskId})? parseProjectTaskMessagePath(String value) {
+  final target = parseInternalMessagePath(value);
+  final uri = target == null ? null : Uri.tryParse(target);
+  final segments = uri?.pathSegments ?? const <String>[];
+  final taskId = uri?.queryParameters['taskId']?.trim();
+  if (segments.length != 2 ||
+      segments.first != 'projects' ||
+      segments[1].trim().isEmpty ||
+      taskId == null ||
+      taskId.isEmpty) {
+    return null;
+  }
+  return (projectId: segments[1], taskId: taskId);
+}
+
 /// 将服务端提及 token 渲染为用户可读文本，同时保留未知用户的安全占位。
 String formatMentionText(
     String content, Iterable<({String id, String name})> contacts) {

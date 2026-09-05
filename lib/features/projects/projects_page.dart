@@ -17,6 +17,9 @@ class ProjectsPage extends StatefulWidget {
       {required this.repository,
       this.initialProjectId,
       this.onInitialProjectOpened,
+      this.initialTaskProjectId,
+      this.initialTaskId,
+      this.onInitialTaskOpened,
       this.initialDocumentId,
       this.onInitialDocumentOpened,
       this.documentCollaborationFactory,
@@ -24,6 +27,9 @@ class ProjectsPage extends StatefulWidget {
   final MagicChatRepository repository;
   final String? initialProjectId;
   final VoidCallback? onInitialProjectOpened;
+  final String? initialTaskProjectId;
+  final String? initialTaskId;
+  final VoidCallback? onInitialTaskOpened;
   final String? initialDocumentId;
   final VoidCallback? onInitialDocumentOpened;
   final DocumentCollaborationFactory? documentCollaborationFactory;
@@ -37,6 +43,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
   final _searchController = TextEditingController();
   String _search = '';
   String? _openedInitialProjectId;
+  String? _openedInitialTaskKey;
   String? _openedInitialDocumentId;
 
   MagicChatRepository get repository => widget.repository;
@@ -90,6 +97,47 @@ class _ProjectsPageState extends State<ProjectsPage> {
     unawaited(_showInitialDocument(id, projects));
   }
 
+  void _openInitialTask(List<Project> projects) {
+    final projectId = widget.initialTaskProjectId;
+    final taskId = widget.initialTaskId;
+    if (projectId == null || taskId == null) return;
+    final key = '$projectId:$taskId';
+    if (projectId.isEmpty || taskId.isEmpty || key == _openedInitialTaskKey) {
+      return;
+    }
+    _openedInitialTaskKey = key;
+    unawaited(_showInitialTask(projectId, taskId, projects));
+  }
+
+  Future<void> _showInitialTask(
+      String projectId, String taskId, List<Project> projects) async {
+    try {
+      final project =
+          projects.where((item) => item.id == projectId).firstOrNull;
+      if (project == null) throw StateError('项目不存在或不可见');
+      final task = await repository.task(projectId, taskId);
+      if (!mounted ||
+          widget.initialTaskProjectId != projectId ||
+          widget.initialTaskId != taskId) {
+        return;
+      }
+      await Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ProjectTaskDetailsPage(
+              repository: repository, project: project, task: task),
+        ),
+      );
+      widget.onInitialTaskOpened?.call();
+    } catch (error) {
+      _openedInitialTaskKey = null;
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('任务加载失败：$error')));
+      }
+    }
+  }
+
   Future<void> _showInitialDocument(
       String documentId, List<Project> projects) async {
     try {
@@ -122,9 +170,16 @@ class _ProjectsPageState extends State<ProjectsPage> {
   void didUpdateWidget(covariant ProjectsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.initialProjectId == null) _openedInitialProjectId = null;
+    if (widget.initialTaskProjectId == null || widget.initialTaskId == null) {
+      _openedInitialTaskKey = null;
+    }
     if (widget.initialDocumentId == null) _openedInitialDocumentId = null;
     if (oldWidget.initialProjectId != widget.initialProjectId) {
       unawaited(_projects.then(_openInitialProject));
+    }
+    if (oldWidget.initialTaskProjectId != widget.initialTaskProjectId ||
+        oldWidget.initialTaskId != widget.initialTaskId) {
+      unawaited(_projects.then(_openInitialTask));
     }
     if (oldWidget.initialDocumentId != widget.initialDocumentId) {
       unawaited(_projects.then(_openInitialDocument));
@@ -158,6 +213,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
                 return const Center(child: CircularProgressIndicator());
               }
               _openInitialProject(snapshot.data!);
+              _openInitialTask(snapshot.data!);
               _openInitialDocument(snapshot.data!);
               final keyword = _search.trim().toLowerCase();
               final projects = keyword.isEmpty

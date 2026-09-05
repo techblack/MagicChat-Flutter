@@ -45,6 +45,13 @@ void main() {
         isNull);
   });
 
+  test('任务卡片路径解析项目和任务标识', () {
+    expect(parseProjectTaskMessagePath('/projects/project%2F1?taskId=task%2F1'),
+        (projectId: 'project/1', taskId: 'task/1'));
+    expect(parseProjectTaskMessagePath('/projects/project-1'), isNull);
+    expect(parseProjectTaskMessagePath('/projects?taskId=task-1'), isNull);
+  });
+
   test('消息摘要覆盖图片说明、语音时长和未知类型', () {
     expect(
       MessageContent.parse({
