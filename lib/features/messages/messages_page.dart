@@ -62,20 +62,22 @@ class MessagesPage extends StatelessWidget {
                   tooltip: '新建群聊',
                   child: const Icon(Icons.group_add))),
         ]);
-        final conversationView = ConversationView(
-          repository: repository,
-          realtimeSession: realtimeSession,
-          realtimeStore: realtimeStore,
-          cacheScope: cacheScope,
-          sendMessageShortcut: sendMessageShortcut,
-          enableFileDrop: enableFileDrop,
-          conversationId: selectedId,
-          focusMessageId: focusMessageId,
-          focusMessageSequence: focusMessageSequence,
-          onOpenConversation: onOpenConversation ?? onSelect,
-          onOpenInternalLink: onOpenInternalLink,
-          onMessageFocused: onMessageFocused,
-        );
+        final conversationView = selectedId == null
+            ? const _ConversationSelectionState()
+            : ConversationView(
+                repository: repository,
+                realtimeSession: realtimeSession,
+                realtimeStore: realtimeStore,
+                cacheScope: cacheScope,
+                sendMessageShortcut: sendMessageShortcut,
+                enableFileDrop: enableFileDrop,
+                conversationId: selectedId,
+                focusMessageId: focusMessageId,
+                focusMessageSequence: focusMessageSequence,
+                onOpenConversation: onOpenConversation ?? onSelect,
+                onOpenInternalLink: onOpenInternalLink,
+                onMessageFocused: onMessageFocused,
+              );
         final conversationHeader = selectedId == null
             ? null
             : _ConversationHeader(
@@ -247,6 +249,47 @@ class MessagesPage extends StatelessWidget {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _ConversationSelectionState extends StatelessWidget {
+  const _ConversationSelectionState();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return ColoredBox(
+      key: const ValueKey('conversation-selection-state'),
+      color: colors.surface,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.forum_outlined, size: 48, color: colors.primary),
+              const SizedBox(height: 14),
+              Text(
+                '选择一个会话',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '从左侧列表打开聊天，消息会显示在这里',
+                textAlign: TextAlign.center,
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.copyWith(color: colors.onSurfaceVariant),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
