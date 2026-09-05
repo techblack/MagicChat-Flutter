@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/repository.dart';
 import '../../data/document_collaboration.dart';
@@ -12,6 +13,11 @@ import 'project_task_details_page.dart';
 
 typedef DocumentCollaborationFactory = DocumentCollaborationSession? Function(
     ProjectDocument document);
+
+const _projectTaskViewCount = 7;
+
+String _projectTaskViewPreferenceKey(String projectId) =>
+    'magicchat.project.task-view.$projectId';
 
 class ProjectsPage extends StatefulWidget {
   const ProjectsPage(
@@ -84,7 +90,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
     _openedInitialProjectId = id;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        unawaited(_showTasks(context, target).whenComplete(() {
+        unawaited(_showTasks(target).whenComplete(() {
           widget.onInitialProjectOpened?.call();
         }));
       }
@@ -297,7 +303,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
                           const SizedBox(width: 4),
                           const Icon(Icons.chevron_right),
                         ]),
-                        onTap: () => _showTasks(context, project),
+                        onTap: () => _showTasks(project),
                         onLongPress: () => _projectActions(context, project),
                       );
                     },
@@ -530,11 +536,23 @@ class _ProjectsPageState extends State<ProjectsPage> {
     return tasks;
   }
 
-  Future<void> _showTasks(BuildContext context, Project project) async {
+  Future<void> _showTasks(Project project) async {
     var keyword = '';
     var label = '';
     var status = '';
     var priority = 0;
+    var initialTab = 0;
+    final preferenceKey = _projectTaskViewPreferenceKey(project.id);
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final stored = preferences.getInt(preferenceKey);
+      if (stored != null && stored >= 0 && stored < _projectTaskViewCount) {
+        initialTab = stored;
+      }
+    } catch (_) {
+      // 视图记忆不可用时仍正常打开项目工作区。
+    }
+    if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -565,6 +583,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
                   return const Center(child: CircularProgressIndicator());
                 }
                 return DefaultTabController(
+                  initialIndex: initialTab,
                   length: 7,
                   child: Column(children: [
                     Padding(
@@ -662,15 +681,26 @@ class _ProjectsPageState extends State<ProjectsPage> {
                             ])
                           ]);
                         })),
-                    const TabBar(isScrollable: true, tabs: [
-                      Tab(text: '列表'),
-                      Tab(text: '看板'),
-                      Tab(text: '日历'),
-                      Tab(text: '甘特'),
-                      Tab(text: '文档'),
-                      Tab(text: '目标'),
-                      Tab(text: '成员')
-                    ]),
+                    TabBar(
+                        isScrollable: true,
+                        onTap: (index) async {
+                          try {
+                            final preferences =
+                                await SharedPreferences.getInstance();
+                            await preferences.setInt(preferenceKey, index);
+                          } catch (_) {
+                            // 视图记忆失败不影响当前切换。
+                          }
+                        },
+                        tabs: const [
+                          Tab(text: '列表'),
+                          Tab(text: '看板'),
+                          Tab(text: '日历'),
+                          Tab(text: '甘特'),
+                          Tab(text: '文档'),
+                          Tab(text: '目标'),
+                          Tab(text: '成员')
+                        ]),
                     Expanded(
                         child: TabBarView(children: [
                       ListView(

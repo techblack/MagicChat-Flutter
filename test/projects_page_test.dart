@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/projects/document_editor_page.dart';
+import 'package:magicchat_client/features/projects/project_task_calendar_view.dart';
 import 'package:magicchat_client/features/projects/projects_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -119,6 +120,29 @@ void main() {
     for (final label in ['待处理', '进行中', '已完成', '已取消']) {
       expect(find.text(label), findsWidgets);
     }
+  });
+
+  testWidgets('项目任务工作区记住上次选择的视图', (tester) async {
+    SharedPreferences.setMockInitialValues(
+        {'magicchat.project.task-view.view-project': 2});
+    await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(
+            colorScheme:
+                ColorScheme.fromSeed(seedColor: const Color(0xFF6750A4)),
+            useMaterial3: true),
+        home: Scaffold(
+            body: ProjectsPage(repository: _ViewPreferenceRepository()))));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('客户端迭代'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ProjectTaskCalendarView), findsOneWidget);
+
+    await tester.tap(find.text('甘特'));
+    await tester.pump();
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.getInt('magicchat.project.task-view.view-project'), 3);
+    await preferences.remove('magicchat.project.task-view.view-project');
   });
 
   testWidgets('项目工作区连续加载任务分页', (tester) async {
@@ -436,6 +460,13 @@ class _ProjectRepository extends DemoRepository {
             projectId: 'project-1',
             title: '发布说明',
             documentType: 'markdown'),
+      ];
+}
+
+class _ViewPreferenceRepository extends _ProjectRepository {
+  @override
+  Future<List<Project>> projects() async => const [
+        Project(id: 'view-project', name: '客户端迭代', description: '跨端功能复刻'),
       ];
 }
 
