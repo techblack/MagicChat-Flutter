@@ -31,4 +31,15 @@ void main() {
     await preferences.writeMessageSoundEnabled(false);
     expect(await preferences.readMessageSoundEnabled(), isFalse);
   });
+
+  test('通知隐私默认显示预览并可持久化', () async {
+    SharedPreferences.setMockInitialValues({});
+    const preferences = ChatPreferences();
+    expect(await preferences.readNotificationPrivacy(),
+        MessageNotificationPrivacy.preview);
+    await preferences
+        .writeNotificationPrivacy(MessageNotificationPrivacy.metadata);
+    expect(await preferences.readNotificationPrivacy(),
+        MessageNotificationPrivacy.metadata);
+  });
 }

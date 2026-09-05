@@ -5,11 +5,15 @@ enum MessageSendShortcut {
   commandOrControlEnter,
 }
 
+enum MessageNotificationPrivacy { hidden, metadata, preview }
+
 class ChatPreferences {
   const ChatPreferences();
 
   static const sendShortcutKey = 'magicchat.chat.send-shortcut.v1';
   static const messageSoundKey = 'magicchat.chat.message-sound.v1';
+  static const notificationPrivacyKey =
+      'magicchat.chat.notification-privacy.v1';
 
   Future<MessageSendShortcut> readSendShortcut() async {
     final prefs = await SharedPreferences.getInstance();
@@ -32,5 +36,19 @@ class ChatPreferences {
   Future<void> writeMessageSoundEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(messageSoundKey, enabled);
+  }
+
+  Future<MessageNotificationPrivacy> readNotificationPrivacy() async {
+    final prefs = await SharedPreferences.getInstance();
+    return MessageNotificationPrivacy.values.firstWhere(
+      (value) => value.name == prefs.getString(notificationPrivacyKey),
+      orElse: () => MessageNotificationPrivacy.preview,
+    );
+  }
+
+  Future<void> writeNotificationPrivacy(
+      MessageNotificationPrivacy privacy) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(notificationPrivacyKey, privacy.name);
   }
 }

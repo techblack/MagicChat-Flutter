@@ -112,6 +112,27 @@ void main() {
     expect(enabled, isFalse);
   });
 
+  testWidgets('通知隐私选择即时回调', (tester) async {
+    MessageNotificationPrivacy? privacy = MessageNotificationPrivacy.preview;
+    await tester.binding.setSurfaceSize(const Size(800, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SettingsPage(
+                repository: DemoRepository(),
+                serverUrl: 'https://chat.example.com',
+                onNotificationPrivacyChanged: (value) => privacy = value))));
+    await tester.pumpAndSettle();
+
+    final dropdown = find.byType(DropdownButton<MessageNotificationPrivacy>);
+    await tester.ensureVisible(dropdown);
+    await tester.tap(dropdown);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('仅显示来源').last);
+    await tester.pumpAndSettle();
+    expect(privacy, MessageNotificationPrivacy.metadata);
+  });
+
   testWidgets('退出登录需要二次确认', (tester) async {
     var loggedOut = false;
     await tester.binding.setSurfaceSize(const Size(600, 800));
