@@ -356,6 +356,45 @@ void main() {
             .where((element) => element.name == 'table'),
         hasLength(1));
 
+    final image = session.insertDocumentImage(near: before);
+    expect(image, isNotNull);
+    expect(session.documentImageAttributes(image!), const (
+      alignment: 'center',
+      alt: '',
+      externalUrl: null,
+      fileId: null,
+      width: 100,
+    ));
+    expect(
+        session.updateDocumentImage(image, const (
+          alignment: 'right',
+          alt: '架构图',
+          externalUrl: 'https://example.com/diagram.png',
+          fileId: null,
+          width: 63,
+        )),
+        isTrue);
+    expect(session.documentImageAttributes(image), const (
+      alignment: 'right',
+      alt: '架构图',
+      externalUrl: 'https://example.com/diagram.png',
+      fileId: null,
+      width: 65,
+    ));
+    expect(session.undo(), isTrue);
+    expect(session.documentImageAttributes(image).externalUrl, isNull);
+    expect(session.redo(), isTrue);
+    expect(session.documentImageAttributes(image).alt, '架构图');
+    expect(session.deleteDocumentImage(image), isTrue);
+    expect(session.body.toArray().contains(image), isFalse);
+    expect(session.undo(), isTrue);
+    expect(
+        session.body
+            .toArray()
+            .whereType<yjs.YXmlElement>()
+            .where((element) => element.name == 'documentImage'),
+        hasLength(1));
+
     await session.close();
     serverDocument.destroy();
   });

@@ -80,6 +80,43 @@ void main() {
     expect(changed, '新的正文');
     document.destroy();
   });
+
+  testWidgets('文档图片解析文件地址并按百分比宽度和方向展示', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(400, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final document = yjs.Doc(yjs.DocOpts(guid: 'rich-image-view-test'));
+    final body = document.get<yjs.YXmlFragment>('body', yjs.YXmlFragment.new)!;
+    final image = yjs.YXmlElement('documentImage')
+      ..setAttribute('fileId', 'file-1')
+      ..setAttribute('alt', '架构图')
+      ..setAttribute('alignment', 'right')
+      ..setAttribute('width', 50);
+    body.insert(0, [image]);
+    String? resolved;
+    yjs.YXmlElement? edited;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: RichDocumentView(
+          body: body,
+          imageUrlResolver: (fileId) async {
+            resolved = fileId;
+            return Uri.parse('https://example.com/image.png');
+          },
+          onEditImage: (node) => edited = node,
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    expect(resolved, 'file-1');
+    final frame =
+        find.byKey(const ValueKey('rich-document-image-frame-file-1'));
+    expect(tester.getSize(frame).width, closeTo(196, 1));
+    expect(tester.getTopRight(frame).dx, closeTo(396, 1));
+    await tester.tap(find.byKey(const ValueKey('rich-document-image-file-1')));
+    expect(edited, same(image));
+    document.destroy();
+  });
 }
 
 void _addHeading(yjs.YXmlFragment body, String value) {

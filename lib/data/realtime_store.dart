@@ -327,18 +327,6 @@ class RealtimeStore extends ChangeNotifier {
     final conversationId = payload['conversation_id'];
     final reply = payload['reply_to'];
     final replyToMessageId = payload['reply_to_message_id'];
-    final replySender = reply is Map<String, dynamic> ? reply['sender'] : null;
-    final replyNickname =
-        replySender is Map<String, dynamic> ? replySender['nickname'] : null;
-    final replyNameValue =
-        replySender is Map<String, dynamic> ? replySender['name'] : null;
-    final replySenderId =
-        replySender is Map<String, dynamic> ? replySender['id'] : null;
-    final replyName = replyNickname is String && replyNickname.trim().isNotEmpty
-        ? replyNickname.trim()
-        : replyNameValue is String && replyNameValue.trim().isNotEmpty
-            ? replyNameValue.trim()
-            : '用户';
     final rawTopic = payload['topic'];
     final topic = rawTopic is Map<String, dynamic>
         ? MessageTopic.fromJson(rawTopic)
@@ -361,16 +349,8 @@ class RealtimeStore extends ChangeNotifier {
         conversationId is String ? conversationId : previous?.conversationId;
     final replyTo = body.type == 'revoked'
         ? null
-        : reply is Map<String, dynamic> && reply['id'] is String
-            ? MessageReply(
-                id: reply['id'] as String,
-                author: replyName,
-                authorId: replySenderId is String ? replySenderId : null,
-                sequence: (reply['seq'] as num?)?.toInt(),
-                text: reply['summary'] is String &&
-                        (reply['summary'] as String).isNotEmpty
-                    ? reply['summary'] as String
-                    : '[消息]')
+        : reply is Map<String, dynamic>
+            ? _parseReply(reply) ?? previous?.replyTo
             : replyToMessageId is String && replyToMessageId.trim().isNotEmpty
                 ? MessageReply(
                     id: replyToMessageId.trim(), author: '成员', text: '[消息]')
@@ -407,6 +387,14 @@ class RealtimeStore extends ChangeNotifier {
     _patchConversationFromMessage(resolvedConversationId, sequence, createdAt,
         body.text, resolvedSenderId,
         countUnread: countUnread);
+  }
+
+  MessageReply? _parseReply(Map<String, dynamic> value) {
+    try {
+      return MessageReply.fromJson(value);
+    } on FormatException {
+      return null;
+    }
   }
 
   void _patchConversationFromMessage(String? conversationId, int? sequence,

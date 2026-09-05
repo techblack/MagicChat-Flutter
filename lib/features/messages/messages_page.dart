@@ -121,10 +121,9 @@ class MessagesPage extends StatelessWidget {
             child: SizedBox(
               width: double.infinity,
               height: 52,
-              child: Row(children: [
-                const SizedBox(width: 300),
-                Expanded(child: conversationHeader),
-              ]),
+              // 顶栏独立于下方的会话列表/消息窗格，完整覆盖这一整行；
+              // 标题和操作按钮不再只占右侧消息窗格的宽度。
+              child: conversationHeader,
             ),
           ),
           Expanded(

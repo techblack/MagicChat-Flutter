@@ -469,16 +469,8 @@ class _ConversationViewState extends State<ConversationView>
           : null,
       mine: value['mine'] == true,
       choice: parseMessageChoiceState(choice),
-      replyTo: reply is Map<String, dynamic> && reply['id'] is String
-          ? MessageReply(
-              id: reply['id'] as String,
-              author: '${reply['author'] ?? '成员'}',
-              authorId: reply['author_id'] is String
-                  ? reply['author_id'] as String
-                  : null,
-              sequence: (reply['sequence'] as num?)?.toInt(),
-              text: '${reply['text'] ?? '[消息]'}')
-          : null,
+      replyTo:
+          reply is Map<String, dynamic> ? _cachedReplyFromJson(reply) : null,
       topic: rawTopic is Map<String, dynamic>
           ? MessageTopic.fromJson(rawTopic)
           : null,
@@ -505,6 +497,14 @@ class _ConversationViewState extends State<ConversationView>
               .toList()
           : const [],
     );
+  }
+
+  MessageReply? _cachedReplyFromJson(Map<String, dynamic> value) {
+    try {
+      return MessageReply.fromJson(value);
+    } on FormatException {
+      return null;
+    }
   }
 
   Future<void> _cacheMessages(String id, List<ChatMessage> messages) async {
@@ -577,7 +577,7 @@ class _ConversationViewState extends State<ConversationView>
       for (final message in _olderMessages) message.id: message,
       for (final message in messages) message.id: message,
     };
-    final unresolved = <String, int>{};
+    final unresolved = <String, int?>{};
     for (final message in messages) {
       final reply = message.replyTo;
       if (reply == null || known.containsKey(reply.id)) continue;
@@ -585,15 +585,15 @@ class _ConversationViewState extends State<ConversationView>
       final needsContent = summary.isEmpty ||
           summary == '[消息]' ||
           summary.toLowerCase() == reply.id.toLowerCase();
-      if (needsContent && reply.sequence != null) {
-        unresolved[reply.id] = reply.sequence!;
-      }
+      if (needsContent) unresolved[reply.id] = reply.sequence;
     }
     if (unresolved.isEmpty) return;
-    final targets = await Future.wait(unresolved.entries.map((entry) async {
+    final targets = await Future.wait(unresolved.entries
+        .where((entry) => entry.value != null)
+        .map((entry) async {
       try {
         final values = await widget.repository
-            .messages(conversationId, beforeSeq: entry.value + 1, limit: 1)
+            .messages(conversationId, beforeSeq: entry.value! + 1, limit: 1)
             .timeout(const Duration(seconds: 5));
         return values.where((message) => message.id == entry.key).firstOrNull;
       } catch (_) {
@@ -603,6 +603,44 @@ class _ConversationViewState extends State<ConversationView>
     if (!mounted || widget.conversationId != conversationId) return;
     for (final target in targets.whereType<ChatMessage>()) {
       _replyTargetsById[target.id] = target;
+      unresolved.remove(target.id);
+    }
+
+    // 某些旧服务端只返回引用 ID，不返回引用序号。引用通常指向当前页
+    // 之前的消息，按已知最早序号向前翻页，最多补齐 8 页，避免为了一个
+    // 引用无限读取历史；成功后首屏直接使用原消息正文。
+    if (unresolved.isNotEmpty) {
+      var before = [...known.values, ...targets.whereType<ChatMessage>()]
+          .map((message) => message.sequence)
+          .whereType<int>()
+          .fold<int?>(
+              null, (value, seq) => value == null || seq < value ? seq : value);
+      for (var page = 0;
+          page < 8 && unresolved.isNotEmpty && before != null && before > 1;
+          page++) {
+        try {
+          final history = await widget.repository
+              .messages(conversationId, beforeSeq: before, limit: 50)
+              .timeout(const Duration(seconds: 5));
+          if (history.isEmpty) break;
+          for (final target in history) {
+            if (unresolved.containsKey(target.id)) {
+              unresolved.remove(target.id);
+              _replyTargetsById[target.id] = target;
+            }
+          }
+          final nextBefore = history
+              .map((message) => message.sequence)
+              .whereType<int>()
+              .fold<int?>(null,
+                  (value, seq) => value == null || seq < value ? seq : value);
+          if (nextBefore == null || nextBefore >= before) break;
+          before = nextBefore;
+          if (history is MessagePage && !history.hasMoreBefore) break;
+        } catch (_) {
+          break;
+        }
+      }
     }
   }
 
@@ -829,6 +867,11 @@ class _ConversationViewState extends State<ConversationView>
         .where((messageId) =>
             widget.realtimeStore?.messages[messageId]?.mine != true)
         .toList(growable: false);
+    if (realtimeMessages.isNotEmpty) {
+      // 实时事件也可能只有 reply_to_message_id；在下一帧绘制前尽力补齐
+      // 引用原文，避免先短暂显示消息 ID/占位文本。
+      unawaited(_preloadReplyTargets(id ?? '', realtimeMessages));
+    }
     final shouldShowNewMessages = incomingIds.isNotEmpty &&
         (_historyMode || (_positionedConversationId == id && !_isAtBottom()));
     if (current == null &&

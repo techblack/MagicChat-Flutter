@@ -301,6 +301,27 @@ void main() {
     expect(find.byType(Table), findsOneWidget);
     expect(find.byKey(const ValueKey('rich-document-inline-editor')),
         findsOneWidget);
+
+    await tester.tap(find.byTooltip('插入图片'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.enterText(find.widgetWithText(TextField, '在线图片'),
+        'https://example.com/diagram.png');
+    await tester.enterText(find.widgetWithText(TextField, '图片替代文本'), '架构图');
+    await tester.tap(find.byIcon(Icons.format_align_right).hitTestable());
+    await tester.tap(find.widgetWithText(FilledButton, '应用'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    final image = session.body
+        .toArray()
+        .whereType<yjs.YXmlElement>()
+        .where((element) => element.name == 'documentImage')
+        .single;
+    expect(
+        image.getAttribute('externalUrl'), 'https://example.com/diagram.png');
+    expect(image.getAttribute('alt'), '架构图');
+    expect(image.getAttribute('alignment'), 'right');
+    expect(find.byType(Image), findsOneWidget);
     serverDocument.destroy();
   });
 }

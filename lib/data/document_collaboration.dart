@@ -23,6 +23,14 @@ enum RichDocumentBlockType {
   codeBlock,
 }
 
+typedef RichDocumentImageAttributes = ({
+  String alignment,
+  String alt,
+  String? externalUrl,
+  String? fileId,
+  int width,
+});
+
 /// 将协作文档绑定到服务端 Yjs 类型，并通过 Hocuspocus sync 帧交换更新。
 ///
 /// Markdown 使用服务端约定的 `Y.Text("markdown")`。富文档使用服务端约定的
@@ -341,6 +349,104 @@ class DocumentCollaborationSession extends ChangeNotifier {
     _document.transact((_) => _body.insert(index, [table]));
     notifyListeners();
     return firstText;
+  }
+
+  /// 在当前块之后插入标准 documentImage 占位节点。
+  yjs.YXmlElement? insertDocumentImage({yjs.YXmlText? near}) {
+    if (documentType != 'document' ||
+        status != DocumentCollaborationStatus.synced) {
+      return null;
+    }
+    var index = _body.length;
+    if (near != null) {
+      final block = _topLevelBlock(near);
+      final blockIndex = block == null ? -1 : _body.toArray().indexOf(block);
+      if (blockIndex >= 0) index = blockIndex + 1;
+    }
+    final image = yjs.YXmlElement('documentImage')
+      ..setAttribute('alignment', 'center')
+      ..setAttribute('alt', '')
+      ..setAttribute('width', 100);
+    _undoManager?.stopCapturing();
+    _document.transact((_) => _body.insert(index, [image]));
+    notifyListeners();
+    return image;
+  }
+
+  RichDocumentImageAttributes documentImageAttributes(yjs.YXmlElement image) {
+    final alignment = image.getAttribute('alignment');
+    final alt = image.getAttribute('alt');
+    final externalUrl = image.getAttribute('externalUrl');
+    final fileId = image.getAttribute('fileId');
+    final width = image.getAttribute('width');
+    return (
+      alignment: alignment == 'left' || alignment == 'right'
+          ? alignment as String
+          : 'center',
+      alt: alt is String ? String.fromCharCodes(alt.runes.take(500)) : '',
+      externalUrl: externalUrl is String && externalUrl.trim().isNotEmpty
+          ? externalUrl.trim()
+          : null,
+      fileId:
+          fileId is String && fileId.trim().isNotEmpty ? fileId.trim() : null,
+      width: width is num && width >= 20 && width <= 100
+          ? ((width / 5).round() * 5).clamp(20, 100)
+          : 100,
+    );
+  }
+
+  bool updateDocumentImage(
+      yjs.YXmlElement image, RichDocumentImageAttributes attributes) {
+    final external = attributes.externalUrl?.trim();
+    final externalUri = external == null ? null : Uri.tryParse(external);
+    final fileId = attributes.fileId?.trim();
+    if (documentType != 'document' ||
+        status != DocumentCollaborationStatus.synced ||
+        image.name != 'documentImage' ||
+        !_body.toArray().contains(image) ||
+        !const {'left', 'center', 'right'}.contains(attributes.alignment) ||
+        (external != null &&
+            (externalUri == null ||
+                externalUri.scheme != 'https' ||
+                externalUri.host.isEmpty)) ||
+        (fileId != null && !RegExp(r'^[\w-]{1,200}$').hasMatch(fileId))) {
+      return false;
+    }
+    final width = ((attributes.width / 5).round() * 5).clamp(20, 100);
+    _undoManager?.stopCapturing();
+    _document.transact((_) {
+      image
+        ..setAttribute('alignment', attributes.alignment)
+        ..setAttribute(
+            'alt', String.fromCharCodes(attributes.alt.runes.take(500)))
+        ..setAttribute('width', width);
+      if (external == null) {
+        image.removeAttribute('externalUrl');
+      } else {
+        image.setAttribute('externalUrl', external);
+      }
+      if (fileId == null) {
+        image.removeAttribute('fileId');
+      } else {
+        image.setAttribute('fileId', fileId);
+      }
+    });
+    notifyListeners();
+    return true;
+  }
+
+  bool deleteDocumentImage(yjs.YXmlElement image) {
+    if (documentType != 'document' ||
+        status != DocumentCollaborationStatus.synced ||
+        image.name != 'documentImage') {
+      return false;
+    }
+    final index = _body.toArray().indexOf(image);
+    if (index < 0) return false;
+    _undoManager?.stopCapturing();
+    _document.transact((_) => _body.delete(index));
+    notifyListeners();
+    return true;
   }
 
   /// 在富文档末尾追加一个标准 Tiptap XML block。

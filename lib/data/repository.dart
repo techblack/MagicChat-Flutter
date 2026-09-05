@@ -71,6 +71,7 @@ abstract interface class MagicChatRepository {
   Future<Uri?> attachmentUrl(String fileId);
   Future<Uint8List?> downloadAttachment(String fileId);
   Future<Uint8List?> downloadResource(Uri uri);
+  Future<UploadedTemporaryFile> uploadTemporaryFile(AttachmentUpload upload);
   Future<void> sendImage(String conversationId, AttachmentUpload upload,
       {String caption = '', String? replyToMessageId, String? clientMessageId});
   Future<void> sendVoice(String conversationId, AttachmentUpload upload,
@@ -515,6 +516,12 @@ class DemoRepository implements MagicChatRepository {
 
   @override
   Future<Uint8List?> downloadResource(Uri uri) async => null;
+  @override
+  Future<UploadedTemporaryFile> uploadTemporaryFile(
+          AttachmentUpload upload) async =>
+      UploadedTemporaryFile(
+          id: 'temporary-${DateTime.now().microsecondsSinceEpoch}',
+          sizeBytes: upload.bytes?.length ?? 0);
   @override
   Future<void> revokeMessage(String conversationId, String messageId) async {}
   @override
@@ -1653,23 +1660,12 @@ class HttpMagicChatRepository implements MagicChatRepository {
   }
 
   MessageReply? _replyFromJson(Object? value) {
-    if (value is! Map<String, dynamic> || value['id'] is! String) return null;
-    final sender = value['sender'];
-    final nickname = sender is Map<String, dynamic> ? sender['nickname'] : null;
-    final name = sender is Map<String, dynamic> ? sender['name'] : null;
-    final senderId = sender is Map<String, dynamic> ? sender['id'] : null;
-    final author = nickname is String && nickname.trim().isNotEmpty
-        ? nickname.trim()
-        : name is String && name.trim().isNotEmpty
-            ? name.trim()
-            : '用户';
-    final summary = value['summary'];
-    return MessageReply(
-        id: value['id'] as String,
-        author: author,
-        authorId: senderId is String ? senderId : null,
-        sequence: (value['seq'] as num?)?.toInt(),
-        text: summary is String && summary.isNotEmpty ? summary : '[消息]');
+    if (value is! Map<String, dynamic>) return null;
+    try {
+      return MessageReply.fromJson(value);
+    } on FormatException {
+      return null;
+    }
   }
 
   MessageReply? _replyFromMessageId(Object? value) {
@@ -1896,6 +1892,33 @@ class HttpMagicChatRepository implements MagicChatRepository {
       throw Exception('资源下载失败（HTTP ${response.statusCode}）');
     }
     return response.bodyBytes;
+  }
+
+  @override
+  Future<UploadedTemporaryFile> uploadTemporaryFile(
+      AttachmentUpload upload) async {
+    final uri = baseUri.resolve('api/client/temporary-files');
+    final request = http.MultipartRequest('POST', uri)
+      ..headers.addAll(_sessionHeaders)
+      ..headers['Accept'] = 'application/json';
+    request.files.add(upload.bytes != null
+        ? http.MultipartFile.fromBytes('file', upload.bytes!,
+            filename: upload.name, contentType: _mediaType(upload.mimeType))
+        : await http.MultipartFile.fromPath('file', upload.path,
+            filename: upload.name, contentType: _mediaType(upload.mimeType)));
+    final data = _data(
+        await _sendMultipartRequest(request, fallbackMessage: '上传临时文件失败'));
+    final file = data['file'];
+    if (file is! Map<String, dynamic> ||
+        file['id'] is! String ||
+        (file['id'] as String).isEmpty ||
+        file['size_bytes'] is! num ||
+        (file['size_bytes'] as num).toInt() < 0) {
+      throw const FormatException('临时文件上传响应格式不正确');
+    }
+    return UploadedTemporaryFile(
+        id: file['id'] as String,
+        sizeBytes: (file['size_bytes'] as num).toInt());
   }
 
   @override
