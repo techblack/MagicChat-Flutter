@@ -1,14 +1,23 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+
+import 'browser_notification_stub.dart'
+    if (dart.library.js_interop) 'browser_notification_web.dart';
 
 /// 统一通知桥接。原生端可实现 `magicchat/notifications`，未实现时保持静默，
 /// 不影响 Web、Linux 或无通知权限的运行环境。
 class LocalNotificationService {
+  static const channelName = 'magicchat/notifications';
+
   const LocalNotificationService(
-      {MethodChannel channel = const MethodChannel('magicchat/notifications')})
+      {MethodChannel channel = const MethodChannel(channelName)})
       : _channel = channel;
   final MethodChannel _channel;
 
   Future<bool> requestPermission() async {
+    if (kIsWeb && _channel.name == channelName) {
+      return browserNotificationRequestPermission();
+    }
     try {
       final value = await _channel.invokeMethod<Object?>('requestPermission');
       return value is bool ? value : true;
@@ -27,6 +36,11 @@ class LocalNotificationService {
     required String body,
     String messageId = '',
   }) async {
+    if (kIsWeb && _channel.name == channelName) {
+      await browserNotificationShow(
+          title: title, body: body, tag: conversationId);
+      return;
+    }
     try {
       if (!await requestPermission()) return;
       await _channel.invokeMethod<void>('showMessage', {
