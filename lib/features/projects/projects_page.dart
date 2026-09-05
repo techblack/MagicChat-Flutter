@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:pinyin/pinyin.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/repository.dart';
@@ -227,8 +228,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
                   ? snapshot.data!
                   : snapshot.data!
                       .where((project) =>
-                          project.name.toLowerCase().contains(keyword) ||
-                          project.description.toLowerCase().contains(keyword))
+                          _projectSearchText(project).contains(keyword))
                       .toList();
               return RefreshIndicator(
                   onRefresh: _refreshProjects,
@@ -1725,4 +1725,11 @@ class _ProjectsPageState extends State<ProjectsPage> {
         3 => '高',
         _ => '中',
       };
+}
+
+String _projectSearchText(Project project) {
+  final source = '${project.name} ${project.description}'.trim();
+  final pinyin = PinyinHelper.getPinyinE(source,
+      separator: '', format: PinyinFormat.WITHOUT_TONE, defPinyin: '#');
+  return '$source $pinyin'.toLowerCase();
 }
