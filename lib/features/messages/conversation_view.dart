@@ -106,6 +106,7 @@ class ConversationView extends StatefulWidget {
       this.cacheScope,
       this.messageCacheStore,
       this.sendMessageShortcut = MessageSendShortcut.enter,
+      this.enableFileDrop = true,
       required this.conversationId,
       this.focusMessageId,
       this.focusMessageSequence,
@@ -119,6 +120,7 @@ class ConversationView extends StatefulWidget {
   final MessageCacheScope? cacheScope;
   final MessageCacheStore? messageCacheStore;
   final MessageSendShortcut sendMessageShortcut;
+  final bool enableFileDrop;
   final String? conversationId;
   final String? focusMessageId;
   final int? focusMessageSequence;
@@ -156,6 +158,7 @@ class _ConversationViewState extends State<ConversationView>
       widget.messageCacheStore ?? MessageCacheStore();
   late final bool _ownsMessageCacheStore = widget.messageCacheStore == null;
   bool _sendingFile = false;
+  bool _draggingFile = false;
   Future<List<Contact>>? _contactsFuture;
   final _olderMessages = <ChatMessage>[];
   bool _loadingOlder = false;
@@ -1176,6 +1179,7 @@ class _ConversationViewState extends State<ConversationView>
         ..clear()
         ..addAll(_realtimeConversationMessages());
       _replyTo = null;
+      _draggingFile = false;
       _conversation = null;
       _topicDetail = null;
       _messagePage = null;
@@ -1190,6 +1194,9 @@ class _ConversationViewState extends State<ConversationView>
         _composerFocusNode.hasFocus) {
       _startTypingHeartbeat();
     }
+    if (oldWidget.enableFileDrop && !widget.enableFileDrop) {
+      _draggingFile = false;
+    }
     if (oldWidget.cacheScope != widget.cacheScope) {
       _olderMessages.clear();
       _hasMoreOlder = true;
@@ -1200,6 +1207,7 @@ class _ConversationViewState extends State<ConversationView>
       _replyTargetsById.clear();
       _optimisticMessages.clear();
       _optimisticSendsInFlight.clear();
+      _draggingFile = false;
       _messagesFuture = _loadMessages();
       _positioningConversationId = null;
       _positionedConversationId = null;
@@ -1573,7 +1581,7 @@ class _ConversationViewState extends State<ConversationView>
     final announcement = activeConversation?.type == 'group'
         ? activeConversation!.announcement.trim()
         : '';
-    return Column(
+    final content = Column(
       children: [
         if (_topicDetail != null)
           TopicSourceBanner(
@@ -2003,7 +2011,37 @@ class _ConversationViewState extends State<ConversationView>
         ),
       ],
     );
+    if (!_supportsFileDrop) return content;
+    final routeCurrent = ModalRoute.of(context)?.isCurrent ?? true;
+    final enabled = widget.enableFileDrop &&
+        routeCurrent &&
+        canSend &&
+        !_sendingFile &&
+        _selectedMessageIds.isEmpty;
+    return DropTarget(
+      key: const ValueKey('conversation-file-drop-target'),
+      enable: enabled,
+      onDragEntered: (_) {
+        if (!_draggingFile) setState(() => _draggingFile = true);
+      },
+      onDragExited: (_) {
+        if (_draggingFile) setState(() => _draggingFile = false);
+      },
+      onDragDone: (details) =>
+          unawaited(_handleFileDrop(conversationId, details)),
+      child: Stack(fit: StackFit.expand, children: [
+        content,
+        if (_draggingFile) const _ConversationFileDropOverlay(),
+      ]),
+    );
   }
+
+  bool get _supportsFileDrop =>
+      kIsWeb ||
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.windows ||
+      defaultTargetPlatform == TargetPlatform.macOS ||
+      defaultTargetPlatform == TargetPlatform.linux;
 
   Future<void> _copySelected() async {
     List<Contact> contacts;
@@ -2171,18 +2209,7 @@ class _ConversationViewState extends State<ConversationView>
           name: file.name,
           mimeType: _mimeType(file.extension),
           bytes: file.bytes);
-      _enqueueOptimisticMessage(
-        conversationId,
-        _OptimisticSendDescriptor(
-          clientMessageId: newMessageClientId(),
-          kind: upload.mimeType.startsWith('image/')
-              ? _OptimisticMessageKind.image
-              : _OptimisticMessageKind.file,
-          upload: upload,
-          replyTo: _replyTo,
-          sizeBytes: file.size,
-        ),
-      );
+      _enqueueAttachment(conversationId, upload, file.size);
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -2191,6 +2218,134 @@ class _ConversationViewState extends State<ConversationView>
     } finally {
       if (mounted) setState(() => _sendingFile = false);
     }
+  }
+
+  Future<void> _handleFileDrop(
+      String conversationId, DropDoneDetails details) async {
+    if (_draggingFile && mounted) setState(() => _draggingFile = false);
+    if (_sendingFile || !_conversationCanSend(conversationId)) return;
+    final file = details.files.firstOrNull;
+    if (file == null) return;
+    if (file is DropItemDirectory) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('暂不支持发送文件夹')));
+      return;
+    }
+
+    setState(() => _sendingFile = true);
+    final bookmark = file.extraAppleBookmark;
+    var accessingScopedFile = false;
+    try {
+      if (bookmark?.isNotEmpty == true) {
+        accessingScopedFile = await DesktopDrop.instance
+            .startAccessingSecurityScopedResource(bookmark: bookmark!);
+      }
+      final size = await file.length();
+      if (size > 200 * 1024 * 1024) {
+        if (mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(const SnackBar(content: Text('文件不能超过 200MiB')));
+        }
+        return;
+      }
+      final rawName = file.name.trim();
+      final name = rawName.isEmpty ? '附件' : rawName;
+      final dot = name.lastIndexOf('.');
+      final extension = dot < 0 ? null : name.substring(dot + 1);
+      final inferredMimeType = _mimeType(extension);
+      final providedMimeType = file.mimeType?.trim();
+      final mimeType = providedMimeType == null ||
+              providedMimeType.isEmpty ||
+              providedMimeType == 'application/octet-stream'
+          ? inferredMimeType
+          : providedMimeType;
+      final isImage = mimeType.startsWith('image/');
+      final needsBytes = kIsWeb ||
+          isImage ||
+          file.path.isEmpty ||
+          bookmark?.isNotEmpty == true;
+      final bytes = needsBytes ? await file.readAsBytes() : null;
+      final upload = AttachmentUpload(
+          path: needsBytes ? '' : file.path,
+          name: name,
+          mimeType: mimeType,
+          bytes: bytes);
+      if (!mounted || widget.conversationId != conversationId) return;
+      final confirmed = await _confirmDroppedAttachment(upload, size);
+      if (confirmed == true &&
+          mounted &&
+          widget.conversationId == conversationId &&
+          _conversationCanSend(conversationId)) {
+        _enqueueAttachment(conversationId, upload, size);
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('无法读取拖入文件：$error')));
+      }
+    } finally {
+      if (accessingScopedFile && bookmark != null) {
+        await DesktopDrop.instance
+            .stopAccessingSecurityScopedResource(bookmark: bookmark);
+      }
+      if (mounted) setState(() => _sendingFile = false);
+    }
+  }
+
+  Future<bool?> _confirmDroppedAttachment(AttachmentUpload upload, int size) {
+    final isImage = upload.mimeType.startsWith('image/');
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(isImage ? '发送图片' : '发送文件'),
+        content: SizedBox(
+          width: 400,
+          child: isImage && upload.bytes != null
+              ? Column(mainAxisSize: MainAxisSize.min, children: [
+                  ConstrainedBox(
+                    constraints:
+                        const BoxConstraints(maxWidth: 360, maxHeight: 260),
+                    child: Image.memory(upload.bytes!, fit: BoxFit.contain),
+                  ),
+                  const SizedBox(height: 12),
+                  Text('${upload.name} · ${_formatAttachmentSize(size)}',
+                      maxLines: 2, overflow: TextOverflow.ellipsis),
+                ])
+              : ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.description_outlined, size: 36),
+                  title: Text(upload.name,
+                      maxLines: 2, overflow: TextOverflow.ellipsis),
+                  subtitle: Text(_formatAttachmentSize(size)),
+                ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消')),
+          FilledButton.icon(
+              onPressed: () => Navigator.pop(context, true),
+              icon: const Icon(Icons.send_outlined),
+              label: const Text('发送')),
+        ],
+      ),
+    );
+  }
+
+  void _enqueueAttachment(
+      String conversationId, AttachmentUpload upload, int size) {
+    _enqueueOptimisticMessage(
+      conversationId,
+      _OptimisticSendDescriptor(
+        clientMessageId: newMessageClientId(),
+        kind: upload.mimeType.startsWith('image/')
+            ? _OptimisticMessageKind.image
+            : _OptimisticMessageKind.file,
+        upload: upload,
+        replyTo: _replyTo,
+        sizeBytes: size,
+      ),
+    );
   }
 
   Future<void> _sendMessage(String conversationId) async {
@@ -2763,6 +2918,64 @@ class _ConversationEmptyState extends StatelessWidget {
                       color: colors.onSurfaceVariant,
                     )),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ConversationFileDropOverlay extends StatelessWidget {
+  const _ConversationFileDropOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Semantics(
+          key: const ValueKey('conversation-file-drop-overlay'),
+          liveRegion: true,
+          label: '松开发送文件或图片',
+          child: ColoredBox(
+            color: colors.primary.withValues(alpha: .1),
+            child: Center(
+              child: Container(
+                width: 320,
+                height: 180,
+                margin: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: colors.surface.withValues(alpha: .92),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: colors.primary, width: 2),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircleAvatar(
+                      radius: 26,
+                      backgroundColor: colors.primaryContainer,
+                      child: Icon(Icons.upload_file,
+                          color: colors.onPrimaryContainer, size: 28),
+                    ),
+                    const SizedBox(height: 12),
+                    Text('松开发送文件或图片',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(
+                                color: colors.primary,
+                                fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 4),
+                    Text('一次发送一个文件，发送前可确认',
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodySmall
+                            ?.copyWith(color: colors.onSurfaceVariant)),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
