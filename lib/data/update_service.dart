@@ -29,8 +29,8 @@ class UpdateService {
   static const updateSource = String.fromEnvironment('MAGICCHAT_UPDATE_SOURCE',
       defaultValue:
           String.fromEnvironment('UPDATE_SOURCE', defaultValue: 'release'));
-  static const currentBuild = 8;
-  static const currentVersion = '0.2.5';
+  static const currentBuild = 9;
+  static const currentVersion = '0.2.6';
 
   static String get manifestUrl =>
       updateSource == 'release' ? releaseManifestUrl : updateSource;
