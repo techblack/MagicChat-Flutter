@@ -36,6 +36,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
   bool _preview = false;
   bool _saving = false;
   bool _reconnecting = false;
+  yjs.YXmlText? _selectedRichText;
 
   @override
   void initState() {
@@ -51,6 +52,9 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
   void _onCollaborationChanged() {
     if (!mounted) return;
     final session = widget.collaboration!;
+    if (session.status != DocumentCollaborationStatus.synced) {
+      _selectedRichText = null;
+    }
     if (session.status == DocumentCollaborationStatus.synced &&
         _body.text != session.text) {
       final offset = _body.selection.baseOffset.clamp(0, session.text.length);
@@ -159,7 +163,64 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                 initialMarks: session.xmlTextMarks(node)));
     if (result != null && mounted) {
       session.replaceXmlText(node, result.text, marks: result.marks);
+      setState(() => _selectedRichText = node);
     }
+  }
+
+  void _selectRichText(yjs.YXmlText? node) {
+    if (!identical(_selectedRichText, node)) {
+      setState(() => _selectedRichText = node);
+    }
+  }
+
+  void _updateRichText(yjs.YXmlText node, String value) {
+    widget.collaboration?.replaceXmlText(node, value);
+  }
+
+  void _toggleRichTextMark(String mark) {
+    final session = widget.collaboration;
+    final node = _selectedRichText;
+    if (session == null || node == null) return;
+    final marks = Map<String, Object?>.from(session.xmlTextMarks(node));
+    if (marks[mark] == true) {
+      marks.remove(mark);
+    } else {
+      marks[mark] = true;
+    }
+    session.replaceXmlText(node, node.toString(), marks: marks);
+    setState(() {});
+  }
+
+  void _clearRichTextFormatting() {
+    final session = widget.collaboration;
+    final node = _selectedRichText;
+    if (session == null || node == null) return;
+    session.replaceXmlText(node, node.toString(), marks: const {});
+    setState(() {});
+  }
+
+  void _transformRichTextBlock(RichDocumentBlockType type) {
+    final session = widget.collaboration;
+    final node = _selectedRichText;
+    if (session == null || node == null) return;
+    final replacement = session.transformXmlTextBlock(node, type);
+    if (replacement != null) setState(() => _selectedRichText = replacement);
+  }
+
+  void _insertRichParagraph({required bool after}) {
+    final session = widget.collaboration;
+    final node = _selectedRichText;
+    if (session == null || node == null) return;
+    final inserted = session.insertParagraphNear(node, after: after);
+    if (inserted != null) setState(() => _selectedRichText = inserted);
+  }
+
+  void _deleteRichTextBlock() {
+    final session = widget.collaboration;
+    final node = _selectedRichText;
+    if (session == null || node == null) return;
+    final replacement = session.deleteXmlTextBlock(node);
+    setState(() => _selectedRichText = replacement);
   }
 
   @override
@@ -237,10 +298,35 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                         DocumentCollaborationStatus.synced,
                     onInsert: (type) =>
                         unawaited(_appendBlock(initialType: type))),
+                if (_selectedRichText case final selected?
+                    when widget.collaboration!.status ==
+                        DocumentCollaborationStatus.synced) ...[
+                  const SizedBox(height: 6),
+                  RichDocumentInlineToolbar(
+                    blockType: widget.collaboration!.xmlTextBlockType(selected),
+                    marks: widget.collaboration!.xmlTextMarks(selected),
+                    onToggleMark: _toggleRichTextMark,
+                    onClearFormatting: _clearRichTextFormatting,
+                    onTransform: _transformRichTextBlock,
+                    onInsertBefore: () => _insertRichParagraph(after: false),
+                    onInsertAfter: () => _insertRichParagraph(after: true),
+                    onDelete: _deleteRichTextBlock,
+                    onDone: () => _selectRichText(null),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 Expanded(
                     child: RichDocumentView(
                         body: widget.collaboration!.body,
+                        selectedText: _selectedRichText,
+                        onSelectText: widget.collaboration!.status ==
+                                DocumentCollaborationStatus.synced
+                            ? _selectRichText
+                            : null,
+                        onTextChanged: widget.collaboration!.status ==
+                                DocumentCollaborationStatus.synced
+                            ? _updateRichText
+                            : null,
                         onEditText: _editTextNode)),
               ])
             : Column(children: [

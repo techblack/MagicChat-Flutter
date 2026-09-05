@@ -180,7 +180,7 @@ void main() {
     expect(find.text('协作连接已断开 · 点击右上角重新连接'), findsOneWidget);
   });
 
-  testWidgets('富文档文本块编辑对话框回写协作正文', (tester) async {
+  testWidgets('富文档文本块支持原位编辑和格式工具栏', (tester) async {
     final channel = _FakeChannel();
     final session = DocumentCollaborationSession(
         serverUrl: 'https://chat.example.com',
@@ -215,13 +215,19 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    await tester.longPress(find.text('原始文本'));
-    await tester.pumpAndSettle();
-    expect(find.text('编辑文本块'), findsOneWidget);
-    await tester.tap(find.widgetWithText(FilterChip, '粗体'));
-    await tester.enterText(find.byType(TextField).last, '编辑后文本');
-    await tester.tap(find.text('保存'));
-    await tester.pumpAndSettle();
+    await tester.tap(find.text('原始文本'));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('rich-document-inline-editor')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('rich-document-inline-toolbar')),
+        findsOneWidget);
+    final editor = find.descendant(
+        of: find.byKey(const ValueKey('rich-document-inline-editor')),
+        matching: find.byType(TextFormField));
+    await tester.enterText(editor, '编辑后文本');
+    await tester.pump();
+    await tester.tap(find.byTooltip('粗体'));
+    await tester.pump();
 
     expect(session.text, '编辑后文本');
     final editedText = session.body
@@ -233,6 +239,21 @@ void main() {
         .single;
     expect(
         editedText.toDelta().single['attributes'], containsPair('bold', true));
+
+    await tester.tap(find.byTooltip('块类型'));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester
+        .tap(find.widgetWithText(PopupMenuItem<RichDocumentBlockType>, '一级标题'));
+    await tester.pump();
+    final heading = session.body.toArray().whereType<yjs.YXmlElement>().single;
+    expect(heading.name, 'heading');
+    expect(heading.getAttribute('level'), 1);
+
+    await tester.tap(find.byTooltip('在下方插入一行'));
+    await tester.pump();
+    expect(session.body.toArray(), hasLength(2));
+    expect(find.text('输入正文'), findsOneWidget);
     serverDocument.destroy();
   });
 }
