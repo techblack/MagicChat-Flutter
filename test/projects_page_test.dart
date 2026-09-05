@@ -40,7 +40,9 @@ void main() {
     expect(find.text('成员'), findsOneWidget);
     await tester.tap(find.text('目标'));
     await tester.pumpAndSettle();
-    expect(find.text('待完善'), findsOneWidget);
+    expect(find.text('目标概览'), findsOneWidget);
+    expect(find.text('任务完成率'), findsOneWidget);
+    expect(find.textContaining('已完成'), findsOneWidget);
     await tester.tap(find.text('成员'));
     await tester.pumpAndSettle();
     expect(find.text('演示用户'), findsOneWidget);
