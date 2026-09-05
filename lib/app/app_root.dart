@@ -1186,6 +1186,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   late final MagicChatRepository _repository = widget.repository;
   String? _currentUserId;
   bool _identityReady = false;
+  bool _realtimeReconnecting = false;
   int _index = 0;
   String? _selectedConversation;
   String? _focusMessageId;
@@ -1266,6 +1267,17 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
             persist: (message) => _persistRealtimeMessage(store, message));
         return event;
       }).listen((event) {
+        final eventName = event['event'];
+        if (eventName == 'system.connection_lost' ||
+            eventName == 'system.connection_error') {
+          if (mounted && !_realtimeReconnecting) {
+            setState(() => _realtimeReconnecting = true);
+          }
+        } else if (eventName == 'system.ready' &&
+            mounted &&
+            _realtimeReconnecting) {
+          setState(() => _realtimeReconnecting = false);
+        }
         unawaited(_notifyIncomingMessage(event));
       });
       realtime.connect();
@@ -1614,21 +1626,52 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                         icon: const Icon(Icons.search),
                         tooltip: '搜索')
                   ]),
-        body: Row(children: [
-          if (wide)
-            NavigationRail(
-                backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-                useIndicator: true,
-                selectedIndex: _index,
-                onDestinationSelected: (i) => setState(() => _index = i),
-                labelType: NavigationRailLabelType.all,
-                destinations: destinations
-                    .map((d) => NavigationRailDestination(
-                        icon: d.icon,
-                        selectedIcon: d.selectedIcon,
-                        label: Text(d.label)))
-                    .toList()),
-          Expanded(child: IndexedStack(index: _index, children: pages))
+        body: Column(children: [
+          if (_realtimeReconnecting)
+            Material(
+              color: Theme.of(context).colorScheme.tertiaryContainer,
+              child: SizedBox(
+                width: double.infinity,
+                height: 36,
+                child: Row(children: [
+                  const SizedBox(width: 16),
+                  Icon(Icons.sync_problem_outlined,
+                      size: 18,
+                      color: Theme.of(context).colorScheme.onTertiaryContainer),
+                  const SizedBox(width: 8),
+                  Expanded(
+                      child: Text('实时连接已断开，正在重新连接；本地缓存仍可浏览',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelMedium
+                              ?.copyWith(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onTertiaryContainer))),
+                  const SizedBox(width: 16),
+                ]),
+              ),
+            ),
+          Expanded(
+            child: Row(children: [
+              if (wide)
+                NavigationRail(
+                    backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+                    useIndicator: true,
+                    selectedIndex: _index,
+                    onDestinationSelected: (i) => setState(() => _index = i),
+                    labelType: NavigationRailLabelType.all,
+                    destinations: destinations
+                        .map((d) => NavigationRailDestination(
+                            icon: d.icon,
+                            selectedIcon: d.selectedIcon,
+                            label: Text(d.label)))
+                        .toList()),
+              Expanded(child: IndexedStack(index: _index, children: pages))
+            ]),
+          ),
         ]),
         bottomNavigationBar: wide || compactConversation
             ? null
