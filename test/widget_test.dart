@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:magicchat_client/main.dart';
 import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/data/repository.dart';
@@ -223,6 +224,21 @@ void main() {
     expect(find.text('消息'), findsWidgets);
     expect(find.text('联系人'), findsOneWidget);
     expect(find.text('项目'), findsOneWidget);
+  });
+
+  testWidgets('桌面快捷键 Ctrl-K 可打开综合搜索', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester
+        .pumpWidget(MaterialApp(home: AppShell(repository: DemoRepository())));
+    await tester.pumpAndSettle();
+
+    await tester.tapAt(const Offset(400, 400));
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+
+    expect(find.text('综合搜索'), findsOneWidget);
   });
 
   testWidgets('主导航显示未读数和当前模块', (tester) async {
