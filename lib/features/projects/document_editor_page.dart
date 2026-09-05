@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:yjs_dart/yjs_dart.dart' as yjs;
@@ -481,117 +482,131 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
               icon: const Icon(Icons.save_outlined))
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: widget.document.documentType == 'document' &&
-                widget.collaboration != null
-            ? Column(children: [
-                Container(
-                    width: double.infinity,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.secondaryContainer,
-                        borderRadius: BorderRadius.circular(8)),
-                    child: Row(children: [
-                      Icon(
-                          widget.collaboration!.status ==
-                                  DocumentCollaborationStatus.error
-                              ? Icons.error_outline
-                              : Icons.visibility_outlined,
-                          size: 18),
-                      const SizedBox(width: 8),
-                      Expanded(
-                          child: Text(widget.collaboration!.status ==
-                                  DocumentCollaborationStatus.error
-                              ? '协作连接已断开 · 点击右上角重新连接'
-                              : _formatPainterMarks != null
-                                  ? '格式刷已启用 · 点击其他文本块应用格式'
-                                  : '富文档安全编辑 · 长按文本块可编辑，可追加标准内容块')),
-                    ])),
-                const SizedBox(height: 8),
-                RichDocumentToolbar(
-                    enabled: widget.collaboration!.status ==
-                        DocumentCollaborationStatus.synced,
-                    canUndo: widget.collaboration!.canUndo,
-                    canRedo: widget.collaboration!.canRedo,
-                    formatPainterActive: _formatPainterMarks != null,
-                    onUndo: _undoRichDocument,
-                    onRedo: _redoRichDocument,
-                    onFormatPainter: _toggleRichFormatPainter,
-                    onClearFormatting: _clearRichTextFormatting,
-                    onInsertTable: _insertRichTable,
-                    onInsertImage: _insertRichImage,
-                    onInsert: (type) =>
-                        unawaited(_appendBlock(initialType: type))),
-                if (_selectedRichText case final selected?
-                    when widget.collaboration!.status ==
-                        DocumentCollaborationStatus.synced) ...[
-                  const SizedBox(height: 6),
-                  RichDocumentInlineToolbar(
-                    blockType: widget.collaboration!.xmlTextBlockType(selected),
-                    marks: widget.collaboration!.xmlTextMarks(selected),
-                    alignment: widget.collaboration!.xmlTextAlignment(selected),
-                    onToggleMark: _toggleRichTextMark,
-                    onTextColor: _setRichTextColor,
-                    onHighlight: _setRichTextHighlight,
-                    onAlignment: _setRichTextAlignment,
-                    onEditLink: _editRichTextLink,
-                    onClearFormatting: _clearRichTextFormatting,
-                    onTransform: _transformRichTextBlock,
-                    onInsertBefore: () => _insertRichParagraph(after: false),
-                    onInsertAfter: () => _insertRichParagraph(after: true),
-                    onDelete: _deleteRichTextBlock,
-                    onDone: () => _selectRichText(null),
-                  ),
-                ],
-                const SizedBox(height: 8),
-                Expanded(
-                    child: RichDocumentView(
-                        body: widget.collaboration!.body,
-                        selectedText: _selectedRichText,
-                        onSelectText: widget.collaboration!.status ==
-                                DocumentCollaborationStatus.synced
-                            ? _selectRichText
-                            : null,
-                        onTextChanged: widget.collaboration!.status ==
-                                DocumentCollaborationStatus.synced
-                            ? _updateRichText
-                            : null,
-                        imageUrlResolver: _resolveDocumentImage,
-                        onEditImage: widget.collaboration!.status ==
-                                DocumentCollaborationStatus.synced
-                            ? (image) => unawaited(_editRichImage(image))
-                            : null,
-                        onEditText: _editTextNode)),
-              ])
-            : Column(children: [
-                MarkdownEditorToolbar(
-                    controller: _body,
-                    enabled: !_preview &&
-                        widget.collaboration?.status !=
-                            DocumentCollaborationStatus.connecting,
-                    onChanged: _onBodyChanged),
-                const SizedBox(height: 8),
-                Expanded(
-                    child: _preview
-                        ? Markdown(
-                            data: _body.text.isEmpty ? '暂无内容' : _body.text,
-                            padding: EdgeInsets.zero)
-                        : TextField(
-                            key: const ValueKey('markdown-body-editor'),
-                            controller: _body,
-                            expands: true,
-                            maxLines: null,
-                            minLines: null,
-                            textAlignVertical: TextAlignVertical.top,
-                            decoration: const InputDecoration(
-                                hintText: '输入 Markdown 或文档内容…',
-                                border: OutlineInputBorder()),
-                            readOnly: widget.collaboration?.status ==
-                                DocumentCollaborationStatus.connecting,
-                            onChanged: _onBodyChanged)),
-              ]),
+      body: Focus(
+        onKeyEvent: (_, event) {
+          if (event is KeyDownEvent &&
+              event.logicalKey == LogicalKeyboardKey.escape &&
+              _formatPainterMarks != null) {
+            _clearRichFormatPainter();
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: widget.document.documentType == 'document' &&
+                  widget.collaboration != null
+              ? Column(children: [
+                  Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                          color:
+                              Theme.of(context).colorScheme.secondaryContainer,
+                          borderRadius: BorderRadius.circular(8)),
+                      child: Row(children: [
+                        Icon(
+                            widget.collaboration!.status ==
+                                    DocumentCollaborationStatus.error
+                                ? Icons.error_outline
+                                : Icons.visibility_outlined,
+                            size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                            child: Text(widget.collaboration!.status ==
+                                    DocumentCollaborationStatus.error
+                                ? '协作连接已断开 · 点击右上角重新连接'
+                                : _formatPainterMarks != null
+                                    ? '格式刷已启用 · 点击其他文本块应用格式'
+                                    : '富文档安全编辑 · 长按文本块可编辑，可追加标准内容块')),
+                      ])),
+                  const SizedBox(height: 8),
+                  RichDocumentToolbar(
+                      enabled: widget.collaboration!.status ==
+                          DocumentCollaborationStatus.synced,
+                      canUndo: widget.collaboration!.canUndo,
+                      canRedo: widget.collaboration!.canRedo,
+                      formatPainterActive: _formatPainterMarks != null,
+                      onUndo: _undoRichDocument,
+                      onRedo: _redoRichDocument,
+                      onFormatPainter: _toggleRichFormatPainter,
+                      onClearFormatting: _clearRichTextFormatting,
+                      onInsertTable: _insertRichTable,
+                      onInsertImage: _insertRichImage,
+                      onInsert: (type) =>
+                          unawaited(_appendBlock(initialType: type))),
+                  if (_selectedRichText case final selected?
+                      when widget.collaboration!.status ==
+                          DocumentCollaborationStatus.synced) ...[
+                    const SizedBox(height: 6),
+                    RichDocumentInlineToolbar(
+                      blockType:
+                          widget.collaboration!.xmlTextBlockType(selected),
+                      marks: widget.collaboration!.xmlTextMarks(selected),
+                      alignment:
+                          widget.collaboration!.xmlTextAlignment(selected),
+                      onToggleMark: _toggleRichTextMark,
+                      onTextColor: _setRichTextColor,
+                      onHighlight: _setRichTextHighlight,
+                      onAlignment: _setRichTextAlignment,
+                      onEditLink: _editRichTextLink,
+                      onClearFormatting: _clearRichTextFormatting,
+                      onTransform: _transformRichTextBlock,
+                      onInsertBefore: () => _insertRichParagraph(after: false),
+                      onInsertAfter: () => _insertRichParagraph(after: true),
+                      onDelete: _deleteRichTextBlock,
+                      onDone: () => _selectRichText(null),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Expanded(
+                      child: RichDocumentView(
+                          body: widget.collaboration!.body,
+                          selectedText: _selectedRichText,
+                          onSelectText: widget.collaboration!.status ==
+                                  DocumentCollaborationStatus.synced
+                              ? _selectRichText
+                              : null,
+                          onTextChanged: widget.collaboration!.status ==
+                                  DocumentCollaborationStatus.synced
+                              ? _updateRichText
+                              : null,
+                          imageUrlResolver: _resolveDocumentImage,
+                          onEditImage: widget.collaboration!.status ==
+                                  DocumentCollaborationStatus.synced
+                              ? (image) => unawaited(_editRichImage(image))
+                              : null,
+                          onEditText: _editTextNode)),
+                ])
+              : Column(children: [
+                  MarkdownEditorToolbar(
+                      controller: _body,
+                      enabled: !_preview &&
+                          widget.collaboration?.status !=
+                              DocumentCollaborationStatus.connecting,
+                      onChanged: _onBodyChanged),
+                  const SizedBox(height: 8),
+                  Expanded(
+                      child: _preview
+                          ? Markdown(
+                              data: _body.text.isEmpty ? '暂无内容' : _body.text,
+                              padding: EdgeInsets.zero)
+                          : TextField(
+                              key: const ValueKey('markdown-body-editor'),
+                              controller: _body,
+                              expands: true,
+                              maxLines: null,
+                              minLines: null,
+                              textAlignVertical: TextAlignVertical.top,
+                              decoration: const InputDecoration(
+                                  hintText: '输入 Markdown 或文档内容…',
+                                  border: OutlineInputBorder()),
+                              readOnly: widget.collaboration?.status ==
+                                  DocumentCollaborationStatus.connecting,
+                              onChanged: _onBodyChanged)),
+                ]),
+        ),
       ),
       bottomNavigationBar: SafeArea(
           child: Padding(

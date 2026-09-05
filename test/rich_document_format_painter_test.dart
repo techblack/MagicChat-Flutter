@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magicchat_client/data/document_collaboration.dart';
 import 'package:magicchat_client/data/document_realtime.dart';
@@ -75,6 +76,13 @@ void main() {
     expect(find.byTooltip('取消格式刷'), findsOneWidget);
     expect(find.text('格式刷已启用 · 点击其他文本块应用格式'), findsOneWidget);
 
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(find.byTooltip('格式刷'), findsOneWidget);
+    expect(find.byTooltip('取消格式刷'), findsNothing);
+
+    await tester.tap(find.byTooltip('格式刷'));
+    await tester.pump();
     await tester.tap(find.text('目标文本'));
     await tester.pump();
     final targetText = session.body
