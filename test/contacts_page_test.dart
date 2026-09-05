@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/contacts/contacts_page.dart';
+import 'package:magicchat_client/features/contacts/contact_category_page.dart';
 import 'package:magicchat_client/features/contacts/entity_details_page.dart';
 
 void main() {
@@ -43,6 +44,45 @@ void main() {
         find.byKey(const ValueKey('friend-management-button')), findsNothing);
   });
 
+  testWidgets('通讯录首页显示分类入口，用户列表不再混入应用和群组', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+        home:
+            Scaffold(body: ContactsPage(repository: _DirectoryRepository()))));
+    await tester.pumpAndSettle();
+
+    expect(find.text('新朋友'), findsOneWidget);
+    expect(find.text('我的应用'), findsOneWidget);
+    expect(find.text('所有应用'), findsOneWidget);
+    expect(find.text('我加入的群组'), findsOneWidget);
+    expect(find.text('公开群组'), findsOneWidget);
+    expect(find.widgetWithText(ListTile, 'Alice'), findsOneWidget);
+    expect(find.widgetWithText(ListTile, '智能助手'), findsNothing);
+    expect(find.widgetWithText(ListTile, '公开项目群'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('contact-category-myApps')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ContactCategoryPage), findsOneWidget);
+    expect(find.widgetWithText(ListTile, '我的机器人'), findsOneWidget);
+    expect(find.widgetWithText(ListTile, '智能助手'), findsNothing);
+  });
+
+  testWidgets('联系人字母索引可跳转到对应分组', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(420, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: ContactsPage(repository: _AlphabetRepository()))));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('contact-index-Z')));
+    await tester.pump();
+
+    final indicator = find.byKey(const ValueKey('contact-index-indicator'));
+    expect(indicator, findsOneWidget);
+    expect(find.descendant(of: indicator, matching: find.text('Z')),
+        findsOneWidget);
+    expect(find.widgetWithText(ListTile, 'Zoe'), findsOneWidget);
+  });
+
   testWidgets('好友管理可确认并删除已有好友', (tester) async {
     final repository = _FriendRepository();
     await tester.pumpWidget(MaterialApp(
@@ -68,8 +108,11 @@ void main() {
                 repository: repository,
                 onOpenConversation: (id) => opened = id))));
     await tester.pumpAndSettle();
+    await tester
+        .tap(find.byKey(const ValueKey('contact-category-publicGroups')));
+    await tester.pumpAndSettle();
     expect(find.text('3 人 · 公开群组'), findsOneWidget);
-    await tester.tap(find.text('公开群组'));
+    await tester.tap(find.widgetWithText(ListTile, '公开群组'));
     await tester.pumpAndSettle();
     expect(find.byType(EntityDetailsPage), findsOneWidget);
     expect(repository.joinedGroupId, isNull);
@@ -113,6 +156,8 @@ void main() {
         home: Scaffold(body: ContactsPage(repository: repository))));
     await tester.pumpAndSettle();
 
+    await tester.tap(find.byKey(const ValueKey('contact-category-allApps')));
+    await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ListTile, '智能助手'));
     await tester.pumpAndSettle();
 
@@ -219,6 +264,33 @@ class _FriendRepository extends DemoRepository {
   Future<void> deleteFriend(String userId) async {
     deletedUserId = userId;
   }
+}
+
+class _DirectoryRepository extends DemoRepository {
+  @override
+  Future<ContactDirectory> contactDirectory({String keyword = ''}) async =>
+      const ContactDirectory(contacts: [
+        Contact(id: 'alice', name: 'Alice'),
+        Contact(
+            id: 'owned-app', name: '我的机器人', type: 'app', creatorUserId: 'demo'),
+        Contact(id: 'other-app', name: '智能助手', type: 'app'),
+        Contact(id: 'joined-group', name: '研发群', type: 'group', joined: true),
+        Contact(
+            id: 'public-group',
+            name: '公开项目群',
+            type: 'group',
+            visibility: 'public'),
+      ], mode: 'friends');
+}
+
+class _AlphabetRepository extends DemoRepository {
+  @override
+  Future<ContactDirectory> contactDirectory({String keyword = ''}) async =>
+      ContactDirectory(contacts: [
+        for (var index = 0; index < 18; index++)
+          Contact(id: 'alice-$index', name: 'Alice $index'),
+        const Contact(id: 'zoe', name: 'Zoe'),
+      ], mode: 'organization');
 }
 
 class _GroupRepository extends DemoRepository {
