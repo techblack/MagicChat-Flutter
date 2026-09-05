@@ -54,6 +54,40 @@ void main() {
     expect(find.textContaining('{(@user/alice)}'), findsNothing);
   });
 
+  testWidgets('实时引用补齐原消息后会刷新回复预览', (tester) async {
+    final store = RealtimeStore()..setCurrentUserId('me');
+    store.conversations['conversation-1'] = const ChatConversation(
+        id: 'conversation-1', title: '测试会话', type: 'group');
+    final repository = _RealtimeReplyRepository();
+    await tester.binding.setSurfaceSize(const Size(600, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: ConversationView(
+                repository: repository,
+                realtimeStore: store,
+                conversationId: 'conversation-1'))));
+    await tester.pumpAndSettle();
+
+    store.apply({
+      'cursor': 1,
+      'event': 'message.created',
+      'payload': {
+        'id': 'reply-message',
+        'conversation_id': 'conversation-1',
+        'seq': 4,
+        'sender': {'id': 'alice', 'name': 'Alice'},
+        'body': {'type': 'text', 'content': '收到'},
+        'reply_to_message_id': 'quoted-message',
+      },
+    });
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(find.text('回复 Bob：原消息正文'), findsOneWidget);
+    expect(find.text('quoted-message'), findsNothing);
+  });
+
   testWidgets('消息操作菜单可直接复制单条消息', (tester) async {
     await _pumpConversation(tester, _ExperienceRepository());
 
@@ -289,6 +323,41 @@ class _ReplyReferenceRepository extends _ExperienceRepository {
               author: 'bob',
               text: 'quoted-message',
               sequence: 1)),
+    ];
+  }
+
+  @override
+  Future<List<Contact>> contacts({String keyword = ''}) async => const [
+        Contact(id: 'alice', name: 'Alice'),
+        Contact(id: 'bob', name: 'Bob'),
+      ];
+}
+
+class _RealtimeReplyRepository extends _ExperienceRepository {
+  @override
+  Future<List<ChatMessage>> messages(String conversationId,
+      {int? beforeSeq, int limit = 50}) async {
+    if (beforeSeq == 3) {
+      return const [
+        ChatMessage(
+          id: 'quoted-message',
+          conversationId: 'conversation-1',
+          sequence: 2,
+          authorId: 'bob',
+          author: 'Bob',
+          text: '原消息正文',
+        ),
+      ];
+    }
+    return const [
+      ChatMessage(
+        id: 'existing-message',
+        conversationId: 'conversation-1',
+        sequence: 3,
+        authorId: 'bob',
+        author: 'Bob',
+        text: '上一条消息',
+      ),
     ];
   }
 

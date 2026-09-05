@@ -123,6 +123,19 @@ void main() {
     expect(reply.text, '原消息正文');
   });
 
+  test('引用复杂消息时使用消息类型摘要而不是原始消息 ID', () {
+    final reply = MessageReply.fromJson({
+      'id': 'message-1',
+      'summary': 'message-1',
+      'message': {
+        'body': {'type': 'file', 'name': '设计稿.pdf'},
+      },
+    });
+
+    expect(reply.text, '[文件] 设计稿.pdf');
+    expect(reply.text, isNot(contains('message-1')));
+  });
+
   test('历史撤回消息使用撤回占位，不读取缺失正文', () async {
     final repository = HttpMagicChatRepository(
       serverUrl: 'https://chat.example.com',
