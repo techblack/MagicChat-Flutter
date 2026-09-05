@@ -150,14 +150,12 @@ class _ConversationViewState extends State<ConversationView>
   final _controller = TextEditingController();
   final _composerFocusNode = FocusNode();
   final _scrollController = ScrollController();
-  final _voiceRecorder = VoiceRecorder();
   Future<List<ChatMessage>>? _messagesFuture;
   MessagePage? _messagePage;
   late final MessageCacheStore _messageCacheStore =
       widget.messageCacheStore ?? MessageCacheStore();
   late final bool _ownsMessageCacheStore = widget.messageCacheStore == null;
   bool _sendingFile = false;
-  bool _recording = false;
   Future<List<Contact>>? _contactsFuture;
   final _olderMessages = <ChatMessage>[];
   bool _loadingOlder = false;
@@ -836,7 +834,6 @@ class _ConversationViewState extends State<ConversationView>
     final canSend = current == null
         ? _canSend
         : current.canSend && current.topic?.archived != true;
-    final cancelRecording = current != null && _recording && !canSend;
     setState(() {
       _optimisticMessages.removeWhere((clientMessageId, _) =>
           confirmedOptimisticIds.contains(clientMessageId));
@@ -850,7 +847,6 @@ class _ConversationViewState extends State<ConversationView>
       if (!canSend) _replyTo = null;
     });
     if (!canSend) _stopTypingHeartbeat();
-    if (cancelRecording) unawaited(_cancelRecording());
   }
 
   void _onComposerFocusChanged() {
@@ -1156,7 +1152,6 @@ class _ConversationViewState extends State<ConversationView>
       _stopTypingHeartbeat();
       _composerFocusNode.unfocus();
       _highlightTimer?.cancel();
-      if (_recording) unawaited(_cancelRecording());
       _olderMessages.clear();
       _hasMoreOlder = true;
       _lastOlderBeforeSeq = null;
@@ -1251,7 +1246,6 @@ class _ConversationViewState extends State<ConversationView>
     _controller.dispose();
     _composerFocusNode.dispose();
     _scrollController.dispose();
-    _voiceRecorder.dispose();
     if (_ownsMessageCacheStore) unawaited(_messageCacheStore.close());
     super.dispose();
   }
@@ -1378,50 +1372,61 @@ class _ConversationViewState extends State<ConversationView>
     unawaited(_performOptimisticSend(conversationId, item.descriptor));
   }
 
-  Future<void> _toggleVoice(String conversationId) async {
+  Future<void> _showVoiceComposer(String conversationId) async {
     if (!_conversationCanSend(conversationId)) return;
-    if (_recording) {
-      try {
-        final path = await _voiceRecorder.stop();
-        final durationMs = _voiceRecorder.lastDurationMs;
-        if (mounted) setState(() => _recording = false);
-        if (path == null) return;
-        if (!mounted || !_conversationCanSend(conversationId)) return;
-        _enqueueOptimisticMessage(
-          conversationId,
-          _OptimisticSendDescriptor(
-            clientMessageId: newMessageClientId(),
-            kind: _OptimisticMessageKind.voice,
-            upload: AttachmentUpload(
-                path: path, name: 'voice.m4a', mimeType: 'audio/mp4'),
-            durationMs: durationMs,
-            replyTo: _replyTo,
-          ),
-        );
-      } catch (error) {
-        if (mounted) {
-          setState(() => _recording = false);
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text('发送语音失败：$error')));
-        }
-      }
+    _composerFocusNode.unfocus();
+    final repository = widget.repository;
+    VoiceTranscriberFactory? transcriberFactory;
+    if (repository is HttpMagicChatRepository) {
+      transcriberFactory = () => AsrRealtimeClient(
+            serverUrl: repository.baseUri.toString(),
+            sessionToken: repository.sessionToken,
+            connector: connectWithAuthorization,
+          );
+    }
+    final result = await showModalBottomSheet<VoiceComposerResult>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      isDismissible: false,
+      enableDrag: false,
+      builder: (_) =>
+          VoiceMessageComposerSheet(transcriberFactory: transcriberFactory),
+    );
+    if (!mounted || result == null || !_conversationCanSend(conversationId)) {
       return;
     }
-    try {
-      await _voiceRecorder.start();
-      if (mounted) setState(() => _recording = true);
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('无法开始录音：$error')));
-      }
+    if (result.kind == VoiceComposerResultKind.text) {
+      _enqueueOptimisticMessage(
+        conversationId,
+        _OptimisticSendDescriptor(
+          clientMessageId: newMessageClientId(),
+          kind: _OptimisticMessageKind.text,
+          text: result.text,
+          replyTo: _replyTo,
+        ),
+      );
+      return;
     }
-  }
-
-  Future<void> _cancelRecording() async {
-    if (!_recording && !_voiceRecorder.isRecording) return;
-    await _voiceRecorder.stop();
-    if (mounted) setState(() => _recording = false);
+    final recording = result.recording!;
+    _enqueueOptimisticMessage(
+      conversationId,
+      _OptimisticSendDescriptor(
+        clientMessageId: newMessageClientId(),
+        kind: _OptimisticMessageKind.voice,
+        upload: AttachmentUpload(
+          path: '',
+          name: recording.name,
+          mimeType: recording.mimeType,
+          bytes: recording.bytes,
+        ),
+        text: result.text,
+        durationMs: recording.durationMs,
+        sizeBytes: recording.bytes.length,
+        replyTo: _replyTo,
+      ),
+    );
   }
 
   bool _canReplyToMessage(String conversationId, ChatMessage message) =>
@@ -1984,14 +1989,11 @@ class _ConversationViewState extends State<ConversationView>
                           : () => _pickAndSendFile(conversationId),
                     ),
                     IconButton(
-                      icon: Icon(_recording ? Icons.stop : Icons.mic_none),
-                      tooltip: _recording ? '停止并发送语音' : '录制语音',
-                      color: _recording
-                          ? Theme.of(context).colorScheme.error
-                          : null,
+                      icon: const Icon(Icons.mic_none),
+                      tooltip: '语音输入',
                       onPressed: !canSend || _sendingFile
                           ? null
-                          : () => _toggleVoice(conversationId),
+                          : () => _showVoiceComposer(conversationId),
                     ),
                   ]),
                 ),
