@@ -53,6 +53,12 @@ abstract interface class MagicChatRepository {
       required String entityId,
       String? replyToMessageId,
       String? clientMessageId});
+  Future<void> sendCard(String conversationId,
+      {required String title,
+      required String description,
+      required String url,
+      String? replyToMessageId,
+      String? clientMessageId});
   Future<bool> setConversationPinned(String conversationId, bool pinned);
   Future<bool> setConversationMuted(String conversationId, bool muted);
   Future<ConversationReadResult> markConversationRead(
@@ -132,6 +138,7 @@ abstract interface class MagicChatRepository {
   Future<List<ProjectTaskActivity>> taskActivities(
       String projectId, String taskId);
   Future<List<ProjectDocument>> documents(String projectId);
+  Future<ProjectDocument> document(String documentId);
   Future<ProjectDocument> createDocument(String projectId, String title,
       {String kind = 'document', String? documentType, String? parentId});
   Future<ProjectDocument> updateDocument(String documentId,
@@ -469,6 +476,14 @@ class DemoRepository implements MagicChatRepository {
       String? clientMessageId}) async {}
 
   @override
+  Future<void> sendCard(String conversationId,
+      {required String title,
+      required String description,
+      required String url,
+      String? replyToMessageId,
+      String? clientMessageId}) async {}
+
+  @override
   Future<bool> setConversationPinned(
           String conversationId, bool pinned) async =>
       pinned;
@@ -795,6 +810,10 @@ class DemoRepository implements MagicChatRepository {
 
   @override
   Future<List<ProjectDocument>> documents(String projectId) async => const [];
+
+  @override
+  Future<ProjectDocument> document(String documentId) async => ProjectDocument(
+      id: documentId, projectId: '1', title: '示例文档', documentType: 'document');
 
   @override
   Future<ProjectDocument> createDocument(String projectId, String title,
@@ -1689,6 +1708,27 @@ class HttpMagicChatRepository implements MagicChatRepository {
           });
 
   @override
+  Future<void> sendCard(String conversationId,
+          {required String title,
+          required String description,
+          required String url,
+          String? replyToMessageId,
+          String? clientMessageId}) async =>
+      _request('POST',
+          '/api/client/conversations/${Uri.encodeComponent(conversationId)}/messages',
+          body: {
+            'client_message_id': clientMessageId ?? newMessageClientId(),
+            'body': {
+              'type': 'card',
+              'title': title,
+              'description': description,
+              'url': url,
+            },
+            if (replyToMessageId != null)
+              'reply_to_message_id': replyToMessageId,
+          });
+
+  @override
   Future<bool> setConversationPinned(String conversationId, bool pinned) async {
     final value = await _request(pinned ? 'PUT' : 'DELETE',
         '/api/client/conversations/${Uri.encodeComponent(conversationId)}/pin');
@@ -2428,6 +2468,11 @@ class HttpMagicChatRepository implements MagicChatRepository {
         .where((item) => item.id.isNotEmpty && item.title.isNotEmpty)
         .toList();
   }
+
+  @override
+  Future<ProjectDocument> document(String documentId) async =>
+      _documentFromJson(_data(await _request(
+          'GET', '/api/client/documents/${Uri.encodeComponent(documentId)}')));
 
   @override
   Future<ProjectDocument> createDocument(String projectId, String title,

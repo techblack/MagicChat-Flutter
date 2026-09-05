@@ -1057,6 +1057,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   int? _focusMessageSequence;
   String? _focusContactId;
   String? _focusProjectId;
+  String? _focusDocumentId;
   int _unreadCount = 0;
   MessageSendShortcut _sendMessageShortcut = MessageSendShortcut.enter;
   final _conversationHistory = <String>[];
@@ -1353,8 +1354,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       ProjectsPage(
           repository: _repository,
           initialProjectId: _focusProjectId,
+          initialDocumentId: _focusDocumentId,
           onInitialProjectOpened: () {
             if (mounted) setState(() => _focusProjectId = null);
+          },
+          onInitialDocumentOpened: () {
+            if (mounted) setState(() => _focusDocumentId = null);
           },
           documentCollaborationFactory: documentCollaborationFactory),
       SettingsPage(
@@ -1535,6 +1540,15 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     if (target == null) return;
     final uri = Uri.tryParse(target);
     if (uri == null) return;
+    final document = parseDocumentMessagePath(target);
+    if (document != null) {
+      setState(() {
+        _focusProjectId = null;
+        _focusDocumentId = document.documentId;
+        _index = 2;
+      });
+      return;
+    }
     if (uri.path == '/projects' || uri.path.startsWith('/projects/')) {
       setState(() => _index = 2);
     }
@@ -1549,6 +1563,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         onOpenMessage: _openMessageFromSearch,
         onOpenProject: (id) {
           setState(() {
+            _focusDocumentId = null;
             _focusProjectId = id;
             _index = 2;
           });

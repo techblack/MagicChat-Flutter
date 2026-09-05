@@ -11,6 +11,7 @@ class SendCardDialog extends StatefulWidget {
     required this.cardTitle,
     required this.cardDescription,
     required this.onSend,
+    this.icon = Icons.task_alt_outlined,
     super.key,
   });
 
@@ -18,6 +19,7 @@ class SendCardDialog extends StatefulWidget {
   final String cardTitle;
   final String cardDescription;
   final SendCardToConversation onSend;
+  final IconData icon;
 
   @override
   State<SendCardDialog> createState() => _SendCardDialogState();
@@ -73,7 +75,7 @@ class _SendCardDialogState extends State<SendCardDialog> {
               borderRadius: BorderRadius.circular(12),
             ),
             child: Row(children: [
-              const Icon(Icons.task_alt_outlined),
+              Icon(widget.icon),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(

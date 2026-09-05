@@ -8,6 +8,7 @@ import 'package:yjs_dart/yjs_dart.dart' as yjs;
 import '../../data/repository.dart';
 import '../../data/document_collaboration.dart';
 import '../../domain/models.dart';
+import '../messages/send_card_dialog.dart';
 import 'markdown_editor_toolbar.dart';
 import 'rich_document_view.dart';
 import 'rich_document_toolbar.dart';
@@ -16,10 +17,12 @@ class DocumentEditorPage extends StatefulWidget {
   const DocumentEditorPage(
       {required this.repository,
       required this.document,
+      this.projectName = '',
       this.collaboration,
       super.key});
   final MagicChatRepository repository;
   final ProjectDocument document;
+  final String projectName;
   final DocumentCollaborationSession? collaboration;
 
   @override
@@ -122,6 +125,26 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     }
   }
 
+  Future<void> _sendCard() {
+    final title = createDocumentCardTitle(_title.text);
+    final projectName = widget.projectName.trim();
+    return showDialog<void>(
+      context: context,
+      builder: (_) => SendCardDialog(
+        repository: widget.repository,
+        cardTitle: title,
+        cardDescription: projectName.isEmpty ? '项目文档' : '项目：$projectName',
+        icon: Icons.description_outlined,
+        onSend: (conversationId) => widget.repository.sendCard(
+          conversationId,
+          title: title,
+          description: projectName.isEmpty ? '项目文档' : '项目: $projectName',
+          url: documentCardPath(widget.document),
+        ),
+      ),
+    );
+  }
+
   Future<void> _editTextNode(yjs.YXmlText node) async {
     final session = widget.collaboration;
     if (session == null ||
@@ -162,6 +185,11 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                     ? _appendBlock
                     : null,
                 icon: const Icon(Icons.add_box_outlined)),
+          IconButton(
+              key: const ValueKey('document-send-card'),
+              tooltip: '发送到会话',
+              onPressed: _sendCard,
+              icon: const Icon(Icons.send_outlined)),
           if (widget.collaboration?.status == DocumentCollaborationStatus.error)
             IconButton(
                 tooltip: '重新连接',
@@ -325,6 +353,20 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
         ? '$status · ${session.collaboratorCount} 人在线'
         : status;
   }
+}
+
+String createDocumentCardTitle(String value) {
+  const prefix = '文档 - ';
+  const maxLength = 256;
+  final title = value.trim().isEmpty ? '无标题文档' : value.trim();
+  final remaining = maxLength - prefix.characters.length;
+  if (title.characters.length <= remaining) return '$prefix$title';
+  return '$prefix${title.characters.take(remaining - 1).join()}…';
+}
+
+String documentCardPath(ProjectDocument document) {
+  final type = document.documentType == 'markdown' ? 'markdown' : 'document';
+  return '/documents/$type/${Uri.encodeComponent(document.id)}';
 }
 
 class _TextBlockDialog extends StatefulWidget {
