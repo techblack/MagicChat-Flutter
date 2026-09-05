@@ -739,7 +739,9 @@ class _ConversationViewState extends State<ConversationView>
     await _preloadReplyTargets(id, merged);
     await _preloadComplexMessages(id, merged);
     try {
-      await _cacheMessages(id, merged);
+      // 刷新只同步本次返回的最新窗口。不能用 write() 重建整库：长会话
+      // 可能已经缓存了数十万条历史，整库删除/重写会阻塞 UI 并丢失历史页。
+      await _upsertCachedMessages(id, fresh);
     } catch (_) {
       // 刷新结果仍应展示；缓存会在后续实时事件或刷新时重试。
     }
@@ -839,7 +841,8 @@ class _ConversationViewState extends State<ConversationView>
     final updated = await _applyMessageSnapshots(conversationId, messages);
     if (!mounted || widget.conversationId != conversationId) return;
     try {
-      await _cacheMessages(conversationId, updated);
+      // 快照修正同样只增量更新受影响的消息，保留其余历史页。
+      await _upsertCachedMessages(conversationId, updated);
     } catch (_) {
       // 快照修正即使无法持久化也应更新当前页面。
     }
@@ -1165,11 +1168,12 @@ class _ConversationViewState extends State<ConversationView>
       }
     });
     if (!changed) return;
-    final cached = await _readCachedMessages(conversationId);
-    if (cached.isEmpty) return;
-    final cachedById = {for (final message in updated) message.id: message};
-    await _cacheMessages(conversationId,
-        cached.map((message) => cachedById[message.id] ?? message).toList());
+    try {
+      // 只写回本页的快照，不读取/重写整段缓存。
+      await _upsertCachedMessages(conversationId, updated);
+    } catch (_) {
+      // 本地缓存失败不影响已经渲染的历史消息。
+    }
   }
 
   GlobalKey _messageKey(String id) =>
@@ -2609,48 +2613,97 @@ class _ConversationViewState extends State<ConversationView>
       builder: (context) => SafeArea(
         child: Wrap(children: [
           if (!topicArchived) ...[
-            const ListTile(title: Text('表情回应')),
-            Wrap(
-              children: ['👍', '❤️', '😂', '🎉', '🤔', '👏']
-                  .map((emoji) => IconButton(
-                        icon: Text(emoji, style: const TextStyle(fontSize: 24)),
-                        tooltip: emoji,
-                        onPressed: () =>
-                            Navigator.pop(context, 'reaction:$emoji'),
-                      ))
-                  .toList(),
+            const ListTile(
+                dense: true,
+                visualDensity: VisualDensity.compact,
+                title: Text('表情回应')),
+            SizedBox(
+              // 保留三行表情，但让操作面板在小屏/测试窗口内完整可见，
+              // 避免“转发消息”等操作被推到窗口外无法点击。
+              height: 112,
+              child: GridView.count(
+                crossAxisCount: 8,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                mainAxisSpacing: 4,
+                crossAxisSpacing: 4,
+                children: const [
+                  '👍',
+                  '❤️',
+                  '😂',
+                  '🎉',
+                  '🤔',
+                  '👏',
+                  '😄',
+                  '😮',
+                  '😢',
+                  '😡',
+                  '🙏',
+                  '🔥',
+                  '✅',
+                  '⭐',
+                  '💡',
+                  '🚀',
+                  '🎂',
+                  '💯',
+                  '👀',
+                  '💪',
+                  '🙌',
+                  '🤝',
+                  '💔',
+                  '🤣',
+                ]
+                    .map((emoji) => IconButton(
+                          icon: Text(emoji, style: TextStyle(fontSize: 24)),
+                          tooltip: emoji,
+                          onPressed: () =>
+                              Navigator.pop(context, 'reaction:$emoji'),
+                        ))
+                    .toList(),
+              ),
             ),
           ],
           if (!topicArchived && message.mine)
             ListTile(
+              dense: true,
+              visualDensity: VisualDensity.compact,
               leading: const Icon(Icons.undo),
               title: const Text('撤回消息'),
               onTap: () => Navigator.pop(context, 'revoke'),
             ),
           if (_canCopyMessage(message))
             ListTile(
+              dense: true,
+              visualDensity: VisualDensity.compact,
               leading: const Icon(Icons.copy_outlined),
               title: const Text('复制消息'),
               onTap: () => Navigator.pop(context, 'copy'),
             ),
           if (!topicArchived && !_isTopicConversation && message.topic == null)
             ListTile(
+              dense: true,
+              visualDensity: VisualDensity.compact,
               leading: const Icon(Icons.reply),
               title: const Text('回复'),
               onTap: () => Navigator.pop(context, 'reply'),
             ),
           if (_canForwardOrSelect(message))
             ListTile(
+                dense: true,
+                visualDensity: VisualDensity.compact,
                 leading: const Icon(Icons.checklist),
                 title: const Text('多选'),
                 onTap: () => Navigator.pop(context, 'select')),
           if (!topicArchived)
             ListTile(
+                dense: true,
+                visualDensity: VisualDensity.compact,
                 leading: const Icon(Icons.forum_outlined),
                 title: const Text('创建话题'),
                 onTap: () => Navigator.pop(context, 'topic')),
           if (_canForwardOrSelect(message))
             ListTile(
+                dense: true,
+                visualDensity: VisualDensity.compact,
                 leading: const Icon(Icons.forward_outlined),
                 title: const Text('转发消息'),
                 onTap: () => Navigator.pop(context, 'forward')),

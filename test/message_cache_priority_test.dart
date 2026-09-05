@@ -147,6 +147,29 @@ class _MemoryMessageCacheStore extends MessageCacheStore {
   }
 
   @override
+  Future<void> upsertAll(
+    MessageCacheScope scope,
+    String conversationId,
+    Iterable<Map<String, dynamic>> messages, {
+    String conversationType = 'direct',
+  }) async {
+    if (failWrites) throw StateError('disk full');
+    final values = messages.toList(growable: false);
+    writes.add(values);
+    final byId = <String, Map<String, dynamic>>{
+      for (final record in records)
+        if (record['id'] is String) record['id'] as String: record,
+    };
+    for (final record in values) {
+      final id = record['id'];
+      if (id is String) byId[id] = record;
+    }
+    records
+      ..clear()
+      ..addAll(byId.values);
+  }
+
+  @override
   Future<void> close() async {}
 }
 
