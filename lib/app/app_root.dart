@@ -497,6 +497,8 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
+  static const _userAgreementUrl = 'https://jiying.chat/user-agreement/';
+  static const _privacyPolicyUrl = 'https://jiying.chat/privacy-policy/';
   final _formKey = GlobalKey<FormState>();
   final _serverFieldKey = GlobalKey<FormFieldState<String>>();
   final _emailFieldKey = GlobalKey<FormFieldState<String>>();
@@ -509,6 +511,7 @@ class _LoginPageState extends State<LoginPage> {
   bool _sendingCode = false;
   bool _codeMode = false;
   bool _passwordVisible = false;
+  bool _legalConsentAccepted = false;
   bool _infoLoading = false;
   ClientAppInfo? _appInfo;
   late String? _error = widget.initialError;
@@ -689,6 +692,11 @@ class _LoginPageState extends State<LoginPage> {
         !(_formKey.currentState?.validate() ?? false)) {
       return;
     }
+    if (!_legalConsentAccepted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('请先阅读并同意用户协议和隐私政策')));
+      return;
+    }
     FocusScope.of(context).unfocus();
     final server = normalizeServerUrl(_server.text);
     setState(() {
@@ -728,6 +736,15 @@ class _LoginPageState extends State<LoginPage> {
     } catch (error) {
       await const SessionStore().clear();
       if (mounted) setState(() => _error = _errorText(error));
+    }
+  }
+
+  Future<void> _openLegalDocument(String url) async {
+    final launched =
+        await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('暂时无法打开协议页面，请稍后重试')));
     }
   }
 
@@ -983,6 +1000,60 @@ class _LoginPageState extends State<LoginPage> {
                                     ),
                                   ),
                                 ),
+                              const SizedBox(height: 12),
+                              Semantics(
+                                label: '同意用户协议和隐私政策',
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Checkbox(
+                                      value: _legalConsentAccepted,
+                                      onChanged: _submitting
+                                          ? null
+                                          : (value) => setState(() =>
+                                              _legalConsentAccepted =
+                                                  value == true),
+                                    ),
+                                    Expanded(
+                                      child: Padding(
+                                        padding: const EdgeInsets.only(top: 12),
+                                        child: Wrap(
+                                          crossAxisAlignment:
+                                              WrapCrossAlignment.center,
+                                          children: [
+                                            const Text('我已阅读并同意 '),
+                                            InkWell(
+                                              onTap: () => unawaited(
+                                                  _openLegalDocument(
+                                                      _userAgreementUrl)),
+                                              child: Text('《用户协议》',
+                                                  style: TextStyle(
+                                                      color: Theme.of(context)
+                                                          .colorScheme
+                                                          .primary,
+                                                      decoration: TextDecoration
+                                                          .underline)),
+                                            ),
+                                            const Text(' 和 '),
+                                            InkWell(
+                                              onTap: () => unawaited(
+                                                  _openLegalDocument(
+                                                      _privacyPolicyUrl)),
+                                              child: Text('《隐私政策》',
+                                                  style: TextStyle(
+                                                      color: Theme.of(context)
+                                                          .colorScheme
+                                                          .primary,
+                                                      decoration: TextDecoration
+                                                          .underline)),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                               const SizedBox(height: 20),
                               SizedBox(
                                 width: double.infinity,
