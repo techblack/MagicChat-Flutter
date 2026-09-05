@@ -6,6 +6,7 @@ import '../../data/repository.dart';
 import '../../data/document_collaboration.dart';
 import '../../domain/models.dart';
 import 'document_editor_page.dart';
+import 'project_progress.dart';
 import 'project_task_calendar_view.dart';
 import 'project_task_details_page.dart';
 
@@ -689,7 +690,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
                                       task: task)))),
                       _taskGantt(context, project, snapshot.data!),
                       _documentsView(context, project),
-                      _goalsView(context),
+                      _goalsView(context, project, snapshot.data!),
                       _membersView(context, project),
                     ])),
                   ]),
@@ -931,16 +932,117 @@ class _ProjectsPageState extends State<ProjectsPage> {
     reminderController.dispose();
   }
 
-  Widget _goalsView(BuildContext context) => const Center(
-      child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.flag_outlined, size: 40),
-            SizedBox(height: 12),
-            Text('目标'),
-            SizedBox(height: 4),
-            Text('待完善', style: TextStyle(color: Colors.grey))
-          ])));
+  Widget _goalsView(
+      BuildContext context, Project project, List<ProjectTask> tasks) {
+    final summary = summarizeProjectTasks(tasks);
+    final scheduled = tasks
+        .where((task) => task.dueDate?.trim().isNotEmpty == true)
+        .toList()
+      ..sort((left, right) => (DateTime.tryParse(left.dueDate ?? '') ??
+              DateTime(9999))
+          .compareTo(DateTime.tryParse(right.dueDate ?? '') ?? DateTime(9999)));
+    final colors = Theme.of(context).colorScheme;
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text('目标概览',
+            style: Theme.of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 10),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(children: [
+              SizedBox.square(
+                dimension: 74,
+                child: Stack(alignment: Alignment.center, children: [
+                  CircularProgressIndicator(
+                    value: summary.completionRatio,
+                    strokeWidth: 8,
+                    backgroundColor: colors.surfaceContainerHighest,
+                  ),
+                  Text('${(summary.completionRatio * 100).round()}%',
+                      style: const TextStyle(fontWeight: FontWeight.w700)),
+                ]),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('任务完成率',
+                          style: Theme.of(context).textTheme.titleSmall),
+                      const SizedBox(height: 4),
+                      Text('已完成 ${summary.completed} / 共 ${summary.total} 项'),
+                      const SizedBox(height: 8),
+                      Wrap(spacing: 6, runSpacing: 6, children: [
+                        Chip(
+                            avatar: const Icon(Icons.play_arrow, size: 16),
+                            label: Text('进行中 ${summary.active}'),
+                            visualDensity: VisualDensity.compact),
+                        Chip(
+                            avatar: const Icon(Icons.schedule, size: 16),
+                            label: Text('待处理 ${summary.pending}'),
+                            visualDensity: VisualDensity.compact),
+                        if (summary.canceled > 0)
+                          Chip(
+                              avatar: const Icon(Icons.block, size: 16),
+                              label: Text('已取消 ${summary.canceled}'),
+                              visualDensity: VisualDensity.compact),
+                      ]),
+                    ]),
+              ),
+            ]),
+          ),
+        ),
+        if (summary.overdue > 0) ...[
+          const SizedBox(height: 10),
+          Card(
+            color: colors.errorContainer,
+            child: ListTile(
+              leading:
+                  Icon(Icons.warning_amber, color: colors.onErrorContainer),
+              title: Text('有 ${summary.overdue} 项任务已逾期',
+                  style: TextStyle(color: colors.onErrorContainer)),
+              subtitle: Text('打开任务列表可调整排期或状态',
+                  style: TextStyle(color: colors.onErrorContainer)),
+            ),
+          ),
+        ],
+        const SizedBox(height: 18),
+        Text('排期中的任务',
+            style: Theme.of(context)
+                .textTheme
+                .titleSmall
+                ?.copyWith(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 4),
+        if (scheduled.isEmpty)
+          const Padding(
+              padding: EdgeInsets.symmetric(vertical: 28),
+              child: Center(child: Text('暂无排期任务')))
+        else
+          ...scheduled.take(8).map((task) => ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(task.status == 'done'
+                    ? Icons.check_circle_outline
+                    : Icons.event_note_outlined),
+                title: Text(task.title),
+                subtitle: Text(_taskMetadata(task),
+                    maxLines: 2, overflow: TextOverflow.ellipsis),
+                trailing: Text(task.dueDate ?? ''),
+                onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => ProjectTaskDetailsPage(
+                            repository: repository,
+                            project: project,
+                            task: task))),
+              )),
+      ],
+    );
+  }
 
   Widget _membersView(BuildContext context, Project project) =>
       FutureBuilder<List<ProjectMember>>(
