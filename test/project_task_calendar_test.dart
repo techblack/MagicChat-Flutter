@@ -12,6 +12,7 @@ void main() {
         home: Scaffold(
             body: ProjectTaskCalendarView(
                 initialMonth: DateTime(2026, 9),
+                currentDate: DateTime(2026, 9, 4),
                 tasks: _tasks,
                 onOpenTask: (task) => opened.add(task.id)))));
     await tester.pumpAndSettle();
@@ -42,6 +43,7 @@ void main() {
         home: Scaffold(
             body: ProjectTaskCalendarView(
                 initialMonth: DateTime(2026, 9),
+                currentDate: DateTime(2026, 9, 4),
                 tasks: _tasks,
                 onOpenTask: (_) {}))));
     await tester.pumpAndSettle();

@@ -8,12 +8,14 @@ class ProjectTaskCalendarView extends StatefulWidget {
     required this.tasks,
     required this.onOpenTask,
     this.initialMonth,
+    this.currentDate,
     super.key,
   });
 
   final List<ProjectTask> tasks;
   final ValueChanged<ProjectTask> onOpenTask;
   final DateTime? initialMonth;
+  final DateTime? currentDate;
 
   @override
   State<ProjectTaskCalendarView> createState() =>
@@ -39,7 +41,7 @@ class _ProjectTaskCalendarViewState extends State<ProjectTaskCalendarView> {
         widget.tasks.where((task) => _dateRange(task) == null).toList();
     final days = _calendarDays(_visibleMonth);
     final tasksByDate = _tasksByDate(widget.tasks, days);
-    final today = _dateOnly(DateTime.now());
+    final today = _dateOnly(widget.currentDate ?? DateTime.now());
     final todayKey = _dateKey(today);
 
     return ListView(
@@ -196,8 +198,8 @@ class _ProjectTaskCalendarViewState extends State<ProjectTaskCalendarView> {
                   DateTime(_visibleMonth.year, _visibleMonth.month + 1, 1)),
               icon: const Icon(Icons.chevron_right)),
           TextButton(
-              onPressed: () =>
-                  setState(() => _visibleMonth = _monthStart(DateTime.now())),
+              onPressed: () => setState(() => _visibleMonth =
+                  _monthStart(widget.currentDate ?? DateTime.now())),
               child: const Text('今天')),
         ]),
       );

@@ -6,7 +6,8 @@ import 'package:path_provider/path_provider.dart';
 
 /// 持久化头像和会话附件，文件名由资源键编码而来，不把原始 URL 暴露到文件名。
 class LocalAssetCache {
-  static const _directoryName = 'magicchat-assets-v1';
+  static const directoryName = 'magicchat-assets-v1';
+  static const keyPrefix = 'magicchat.asset-cache.v1.';
   static final _memory = <String, Uint8List>{};
   static Directory? _directory;
 
@@ -14,7 +15,7 @@ class LocalAssetCache {
     final existing = _directory;
     if (existing != null) return existing;
     final base = await getApplicationSupportDirectory();
-    final directory = Directory('${base.path}/$_directoryName');
+    final directory = Directory('${base.path}/$directoryName');
     await directory.create(recursive: true);
     _directory = directory;
     return directory;
