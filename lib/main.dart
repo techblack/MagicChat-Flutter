@@ -13,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'data/repository.dart';
 import 'data/auth_service.dart';
 import 'data/session_store.dart';
+import 'data/server_store.dart';
 import 'data/platform_connector_selector.dart';
 import 'data/realtime.dart';
 import 'data/realtime_store.dart';
@@ -41,6 +42,7 @@ import 'features/projects/projects_page.dart';
 import 'features/search/global_search.dart';
 import 'features/search/advanced_message_search_dialog.dart';
 import 'features/settings/settings_page.dart';
+import 'features/settings/server_management_page.dart';
 import 'domain/models.dart';
 import 'domain/message_content.dart';
 

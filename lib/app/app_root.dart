@@ -60,16 +60,19 @@ class _MagicChatAppState extends State<MagicChatApp> {
 
   Future<void> _restoreSession() async {
     final prefs = await SharedPreferences.getInstance();
-    final server = prefs.getString('magicchat.server_url');
+    const serverStore = ServerStore();
+    await serverStore
+        .rememberAccounts(await const SessionStore().readAccounts());
+    final serverState = await serverStore.read();
+    final server = prefs.getString('magicchat.server_url') ??
+        serverState.selectedServer.url;
     final token = await const SessionStore().readToken();
     final theme = prefs.getString('magicchat.theme');
     if (!mounted) return;
     setState(() {
       _serverUrl = server;
-      _repository = server != null && token != null
-          ? _createRepository(server, token)
-          : null;
-      _realtime = server != null && token != null
+      _repository = token != null ? _createRepository(server, token) : null;
+      _realtime = token != null
           ? RealtimeSession(
               realtime: MagicChatRealtime(
                   serverUrl: server,
@@ -83,7 +86,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
         _ => ThemeMode.system,
       };
     });
-    if (server != null && token != null) {
+    if (token != null) {
       unawaited(_registerPush(server, token));
     }
   }
@@ -94,6 +97,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
     final prefs = await SharedPreferences.getInstance();
     final token = await const SessionStore().readToken();
     await prefs.setString('magicchat.server_url', server);
+    await const ServerStore().rememberUrl(server, select: true, recent: true);
     if (token == null) {
       throw const FormatException('无法保存登录会话，请检查系统安全存储权限');
     }
@@ -119,6 +123,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
     final prefs = await SharedPreferences.getInstance();
     final token = await const SessionStore().readToken();
     await prefs.setString('magicchat.server_url', server);
+    await const ServerStore().rememberUrl(server, select: true, recent: true);
     if (token == null) {
       throw const FormatException('无法保存登录会话，请检查系统安全存储权限');
     }
@@ -219,11 +224,13 @@ class _MagicChatAppState extends State<MagicChatApp> {
     await const AppBadgeService().setCount(0);
     await _realtime?.close();
     _realtimeStore.reset();
+    final selectedServer =
+        (await const ServerStore().read()).selectedServer.url;
     if (mounted) {
       setState(() {
         _repository = null;
         _realtime = null;
-        _serverUrl = null;
+        _serverUrl = selectedServer;
         _loginError = null;
       });
     }
@@ -243,8 +250,6 @@ class _MagicChatAppState extends State<MagicChatApp> {
     final oldToken = await const SessionStore().readToken();
     if (oldServer != null && oldToken != null) {
       await _revokePush(oldServer, oldToken);
-      await const SessionStore()
-          .markAccountReauthRequired(serverUrl: oldServer, token: oldToken);
     }
     await _realtime?.close();
     await const SessionStore().clear();
@@ -253,6 +258,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
     await LocalAssetCache().clearAll();
     await const AppBadgeService().setCount(0);
     _realtimeStore.reset();
+    await const ServerStore().rememberUrl(normalized, select: true);
     await prefs.setString('magicchat.server_url', normalized);
     if (mounted)
       setState(() {
@@ -276,6 +282,8 @@ class _MagicChatAppState extends State<MagicChatApp> {
     await const AppBadgeService().setCount(0);
 
     await prefs.setString('magicchat.server_url', account.serverUrl);
+    await const ServerStore()
+        .rememberUrl(account.serverUrl, select: true, recent: true);
     if (!mounted) return;
     setState(() {
       _serverUrl = account.serverUrl;
@@ -309,14 +317,14 @@ class _MagicChatAppState extends State<MagicChatApp> {
       await sessions.markAccountReauthRequired(serverUrl: server, token: token);
       await _realtime?.close();
       await sessions.clear();
-      await preferences.remove('magicchat.server_url');
+      await preferences.setString('magicchat.server_url', server);
       _realtimeStore.reset();
       await const AppBadgeService().setCount(0);
       if (mounted) {
         setState(() {
           _repository = null;
           _realtime = null;
-          _serverUrl = null;
+          _serverUrl = server;
           _loginError = '账号状态需要重新确认，请重新登录';
         });
       }
@@ -344,12 +352,14 @@ class _MagicChatAppState extends State<MagicChatApp> {
       return;
     }
 
+    final selectedServer =
+        (await const ServerStore().read()).selectedServer.url;
     await preferences.remove('magicchat.server_url');
     if (mounted) {
       setState(() {
         _repository = null;
         _realtime = null;
-        _serverUrl = null;
+        _serverUrl = selectedServer;
         _loginError = null;
       });
     }
@@ -439,6 +449,7 @@ class LoginPage extends StatefulWidget {
       this.initialServer,
       this.initialError,
       this.authService,
+      this.serverStore,
       super.key});
   final Future<void> Function(String server, String email, String password)
       onLogin;
@@ -447,6 +458,7 @@ class LoginPage extends StatefulWidget {
   final String? initialServer;
   final String? initialError;
   final AuthService? authService;
+  final ServerStore? serverStore;
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
@@ -473,6 +485,20 @@ class _LoginPageState extends State<LoginPage> {
   Timer? _resendTimer;
 
   late final AuthService _authService = widget.authService ?? AuthService();
+  late final ServerStore _serverStore =
+      widget.serverStore ?? const ServerStore();
+
+  Future<void> _openServerManagement() async {
+    final selected = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+          builder: (_) => ServerManagementPage(store: _serverStore)),
+    );
+    if (selected == null || !mounted) return;
+    _server.text = selected;
+    _onServerChanged(selected);
+    await _loadAppInfo();
+  }
 
   @override
   void initState() {
@@ -656,6 +682,7 @@ class _LoginPageState extends State<LoginPage> {
       final server = normalizeServerUrl(_server.text);
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('magicchat.server_url', server);
+      await _serverStore.rememberUrl(server, select: true);
       await const SessionStore().writeToken(SessionStore.cookieSessionToken);
       final launched = await launchUrl(
           buildThirdPartyLoginUri(server, provider.key),
@@ -748,17 +775,29 @@ class _LoginPageState extends State<LoginPage> {
                                   labelText: '服务器地址',
                                   hintText: 'https://chat.example.com',
                                   prefixIcon: const Icon(Icons.dns_outlined),
-                                  suffixIcon: IconButton(
-                                    tooltip: '检查服务器',
-                                    onPressed:
-                                        _infoLoading ? null : _loadAppInfo,
-                                    icon: _infoLoading
-                                        ? const SizedBox.square(
-                                            dimension: 18,
-                                            child: CircularProgressIndicator(
-                                                strokeWidth: 2),
-                                          )
-                                        : const Icon(Icons.refresh),
+                                  suffixIcon: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        tooltip: '检查服务器',
+                                        onPressed:
+                                            _infoLoading ? null : _loadAppInfo,
+                                        icon: _infoLoading
+                                            ? const SizedBox.square(
+                                                dimension: 18,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                        strokeWidth: 2),
+                                              )
+                                            : const Icon(Icons.refresh),
+                                      ),
+                                      IconButton(
+                                          tooltip: '服务器管理',
+                                          onPressed: _submitting
+                                              ? null
+                                              : _openServerManagement,
+                                          icon: const Icon(Icons.dns_outlined)),
+                                    ],
                                   ),
                                 ),
                                 onChanged: _onServerChanged,
@@ -996,7 +1035,7 @@ class AppShell extends StatefulWidget {
       super.key});
   final MagicChatRepository repository;
   final String? serverUrl;
-  final ValueChanged<String>? onServerChanged;
+  final Future<void> Function(String server)? onServerChanged;
   final ValueChanged<StoredAccount>? onAccountSwitch;
   final RealtimeSession? realtime;
   final RealtimeStore? realtimeStore;
