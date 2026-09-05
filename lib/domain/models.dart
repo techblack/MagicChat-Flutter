@@ -470,6 +470,7 @@ String _topicParentType(Object? value) =>
 class ChatMessage {
   const ChatMessage(
       {required this.id,
+      this.clientMessageId,
       required this.text,
       required this.author,
       this.authorId,
@@ -485,6 +486,7 @@ class ChatMessage {
       this.topic,
       this.editableText});
   final String id;
+  final String? clientMessageId;
   final String? conversationId;
   final int? sequence;
   final String createdAt;
@@ -673,6 +675,8 @@ String newForwardClientId() {
       '${hex.substring(20)}';
 }
 
+String newMessageClientId() => newForwardClientId();
+
 class ForwardMessagesRequest {
   const ForwardMessagesRequest({
     required this.clientForwardId,
@@ -734,12 +738,14 @@ class MessageReply {
       {required this.id,
       required this.author,
       required this.text,
-      this.authorId});
+      this.authorId,
+      this.sequence});
 
   final String id;
   final String author;
   final String text;
   final String? authorId;
+  final int? sequence;
 }
 
 /// 消息对应的话题摘要，附加在父会话中的来源消息上。
@@ -832,6 +838,11 @@ class MessageSearchResult {
   final String conversationId;
   final String conversationName;
   final ChatMessage message;
+
+  String get displayConversationName {
+    final value = conversationName.trim();
+    return value.isNotEmpty && value != conversationId ? value : '会话';
+  }
 }
 
 class AttachmentUpload {

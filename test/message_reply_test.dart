@@ -18,10 +18,11 @@ void main() {
     );
 
     await repository.sendMessage('conversation-1', '回复内容',
-        replyToMessageId: 'message-1');
+        replyToMessageId: 'message-1',
+        clientMessageId: '2667e1f1-3b23-4be5-9ec6-1b33a2b13e31');
 
     expect(jsonDecode(request.body), {
-      'client_message_id': isA<String>(),
+      'client_message_id': '2667e1f1-3b23-4be5-9ec6-1b33a2b13e31',
       'body': {'type': 'text', 'content': '回复内容'},
       'reply_to_message_id': 'message-1',
     });
@@ -71,6 +72,7 @@ void main() {
     expect(message.createdAt, '2026-09-04T11:22:33Z');
     expect(message.replyTo?.author, '用户');
     expect(message.replyTo?.text, 'original summary');
+    expect(message.replyTo?.sequence, 1);
     expect(message.topic?.conversationId, 'topic-1');
     expect(message.topic?.recentReplies.single.summary, 'topic reply');
   });

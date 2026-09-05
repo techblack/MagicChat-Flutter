@@ -160,6 +160,7 @@ void main() {
   test('领域消息序列化保持既有缓存字段契约', () {
     const message = ChatMessage(
       id: 'message-1',
+      clientMessageId: 'client-message-1',
       conversationId: 'conversation-1',
       sequence: 7,
       author: 'Alice',
@@ -168,15 +169,22 @@ void main() {
       contentType: 'text',
       mine: true,
       replyTo: MessageReply(
-          id: 'reply-1', author: 'Bob', authorId: 'bob', text: '引用'),
+          id: 'reply-1',
+          author: 'Bob',
+          authorId: 'bob',
+          text: '引用',
+          sequence: 6),
     );
 
     expect(messageCacheRecord(message), containsPair('sequence', 7));
+    expect(messageCacheRecord(message),
+        containsPair('client_message_id', 'client-message-1'));
     expect(messageCacheRecord(message), containsPair('author_id', 'alice'));
     expect(messageCacheRecord(message)['reply_to'], {
       'id': 'reply-1',
       'author': 'Bob',
       'author_id': 'bob',
+      'sequence': 6,
       'text': '引用',
     });
   });

@@ -226,6 +226,9 @@ class _AdvancedMessageSearchDialogState
         .map((record) {
           final message = ChatMessage(
             id: '${record['id'] ?? ''}',
+            clientMessageId: record['client_message_id'] is String
+                ? record['client_message_id'] as String
+                : null,
             conversationId: widget.conversationId,
             sequence: (record['sequence'] as num?)?.toInt(),
             createdAt: record['created_at'] is String

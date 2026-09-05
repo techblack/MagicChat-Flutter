@@ -129,11 +129,13 @@ void main() {
       'cursor': 1,
       'payload': {
         'id': 'm1',
+        'client_message_id': 'client-message-1',
         'sender': {'id': 'me', 'name': '我'},
         'body': {'type': 'text', 'content': '自己的消息'}
       }
     });
     expect(store.messages['m1']?.mine, isTrue);
+    expect(store.messages['m1']?.clientMessageId, 'client-message-1');
   });
 
   test('自己的实时消息不增加会话未读数', () {

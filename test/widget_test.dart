@@ -44,6 +44,7 @@ class _HistoryRepository extends DemoRepository {
 class _SendRepository extends DemoRepository {
   final completer = Completer<void>();
   var sendCount = 0;
+  final clientMessageIds = <String>[];
 
   @override
   Future<List<ChatMessage>> messages(String conversationId,
@@ -52,9 +53,39 @@ class _SendRepository extends DemoRepository {
 
   @override
   Future<void> sendMessage(String conversationId, String text,
-      {String? replyToMessageId}) {
+      {String? replyToMessageId, String? clientMessageId}) {
     sendCount++;
+    clientMessageIds.add(clientMessageId!);
     return completer.future;
+  }
+}
+
+class _RetrySendRepository extends DemoRepository {
+  final clientMessageIds = <String>[];
+  var confirmed = false;
+
+  @override
+  Future<List<ChatMessage>> messages(String conversationId,
+          {int? beforeSeq, int limit = 50}) async =>
+      confirmed
+          ? [
+              ChatMessage(
+                  id: 'confirmed-message',
+                  clientMessageId: clientMessageIds.last,
+                  conversationId: conversationId,
+                  sequence: 1,
+                  author: '我',
+                  text: '失败后重试',
+                  mine: true),
+            ]
+          : const [];
+
+  @override
+  Future<void> sendMessage(String conversationId, String text,
+      {String? replyToMessageId, String? clientMessageId}) async {
+    clientMessageIds.add(clientMessageId!);
+    if (clientMessageIds.length == 1) throw StateError('network');
+    confirmed = true;
   }
 }
 
@@ -271,7 +302,7 @@ void main() {
     expect(find.text('稍后发送'), findsOneWidget);
   });
 
-  testWidgets('消息发送中禁用重复提交并显示进度', (tester) async {
+  testWidgets('消息立即进入发送中状态并清空输入，空输入不会重复提交', (tester) async {
     SharedPreferences.setMockInitialValues({});
     final repository = _SendRepository();
     await tester.pumpWidget(MaterialApp(
@@ -286,16 +317,67 @@ void main() {
     await tester.pump();
 
     expect(repository.sendCount, 1);
+    expect(find.text('只发送一次'), findsOneWidget);
+    expect(tester.widget<TextField>(find.byType(TextField)).controller?.text,
+        isEmpty);
     await tester.tap(send);
     expect(repository.sendCount, 1);
-    expect(find.byIcon(Icons.send_rounded), findsNothing);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.byIcon(Icons.send_rounded), findsOneWidget);
+    expect(find.byKey(const ValueKey('optimistic-message-sending')),
+        findsOneWidget);
 
     await tester.enterText(find.byType(TextField), '发送期间的新草稿');
     repository.completer.complete();
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 50));
     expect(repository.sendCount, 1);
     expect(find.text('发送期间的新草稿'), findsOneWidget);
+  });
+
+  testWidgets('乐观消息失败后使用相同客户端消息 ID 重试并由真实消息替换', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = _RetrySendRepository();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: ConversationView(
+                repository: repository, conversationId: 'conversation-1'))));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '失败后重试');
+    await tester.tap(find.byTooltip('发送'));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('重新发送消息'), findsOneWidget);
+    expect(repository.clientMessageIds, hasLength(1));
+    await tester.tap(find.byTooltip('重新发送消息'));
+    await tester.pumpAndSettle();
+
+    expect(repository.clientMessageIds, hasLength(2));
+    expect(repository.clientMessageIds[1], repository.clientMessageIds[0]);
+    expect(find.byTooltip('重新发送消息'), findsNothing);
+    expect(find.text('失败后重试'), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('optimistic-message-sending')), findsNothing);
+  });
+
+  testWidgets('宽屏聊天顶栏背景横跨完整消息区域', (tester) async {
+    tester.view.physicalSize = const Size(1000, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: MessagesPage(
+          repository: DemoRepository(),
+          selectedId: 'welcome',
+          onSelect: (_) {},
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    final topBar = find.byKey(const ValueKey('conversation-wide-top-bar'));
+    expect(topBar, findsOneWidget);
+    expect(tester.getSize(topBar).width, 1000);
   });
 
   testWidgets('阅读历史时提示新消息并可回到最新', (tester) async {

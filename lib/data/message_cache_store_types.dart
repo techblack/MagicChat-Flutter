@@ -57,6 +57,7 @@ String _encodeCacheKeyPart(String value) =>
 /// Serializes a domain message into the stable cache record consumed by the UI.
 Map<String, dynamic> messageCacheRecord(ChatMessage message) => {
       'id': message.id,
+      'client_message_id': message.clientMessageId,
       'author': message.author,
       'author_id': message.authorId,
       'conversation_id': message.conversationId,
@@ -84,6 +85,8 @@ Map<String, dynamic> messageCacheRecord(ChatMessage message) => {
               'id': message.replyTo!.id,
               'author': message.replyTo!.author,
               'author_id': message.replyTo!.authorId,
+              if (message.replyTo!.sequence != null)
+                'sequence': message.replyTo!.sequence,
               'text': message.replyTo!.text,
             },
       if (message.topic != null) 'topic': message.topic!.toJson(),

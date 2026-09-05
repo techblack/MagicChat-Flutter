@@ -250,28 +250,35 @@ class _ImageRepository extends _ExperienceRepository {
 class _ReplyReferenceRepository extends _ExperienceRepository {
   @override
   Future<List<ChatMessage>> messages(String conversationId,
-          {int? beforeSeq, int limit = 50}) async =>
-      const [
+      {int? beforeSeq, int limit = 50}) async {
+    if (beforeSeq == 2) {
+      return const [
         ChatMessage(
-            id: 'quoted-message',
-            conversationId: 'conversation-1',
-            sequence: 1,
-            authorId: 'bob',
-            author: 'bob',
-            text: '原消息提到 {(@user/alice)}'),
-        ChatMessage(
-            id: 'reply-message',
-            conversationId: 'conversation-1',
-            sequence: 2,
-            authorId: 'alice',
-            author: 'alice',
-            text: '收到',
-            replyTo: MessageReply(
-                id: 'quoted-message',
-                authorId: 'bob',
-                author: 'bob',
-                text: 'quoted-message')),
+          id: 'quoted-message',
+          conversationId: 'conversation-1',
+          sequence: 1,
+          authorId: 'bob',
+          author: 'bob',
+          text: '原消息提到 {(@user/alice)}',
+        ),
       ];
+    }
+    return const [
+      ChatMessage(
+          id: 'reply-message',
+          conversationId: 'conversation-1',
+          sequence: 2,
+          authorId: 'alice',
+          author: 'alice',
+          text: '收到',
+          replyTo: MessageReply(
+              id: 'quoted-message',
+              authorId: 'bob',
+              author: 'bob',
+              text: 'quoted-message',
+              sequence: 1)),
+    ];
+  }
 
   @override
   Future<List<Contact>> contacts({String keyword = ''}) async => const [
