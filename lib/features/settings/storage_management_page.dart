@@ -23,7 +23,9 @@ class _StorageManagementPageState extends State<StorageManagementPage> {
 
   Future<void> _reload() async {
     final future = widget.service.inspect();
-    setState(() => _infoFuture = future);
+    setState(() {
+      _infoFuture = future;
+    });
     await future;
   }
 

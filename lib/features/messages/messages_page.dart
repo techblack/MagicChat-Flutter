@@ -4,6 +4,7 @@ class MessagesPage extends StatelessWidget {
   const MessagesPage(
       {required this.repository,
       this.serverUrl,
+      this.realtimeSession,
       this.realtimeStore,
       this.cacheScope,
       required this.selectedId,
@@ -20,6 +21,7 @@ class MessagesPage extends StatelessWidget {
       super.key});
   final MagicChatRepository repository;
   final String? serverUrl;
+  final RealtimeSession? realtimeSession;
   final RealtimeStore? realtimeStore;
   final MessageCacheScope? cacheScope;
   final String? selectedId;
@@ -60,6 +62,7 @@ class MessagesPage extends StatelessWidget {
         ]);
         final conversationView = ConversationView(
           repository: repository,
+          realtimeSession: realtimeSession,
           realtimeStore: realtimeStore,
           cacheScope: cacheScope,
           sendMessageShortcut: sendMessageShortcut,
@@ -280,7 +283,9 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
         widget.realtimeStore?.conversations
                 .containsKey(widget.conversationId) ==
             true) {
-      setState(() => _conversationFuture = _loadConversation());
+      setState(() {
+        _conversationFuture = _loadConversation();
+      });
     }
   }
 
@@ -311,6 +316,11 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
             final headerTitle = conversation?.type == 'group'
                 ? '$title (${conversation!.effectiveMemberCount})'
                 : title;
+            final status =
+                conversation?.type == 'direct' || conversation?.type == 'app'
+                    ? widget.realtimeStore
+                        ?.conversationStatuses[widget.conversationId]?.text
+                    : null;
             return Stack(alignment: Alignment.center, children: [
               if (widget.compact)
                 Positioned(
@@ -323,13 +333,21 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
                 ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 104),
-                child: Text(
-                  headerTitle,
-                  key: const ValueKey('conversation-header-title'),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      headerTitle,
+                      key: const ValueKey('conversation-header-title'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600, height: 1.15),
+                    ),
+                    if (status != null)
+                      _ConversationStatusIndicator(text: status),
+                  ],
                 ),
               ),
               Positioned(
@@ -360,6 +378,84 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
               bottom: false,
               child: content)
           : content,
+    );
+  }
+}
+
+class _ConversationStatusIndicator extends StatefulWidget {
+  const _ConversationStatusIndicator({required this.text});
+
+  final String text;
+
+  @override
+  State<_ConversationStatusIndicator> createState() =>
+      _ConversationStatusIndicatorState();
+}
+
+class _ConversationStatusIndicatorState
+    extends State<_ConversationStatusIndicator>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _controller
+        ..stop()
+        ..value = 0;
+    } else if (!_controller.isAnimating) {
+      _controller.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.onSurfaceVariant;
+    return Semantics(
+      liveRegion: true,
+      label: widget.text,
+      child: ExcludeSemantics(
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(widget.text,
+              key: const ValueKey('conversation-status-text'),
+              style: Theme.of(context)
+                  .textTheme
+                  .labelSmall
+                  ?.copyWith(color: color, height: 1.1)),
+          const SizedBox(width: 4),
+          AnimatedBuilder(
+            animation: _controller,
+            builder: (context, _) => Row(
+              mainAxisSize: MainAxisSize.min,
+              children: List.generate(3, (index) {
+                final phase = _controller.value * 2 * pi - index * .75;
+                final opacity = .35 + .65 * ((sin(phase) + 1) / 2);
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 1),
+                  child: Opacity(
+                    opacity: opacity,
+                    child: DecoratedBox(
+                      decoration:
+                          BoxDecoration(color: color, shape: BoxShape.circle),
+                      child: const SizedBox.square(dimension: 3),
+                    ),
+                  ),
+                );
+              }),
+            ),
+          ),
+        ]),
+      ),
     );
   }
 }

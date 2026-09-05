@@ -85,7 +85,9 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
     try {
       await action();
       final future = _load();
-      setState(() => _future = future);
+      setState(() {
+        _future = future;
+      });
       await future;
       if (successMessage != null && mounted) _showMessage(successMessage);
     } catch (error) {
