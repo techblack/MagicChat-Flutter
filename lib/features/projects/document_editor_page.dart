@@ -39,6 +39,8 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
   bool _saving = false;
   bool _reconnecting = false;
   yjs.YXmlText? _selectedRichText;
+  Map<String, Object?>? _formatPainterMarks;
+  yjs.YXmlText? _formatPainterSource;
   final Map<String, Future<Uri?>> _documentImageUrls = {};
 
   @override
@@ -171,9 +173,57 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
   }
 
   void _selectRichText(yjs.YXmlText? node) {
+    final session = widget.collaboration;
+    final painterMarks = _formatPainterMarks;
+    if (node != null &&
+        painterMarks != null &&
+        session != null &&
+        !identical(node, _formatPainterSource)) {
+      session.replaceXmlText(node, node.toString(), marks: painterMarks);
+      setState(() {
+        _selectedRichText = node;
+        _formatPainterMarks = null;
+        _formatPainterSource = null;
+      });
+      return;
+    }
     if (!identical(_selectedRichText, node)) {
       setState(() => _selectedRichText = node);
     }
+  }
+
+  void _toggleRichFormatPainter() {
+    final session = widget.collaboration;
+    final source = _selectedRichText;
+    if (session == null ||
+        session.status != DocumentCollaborationStatus.synced) {
+      return;
+    }
+    if (_formatPainterMarks != null) {
+      setState(() {
+        _formatPainterMarks = null;
+        _formatPainterSource = null;
+      });
+      return;
+    }
+    if (source == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('请先选择格式来源文本块')));
+      return;
+    }
+    setState(() {
+      _formatPainterMarks =
+          Map<String, Object?>.from(session.xmlTextMarks(source));
+      _formatPainterSource = source;
+    });
+  }
+
+  void _clearRichFormatPainter() {
+    if (_formatPainterMarks == null && _formatPainterSource == null) return;
+    setState(() {
+      _formatPainterMarks = null;
+      _formatPainterSource = null;
+    });
   }
 
   void _updateRichText(yjs.YXmlText node, String value) {
@@ -269,6 +319,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
   void _clearRichTextFormatting() {
     final session = widget.collaboration;
     final node = _selectedRichText;
+    _clearRichFormatPainter();
     if (session == null || node == null) return;
     session.stopUndoCapture();
     session.replaceXmlText(node, node.toString(), marks: const {});
@@ -302,13 +353,21 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
   void _undoRichDocument() {
     final session = widget.collaboration;
     if (session == null || !session.undo()) return;
-    setState(() => _selectedRichText = null);
+    setState(() {
+      _selectedRichText = null;
+      _formatPainterMarks = null;
+      _formatPainterSource = null;
+    });
   }
 
   void _redoRichDocument() {
     final session = widget.collaboration;
     if (session == null || !session.redo()) return;
-    setState(() => _selectedRichText = null);
+    setState(() {
+      _selectedRichText = null;
+      _formatPainterMarks = null;
+      _formatPainterSource = null;
+    });
   }
 
   Future<void> _insertRichTable() async {
@@ -433,7 +492,9 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                           child: Text(widget.collaboration!.status ==
                                   DocumentCollaborationStatus.error
                               ? '协作连接已断开 · 点击右上角重新连接'
-                              : '富文档安全编辑 · 长按文本块可编辑，可追加标准内容块')),
+                              : _formatPainterMarks != null
+                                  ? '格式刷已启用 · 点击其他文本块应用格式'
+                                  : '富文档安全编辑 · 长按文本块可编辑，可追加标准内容块')),
                     ])),
                 const SizedBox(height: 8),
                 RichDocumentToolbar(
@@ -441,8 +502,11 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                         DocumentCollaborationStatus.synced,
                     canUndo: widget.collaboration!.canUndo,
                     canRedo: widget.collaboration!.canRedo,
+                    formatPainterActive: _formatPainterMarks != null,
                     onUndo: _undoRichDocument,
                     onRedo: _redoRichDocument,
+                    onFormatPainter: _toggleRichFormatPainter,
+                    onClearFormatting: _clearRichTextFormatting,
                     onInsertTable: _insertRichTable,
                     onInsertImage: _insertRichImage,
                     onInsert: (type) =>

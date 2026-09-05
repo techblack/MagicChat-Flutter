@@ -14,6 +14,9 @@ class RichDocumentToolbar extends StatelessWidget {
     this.canRedo = false,
     this.onUndo,
     this.onRedo,
+    this.formatPainterActive = false,
+    this.onFormatPainter,
+    this.onClearFormatting,
     this.onInsertTable,
     this.onInsertImage,
     super.key,
@@ -25,6 +28,9 @@ class RichDocumentToolbar extends StatelessWidget {
   final bool canRedo;
   final VoidCallback? onUndo;
   final VoidCallback? onRedo;
+  final bool formatPainterActive;
+  final VoidCallback? onFormatPainter;
+  final VoidCallback? onClearFormatting;
   final VoidCallback? onInsertTable;
   final VoidCallback? onInsertImage;
 
@@ -49,6 +55,17 @@ class RichDocumentToolbar extends StatelessWidget {
                       tooltip: '重做',
                       onPressed: enabled && canRedo ? onRedo : null,
                       icon: const Icon(Icons.redo, size: 20)),
+                  const VerticalDivider(width: 12, indent: 10, endIndent: 10),
+                  IconButton(
+                      tooltip: formatPainterActive ? '取消格式刷' : '格式刷',
+                      isSelected: formatPainterActive,
+                      onPressed: enabled ? onFormatPainter : null,
+                      icon: const Icon(Icons.format_paint, size: 20),
+                      selectedIcon: const Icon(Icons.format_paint, size: 20)),
+                  IconButton(
+                      tooltip: '清除格式',
+                      onPressed: enabled ? onClearFormatting : null,
+                      icon: const Icon(Icons.format_clear, size: 20)),
                   const VerticalDivider(width: 12, indent: 10, endIndent: 10),
                   _tool(context, Icons.notes_outlined, '段落',
                       RichDocumentBlockType.paragraph),
