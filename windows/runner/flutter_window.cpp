@@ -62,6 +62,10 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   }
 
   switch (message) {
+    case WM_CLOSE:
+      // 将关闭按钮视为最小化，保持实时连接和后台通知；用户仍可从任务栏恢复窗口。
+      ShowWindow(hwnd, SW_MINIMIZE);
+      return 0;
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
       break;

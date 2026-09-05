@@ -88,6 +88,36 @@ void main() {
     expect((tester.widget<SwitchListTile>(toggle)).value, isFalse);
   });
 
+  testWidgets('退出登录需要二次确认', (tester) async {
+    var loggedOut = false;
+    await tester.binding.setSurfaceSize(const Size(600, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SettingsPage(
+                repository: DemoRepository(),
+                serverUrl: 'https://chat.example.com',
+                onLogout: () async => loggedOut = true))));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('退出登录'));
+    await tester.pump();
+    await tester.tap(find.text('退出登录'));
+    await tester.pumpAndSettle();
+    expect(find.text('确认退出登录？'), findsOneWidget);
+    expect(loggedOut, isFalse);
+
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(loggedOut, isFalse);
+
+    await tester.tap(find.text('退出登录'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '退出登录'));
+    await tester.pumpAndSettle();
+    expect(loggedOut, isTrue);
+  });
+
   testWidgets('发送快捷键切换后即时回调并持久化', (tester) async {
     MessageSendShortcut? changed;
     await tester.pumpWidget(MaterialApp(
@@ -142,6 +172,14 @@ void main() {
     await tester.tap(find.text('注销账号'));
     await tester.pumpAndSettle();
 
+    expect(find.text('确认注销账号？'), findsOneWidget);
+    await tester.enterText(
+        find.byWidgetPredicate((widget) =>
+            widget is TextField && widget.decoration?.labelText == '输入“注销”继续'),
+        '注销');
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, '继续注销'));
+    await tester.pumpAndSettle();
     expect(find.byType(AccountDeactivationPage), findsOneWidget);
     expect(find.text('demo@example.com'), findsOneWidget);
   });

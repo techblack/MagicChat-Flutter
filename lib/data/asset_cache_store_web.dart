@@ -36,6 +36,18 @@ class LocalAssetCache {
     await prefs.setString(_key(key), base64Encode(copy));
   }
 
+  /// 读取当前进程内的缓存副本，供首帧渲染复用，避免页面切换时先闪回网络头像。
+  Uint8List? peek(String key) {
+    final bytes = _memory[key];
+    return bytes == null ? null : Uint8List.fromList(bytes);
+  }
+
+  void writeMemory(String key, Uint8List bytes) {
+    if (bytes.isNotEmpty) _memory[key] = Uint8List.fromList(bytes);
+  }
+
+  void removeMemory(String key) => _memory.remove(key);
+
   Future<void> remove(String key) async {
     _memory.remove(key);
     final prefs = await SharedPreferences.getInstance();

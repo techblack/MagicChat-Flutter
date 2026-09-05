@@ -30,6 +30,7 @@ import 'data/app_badge_service.dart';
 import 'data/asr_realtime.dart';
 import 'data/avatar_processor.dart';
 import 'data/chat_preferences.dart';
+import 'data/chat_appearance_preferences.dart';
 import 'features/contacts/contacts_page.dart';
 import 'features/contacts/entity_details_page.dart';
 import 'features/messages/collapsible_message_content.dart';

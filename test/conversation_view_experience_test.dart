@@ -206,6 +206,24 @@ void main() {
 
     expect(find.text('新消息 1'), findsNothing);
   });
+
+  testWidgets('发送消息后自动定位到会话底部', (tester) async {
+    final repository = _ScrollSendRepository();
+    await _pumpConversation(tester, repository);
+    final scrollable = find.byType(Scrollable).first;
+    final position = tester.state<ScrollableState>(scrollable).position;
+
+    await tester.drag(find.byType(ListView).first, const Offset(0, 360));
+    await tester.pumpAndSettle();
+    expect(position.pixels, lessThan(position.maxScrollExtent - 1));
+
+    await tester.enterText(find.byType(TextField), '回到底部');
+    await tester.tap(find.byTooltip('发送'));
+    await tester.pumpAndSettle();
+
+    expect(position.pixels, closeTo(position.maxScrollExtent, 1));
+    expect(find.text('回到底部'), findsOneWidget);
+  });
 }
 
 Future<void> _pumpConversation(
@@ -410,4 +428,22 @@ class _OlderMessagesRepository extends _ExperienceRepository {
             author: 'Alice',
             text: '历史消息 ${index + 51}')));
   }
+}
+
+class _ScrollSendRepository extends _ExperienceRepository {
+  @override
+  Future<List<ChatMessage>> messages(String conversationId,
+          {int? beforeSeq, int limit = 50}) async =>
+      List.generate(
+          30,
+          (index) => ChatMessage(
+              id: 'scroll-${index + 1}',
+              conversationId: conversationId,
+              sequence: index + 1,
+              author: 'Alice',
+              text: '可滚动的历史消息 ${index + 1}'));
+
+  @override
+  Future<void> sendMessage(String conversationId, String text,
+      {String? replyToMessageId, String? clientMessageId}) async {}
 }

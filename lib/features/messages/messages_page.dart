@@ -19,6 +19,9 @@ class MessagesPage extends StatelessWidget {
       this.focusMessageSequence,
       this.onMessageFocused,
       this.onUnreadChanged,
+      this.chatAppearance = const ChatAppearance(),
+      this.conversationAppearance,
+      this.onConversationAppearanceChanged,
       super.key});
   final MagicChatRepository repository;
   final String? serverUrl;
@@ -39,6 +42,11 @@ class MessagesPage extends StatelessWidget {
   final int? focusMessageSequence;
   final VoidCallback? onMessageFocused;
   final ValueChanged<int>? onUnreadChanged;
+  final ChatAppearance chatAppearance;
+  final ChatConversationAppearance? conversationAppearance;
+  final Future<void> Function(
+          String conversationId, ChatConversationAppearance appearance)?
+      onConversationAppearanceChanged;
   @override
   Widget build(BuildContext context) =>
       LayoutBuilder(builder: (context, constraints) {
@@ -70,6 +78,8 @@ class MessagesPage extends StatelessWidget {
                 realtimeStore: realtimeStore,
                 cacheScope: cacheScope,
                 sendMessageShortcut: sendMessageShortcut,
+                chatAppearance: chatAppearance,
+                conversationAppearance: conversationAppearance,
                 enableFileDrop: enableFileDrop,
                 conversationId: selectedId,
                 focusMessageId: focusMessageId,
@@ -169,6 +179,9 @@ class MessagesPage extends StatelessWidget {
           realtimeStore: realtimeStore,
           onOpenConversation: onOpenConversation ?? onSelect,
           onConversationRemoved: () => onSelect(''),
+          chatAppearance: chatAppearance,
+          conversationAppearance: conversationAppearance,
+          onConversationAppearanceChanged: onConversationAppearanceChanged,
         ),
       ),
     );

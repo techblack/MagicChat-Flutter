@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/avatar_processor.dart';
+import '../../data/chat_appearance_preferences.dart';
 import '../../data/message_cache_store.dart';
 import '../../data/realtime_store.dart';
 import '../../data/repository.dart';
@@ -18,6 +19,9 @@ class ConversationDetailsPage extends StatefulWidget {
     this.realtimeStore,
     this.onOpenConversation,
     this.onConversationRemoved,
+    this.chatAppearance = const ChatAppearance(),
+    this.conversationAppearance,
+    this.onConversationAppearanceChanged,
     super.key,
   });
 
@@ -29,6 +33,11 @@ class ConversationDetailsPage extends StatefulWidget {
   final RealtimeStore? realtimeStore;
   final ValueChanged<String>? onOpenConversation;
   final VoidCallback? onConversationRemoved;
+  final ChatAppearance chatAppearance;
+  final ChatConversationAppearance? conversationAppearance;
+  final Future<void> Function(
+          String conversationId, ChatConversationAppearance appearance)?
+      onConversationAppearanceChanged;
 
   @override
   State<ConversationDetailsPage> createState() =>
@@ -280,6 +289,18 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
                     ),
                   ]),
                 ),
+                const SizedBox(height: 14),
+                Card(
+                  clipBehavior: Clip.antiAlias,
+                  child: ListTile(
+                    leading: const Icon(Icons.wallpaper_outlined),
+                    title: const Text('聊天外观'),
+                    subtitle: Text(_appearanceSummary),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap:
+                        _busy ? null : () => _editAppearance(conversation.id),
+                  ),
+                ),
                 if (conversation.type == 'topic' &&
                     data.topicDetail?.canArchive == true &&
                     conversation.topic?.archived != true) ...[
@@ -309,6 +330,68 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
         ),
       ],
     );
+  }
+
+  String get _appearanceSummary {
+    final appearance =
+        widget.conversationAppearance ?? const ChatConversationAppearance();
+    return '${appearance.background.label}背景 · ${appearance.bubble.label}气泡';
+  }
+
+  Future<void> _editAppearance(String conversationId) async {
+    var background =
+        (widget.conversationAppearance ?? const ChatConversationAppearance())
+            .background;
+    var bubble =
+        (widget.conversationAppearance ?? const ChatConversationAppearance())
+            .bubble;
+    final result = await showDialog<ChatConversationAppearance>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('聊天外观'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            DropdownButtonFormField<ChatBackground>(
+              value: background,
+              decoration: const InputDecoration(labelText: '聊天背景'),
+              items: ChatBackground.values
+                  .map((value) =>
+                      DropdownMenuItem(value: value, child: Text(value.label)))
+                  .toList(),
+              onChanged: (value) {
+                if (value != null) setDialogState(() => background = value);
+              },
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<ChatBubbleSkin>(
+              value: bubble,
+              decoration: const InputDecoration(labelText: '聊天气泡'),
+              items: ChatBubbleSkin.values
+                  .map((value) =>
+                      DropdownMenuItem(value: value, child: Text(value.label)))
+                  .toList(),
+              onChanged: (value) {
+                if (value != null) setDialogState(() => bubble = value);
+              },
+            ),
+          ]),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('取消')),
+            FilledButton(
+                onPressed: () => Navigator.pop(
+                    dialogContext,
+                    ChatConversationAppearance(
+                        background: background, bubble: bubble)),
+                child: const Text('保存')),
+          ],
+        ),
+      ),
+    );
+    if (result == null || !mounted) return;
+    await widget.onConversationAppearanceChanged?.call(conversationId, result);
+    if (mounted) setState(() {});
   }
 
   Widget _conversationProjectsCard(_ConversationDetailsData data,
@@ -675,6 +758,24 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
       ),
     );
     if (member == null || !mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('确认移除成员？'),
+        content: Text('移除“${member.displayName}”后，该成员将无法继续访问此群聊。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('移除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
     await _run(() => widget.repository.removeConversationMember(
         data.conversation.id, member.id,
         memberType: member.type));

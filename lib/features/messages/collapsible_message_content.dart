@@ -112,7 +112,10 @@ class _CollapsibleMessageContentState extends State<CollapsibleMessageContent> {
           : measuredContent;
       return AnimatedSize(
         key: ValueKey(height != null),
-        duration: const Duration(milliseconds: 180),
+        // 使用极短过渡避免首帧测量触发零时长 AnimatedSize 的布局重入，
+        // 同时不会在 Android 手势滚动时产生可感知的回弹动画。
+        duration: const Duration(milliseconds: 1),
+        reverseDuration: const Duration(milliseconds: 1),
         alignment: Alignment.topCenter,
         child: Column(
           mainAxisSize: MainAxisSize.min,
