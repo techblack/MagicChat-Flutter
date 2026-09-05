@@ -17,6 +17,87 @@ String? formatMessageTime(String value, {DateTime? now}) {
       : '${local.year}-$date $time';
 }
 
+enum _OptimisticMessageKind { text, image, file, voice }
+
+enum _OptimisticMessageStatus { sending, failed }
+
+class _OptimisticSendDescriptor {
+  const _OptimisticSendDescriptor({
+    required this.clientMessageId,
+    required this.kind,
+    this.text = '',
+    this.upload,
+    this.replyTo,
+    this.durationMs = 0,
+    this.sizeBytes,
+  });
+
+  final String clientMessageId;
+  final _OptimisticMessageKind kind;
+  final String text;
+  final AttachmentUpload? upload;
+  final MessageReply? replyTo;
+  final int durationMs;
+  final int? sizeBytes;
+
+  ChatMessage toMessage(String conversationId, int sequence) {
+    final contentType = kind.name;
+    final localFileId = 'optimistic:$clientMessageId';
+    final body = switch (kind) {
+      _OptimisticMessageKind.text => <String, dynamic>{
+          'type': 'text',
+          'content': text
+        },
+      _OptimisticMessageKind.image => <String, dynamic>{
+          'type': 'image',
+          'file_id': localFileId,
+          'name': upload?.name ?? '图片',
+        },
+      _OptimisticMessageKind.file => <String, dynamic>{
+          'type': 'file',
+          'file_id': localFileId,
+          'name': upload?.name ?? '文件',
+          if (sizeBytes != null) 'size_bytes': sizeBytes,
+        },
+      _OptimisticMessageKind.voice => <String, dynamic>{
+          'type': 'voice',
+          'file_id': localFileId,
+          'duration_ms': durationMs,
+          'transcript': text,
+        },
+    };
+    return ChatMessage(
+      id: localFileId,
+      clientMessageId: clientMessageId,
+      conversationId: conversationId,
+      sequence: sequence,
+      createdAt: DateTime.now().toUtc().toIso8601String(),
+      contentType: contentType,
+      rawBody: body,
+      text: switch (kind) {
+        _OptimisticMessageKind.text => text,
+        _OptimisticMessageKind.image => '[图片]',
+        _OptimisticMessageKind.file => '[文件] ${upload?.name ?? ''}'.trim(),
+        _OptimisticMessageKind.voice => '[语音]',
+      },
+      author: '我',
+      mine: true,
+      replyTo: replyTo,
+    );
+  }
+}
+
+class _OptimisticMessage {
+  _OptimisticMessage({
+    required this.descriptor,
+    required this.message,
+  }) : status = _OptimisticMessageStatus.sending;
+
+  final _OptimisticSendDescriptor descriptor;
+  final ChatMessage message;
+  _OptimisticMessageStatus status;
+}
+
 class ConversationView extends StatefulWidget {
   const ConversationView(
       {required this.repository,
@@ -75,7 +156,6 @@ class _ConversationViewState extends State<ConversationView>
   late final MessageCacheStore _messageCacheStore =
       widget.messageCacheStore ?? MessageCacheStore();
   late final bool _ownsMessageCacheStore = widget.messageCacheStore == null;
-  bool _sendingMessage = false;
   bool _sendingFile = false;
   bool _recording = false;
   Future<List<Contact>>? _contactsFuture;
@@ -97,6 +177,9 @@ class _ConversationViewState extends State<ConversationView>
   final _contactCacheStore = ContactCacheStore();
   final _preloadedImages = <String, _CachedImageData>{};
   final _preloadedAttachmentUrls = <String, Uri>{};
+  final _replyTargetsById = <String, ChatMessage>{};
+  final _optimisticMessages = <String, _OptimisticMessage>{};
+  final _optimisticSendsInFlight = <String>{};
   MessageReply? _replyTo;
   ChatConversation? _conversation;
   TopicDetail? _topicDetail;
@@ -367,6 +450,9 @@ class _ConversationViewState extends State<ConversationView>
     final cachedAuthor = '${value['author'] ?? ''}'.trim();
     return ChatMessage(
       id: value['id'] as String,
+      clientMessageId: value['client_message_id'] is String
+          ? value['client_message_id'] as String
+          : null,
       author:
           cachedAuthor.isEmpty || cachedAuthor == '用户' ? '成员' : cachedAuthor,
       authorId: authorId,
@@ -391,6 +477,7 @@ class _ConversationViewState extends State<ConversationView>
               authorId: reply['author_id'] is String
                   ? reply['author_id'] as String
                   : null,
+              sequence: (reply['sequence'] as num?)?.toInt(),
               text: '${reply['text'] ?? '[消息]'}')
           : null,
       topic: rawTopic is Map<String, dynamic>
@@ -455,12 +542,14 @@ class _ConversationViewState extends State<ConversationView>
       _messagePage = history is MessagePage ? history : null;
       _hasMoreOlder = _messagePage?.hasMoreBefore ?? true;
       _lastOlderBeforeSeq = null;
+      await _preloadReplyTargets(id, history);
       await _preloadComplexMessages(id, history);
       unawaited(_refreshMessageSnapshots(id, history));
       return history;
     }
     final cached = await _readCachedMessages(id);
     if (cached.isNotEmpty) {
+      await _preloadReplyTargets(id, cached);
       await _preloadComplexMessages(id, cached);
       unawaited(_refreshMessages(id));
       return cached;
@@ -469,6 +558,7 @@ class _ConversationViewState extends State<ConversationView>
     _messagePage = fresh is MessagePage ? fresh : null;
     _hasMoreOlder = _messagePage?.hasMoreBefore ?? true;
     _lastOlderBeforeSeq = null;
+    await _preloadReplyTargets(id, fresh);
     await _preloadComplexMessages(id, fresh);
     try {
       await _cacheMessages(id, fresh);
@@ -479,6 +569,42 @@ class _ConversationViewState extends State<ConversationView>
     // 快照查询是尽力而为的后台修正，失败时不影响消息首屏加载。
     unawaited(_refreshMessageSnapshots(id, fresh));
     return fresh;
+  }
+
+  Future<void> _preloadReplyTargets(
+      String conversationId, List<ChatMessage> messages) async {
+    final known = <String, ChatMessage>{
+      ..._replyTargetsById,
+      for (final message in _olderMessages) message.id: message,
+      for (final message in messages) message.id: message,
+    };
+    final unresolved = <String, int>{};
+    for (final message in messages) {
+      final reply = message.replyTo;
+      if (reply == null || known.containsKey(reply.id)) continue;
+      final summary = reply.text.trim();
+      final needsContent = summary.isEmpty ||
+          summary == '[消息]' ||
+          summary.toLowerCase() == reply.id.toLowerCase();
+      if (needsContent && reply.sequence != null) {
+        unresolved[reply.id] = reply.sequence!;
+      }
+    }
+    if (unresolved.isEmpty) return;
+    final targets = await Future.wait(unresolved.entries.map((entry) async {
+      try {
+        final values = await widget.repository
+            .messages(conversationId, beforeSeq: entry.value + 1, limit: 1)
+            .timeout(const Duration(seconds: 5));
+        return values.where((message) => message.id == entry.key).firstOrNull;
+      } catch (_) {
+        return null;
+      }
+    }));
+    if (!mounted || widget.conversationId != conversationId) return;
+    for (final target in targets.whereType<ChatMessage>()) {
+      _replyTargetsById[target.id] = target;
+    }
   }
 
   /// 在消息列表首次布局前准备会改变高度或需要网络资源的消息内容。
@@ -543,6 +669,7 @@ class _ConversationViewState extends State<ConversationView>
       for (final message in fresh) message.id: message,
     }.values.toList()
       ..sort((a, b) => (a.sequence ?? 0).compareTo(b.sequence ?? 0));
+    await _preloadReplyTargets(id, merged);
     await _preloadComplexMessages(id, merged);
     try {
       await _cacheMessages(id, merged);
@@ -551,6 +678,7 @@ class _ConversationViewState extends State<ConversationView>
     }
     if (!mounted || widget.conversationId != id) return;
     setState(() {
+      _removeConfirmedOptimisticMessages(merged);
       _messagesFuture = Future.value(merged);
     });
     if (keepBottom) {
@@ -612,6 +740,7 @@ class _ConversationViewState extends State<ConversationView>
       if (choice == null && reaction == null) return message;
       return ChatMessage(
         id: message.id,
+        clientMessageId: message.clientMessageId,
         text: message.text,
         author: message.author,
         authorId: message.authorId,
@@ -657,10 +786,42 @@ class _ConversationViewState extends State<ConversationView>
     }
   }
 
+  void _removeConfirmedOptimisticMessages(Iterable<ChatMessage> messages) {
+    final confirmedIds = messages
+        .map((message) => message.clientMessageId)
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    if (confirmedIds.isEmpty) return;
+    _optimisticMessages.removeWhere(
+        (clientMessageId, _) => confirmedIds.contains(clientMessageId));
+  }
+
+  bool _optimisticMessageIsConfirmed(String clientMessageId) {
+    if (_visibleMessages
+        .any((message) => message.clientMessageId == clientMessageId)) {
+      return true;
+    }
+    return widget.realtimeStore?.messages.values
+            .any((message) => message.clientMessageId == clientMessageId) ==
+        true;
+  }
+
   void _onRealtimeChanged() {
     final id = widget.conversationId;
     final current = id == null ? null : widget.realtimeStore?.conversations[id];
     if (!mounted) return;
+    final realtimeMessages = id == null
+        ? const <ChatMessage>[]
+        : widget.realtimeStore?.messages.values
+                .where((message) => message.conversationId == id)
+                .toList(growable: false) ??
+            const <ChatMessage>[];
+    final confirmedOptimisticIds = realtimeMessages
+        .map((message) => message.clientMessageId)
+        .whereType<String>()
+        .where(_optimisticMessages.containsKey)
+        .toSet();
     final unseenIds = _realtimeConversationMessages()
         .where((messageId) => !_seenRealtimeMessageIds.contains(messageId))
         .toList(growable: false);
@@ -671,12 +832,16 @@ class _ConversationViewState extends State<ConversationView>
         .toList(growable: false);
     final shouldShowNewMessages = incomingIds.isNotEmpty &&
         (_historyMode || (_positionedConversationId == id && !_isAtBottom()));
-    if (current == null && !shouldShowNewMessages) return;
+    if (current == null &&
+        !shouldShowNewMessages &&
+        confirmedOptimisticIds.isEmpty) return;
     final canSend = current == null
         ? _canSend
         : current.canSend && current.topic?.archived != true;
     final cancelRecording = current != null && _recording && !canSend;
     setState(() {
+      _optimisticMessages.removeWhere((clientMessageId, _) =>
+          confirmedOptimisticIds.contains(clientMessageId));
       if (current != null) {
         _conversation = current;
         _canSend = current.canSend;
@@ -829,6 +994,7 @@ class _ConversationViewState extends State<ConversationView>
             {..._olderMessages, ...snapshot}.map((item) => item.id).toSet();
         final added =
             older.where((item) => !existing.contains(item.id)).toList();
+        await _preloadReplyTargets(id, added);
         await _preloadComplexMessages(id, added);
         if (!mounted || widget.conversationId != id) return;
         if (olderPage is MessagePage) {
@@ -1010,6 +1176,9 @@ class _ConversationViewState extends State<ConversationView>
       _messageKeys.clear();
       _preloadedImages.clear();
       _preloadedAttachmentUrls.clear();
+      _replyTargetsById.clear();
+      _optimisticMessages.clear();
+      _optimisticSendsInFlight.clear();
       _seenRealtimeMessageIds
         ..clear()
         ..addAll(_realtimeConversationMessages());
@@ -1035,6 +1204,9 @@ class _ConversationViewState extends State<ConversationView>
       _messagePage = null;
       _preloadedImages.clear();
       _preloadedAttachmentUrls.clear();
+      _replyTargetsById.clear();
+      _optimisticMessages.clear();
+      _optimisticSendsInFlight.clear();
       _messagesFuture = _loadMessages();
       _positioningConversationId = null;
       _positionedConversationId = null;
@@ -1110,6 +1282,104 @@ class _ConversationViewState extends State<ConversationView>
     return KeyEventResult.handled;
   }
 
+  void _enqueueOptimisticMessage(
+      String conversationId, _OptimisticSendDescriptor descriptor) {
+    if (!mounted || widget.conversationId != conversationId) return;
+    final newestSequence = [
+      ..._visibleMessages.map((message) => message.sequence ?? 0),
+      ..._optimisticMessages.values.map((item) => item.message.sequence ?? 0),
+    ].fold<int>(0, max);
+    final item = _OptimisticMessage(
+      descriptor: descriptor,
+      message: descriptor.toMessage(conversationId, newestSequence + 1),
+    );
+    setState(() {
+      _optimisticMessages[descriptor.clientMessageId] = item;
+      _replyTo = null;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          widget.conversationId != conversationId ||
+          !_scrollController.hasClients) return;
+      _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+    });
+    unawaited(_performOptimisticSend(conversationId, descriptor));
+  }
+
+  Future<void> _performOptimisticSend(
+      String conversationId, _OptimisticSendDescriptor descriptor) async {
+    final clientMessageId = descriptor.clientMessageId;
+    if (!_optimisticSendsInFlight.add(clientMessageId)) return;
+    final current = _optimisticMessages[clientMessageId];
+    if (current != null && current.status != _OptimisticMessageStatus.sending) {
+      setState(() => current.status = _OptimisticMessageStatus.sending);
+    }
+    var sent = false;
+    try {
+      switch (descriptor.kind) {
+        case _OptimisticMessageKind.text:
+          await widget.repository.sendMessage(
+            conversationId,
+            descriptor.text,
+            replyToMessageId: descriptor.replyTo?.id,
+            clientMessageId: clientMessageId,
+          );
+          break;
+        case _OptimisticMessageKind.image:
+          await widget.repository.sendImage(
+            conversationId,
+            descriptor.upload!,
+            replyToMessageId: descriptor.replyTo?.id,
+            clientMessageId: clientMessageId,
+          );
+          break;
+        case _OptimisticMessageKind.file:
+          await widget.repository.sendFile(
+            conversationId,
+            descriptor.upload!,
+            replyToMessageId: descriptor.replyTo?.id,
+            clientMessageId: clientMessageId,
+          );
+          break;
+        case _OptimisticMessageKind.voice:
+          await widget.repository.sendVoice(
+            conversationId,
+            descriptor.upload!,
+            transcript: descriptor.text,
+            durationMs: descriptor.durationMs,
+            replyToMessageId: descriptor.replyTo?.id,
+            clientMessageId: clientMessageId,
+          );
+          break;
+      }
+      sent = true;
+    } catch (_) {
+      if (mounted &&
+          widget.conversationId == conversationId &&
+          !_optimisticMessageIsConfirmed(clientMessageId)) {
+        final failed = _optimisticMessages[clientMessageId];
+        if (failed != null) {
+          setState(() => failed.status = _OptimisticMessageStatus.failed);
+        }
+      }
+    } finally {
+      _optimisticSendsInFlight.remove(clientMessageId);
+    }
+    if (!sent || !mounted || widget.conversationId != conversationId) return;
+    try {
+      await _refreshMessages(conversationId);
+    } catch (_) {
+      // 消息已经发送成功，刷新失败时继续等待实时事件按客户端消息 ID 确认。
+    }
+  }
+
+  void _retryOptimisticMessage(String clientMessageId) {
+    final conversationId = widget.conversationId;
+    final item = _optimisticMessages[clientMessageId];
+    if (conversationId == null || item == null) return;
+    unawaited(_performOptimisticSend(conversationId, item.descriptor));
+  }
+
   Future<void> _toggleVoice(String conversationId) async {
     if (!_conversationCanSend(conversationId)) return;
     if (_recording) {
@@ -1119,18 +1389,17 @@ class _ConversationViewState extends State<ConversationView>
         if (mounted) setState(() => _recording = false);
         if (path == null) return;
         if (!mounted || !_conversationCanSend(conversationId)) return;
-        await widget.repository.sendVoice(
-            conversationId,
-            AttachmentUpload(
+        _enqueueOptimisticMessage(
+          conversationId,
+          _OptimisticSendDescriptor(
+            clientMessageId: newMessageClientId(),
+            kind: _OptimisticMessageKind.voice,
+            upload: AttachmentUpload(
                 path: path, name: 'voice.m4a', mimeType: 'audio/mp4'),
             durationMs: durationMs,
-            replyToMessageId: _replyTo?.id);
-        if (mounted) {
-          setState(() {
-            _replyTo = null;
-            _messagesFuture = _loadMessages();
-          });
-        }
+            replyTo: _replyTo,
+          ),
+        );
       } catch (error) {
         if (mounted) {
           setState(() => _recording = false);
@@ -1382,12 +1651,25 @@ class _ConversationViewState extends State<ConversationView>
                       realtimeMessages == null || realtimeMessages.isEmpty
                           ? snapshot.data!
                           : [...snapshot.data!, ...realtimeMessages];
-                  final byId = <String, ChatMessage>{};
+                  final confirmedById = <String, ChatMessage>{};
                   for (final message in [..._olderMessages, ...messages]) {
-                    byId[message.id] = message;
+                    confirmedById[message.id] = message;
                   }
-                  final allMessages = byId.values.toList()
-                    ..sort((left, right) {
+                  final confirmedMessages = confirmedById.values.toList();
+                  final confirmedClientIds = confirmedMessages
+                      .map((message) => message.clientMessageId)
+                      .whereType<String>()
+                      .toSet();
+                  final optimisticByMessageId = <String, _OptimisticMessage>{
+                    for (final item in _optimisticMessages.values)
+                      if (!confirmedClientIds
+                          .contains(item.descriptor.clientMessageId))
+                        item.message.id: item,
+                  };
+                  final allMessages = [
+                    ...confirmedMessages,
+                    ...optimisticByMessageId.values.map((item) => item.message),
+                  ]..sort((left, right) {
                       final leftSeq = left.sequence;
                       final rightSeq = right.sequence;
                       if (leftSeq == null && rightSeq == null) return 0;
@@ -1395,7 +1677,7 @@ class _ConversationViewState extends State<ConversationView>
                       if (rightSeq == null) return -1;
                       return leftSeq.compareTo(rightSeq);
                     });
-                  _visibleMessages = allMessages;
+                  _visibleMessages = confirmedMessages;
                   _scheduleLatestPosition(conversationId, allMessages);
                   _scheduleFocusMessage(conversationId, allMessages);
                   if (allMessages.isEmpty) {
@@ -1412,112 +1694,119 @@ class _ConversationViewState extends State<ConversationView>
                     child: ListView(
                       controller: _scrollController,
                       padding: const EdgeInsets.fromLTRB(8, 16, 8, 12),
-                      children: allMessages
-                          .map((message) => Align(
-                                key: _messageKey(message.id),
-                                alignment: message.contentType == 'system_event'
-                                    ? Alignment.center
-                                    : message.mine
-                                        ? Alignment.centerRight
-                                        : Alignment.centerLeft,
-                                child: GestureDetector(
-                                  onTap: _selectedMessageIds.isEmpty ||
-                                          !_canForwardOrSelect(message)
-                                      ? null
-                                      : () => setState(() {
-                                            if (!_selectedMessageIds
-                                                .remove(message.id)) {
-                                              if (_selectedMessageIds.length >=
-                                                  _maxSelectedMessages) return;
-                                              _selectedMessageIds
-                                                  .add(message.id);
-                                            }
-                                          }),
-                                  onLongPress: () {
-                                    if (_selectedMessageIds.isNotEmpty) {
-                                      if (!_canForwardOrSelect(message)) return;
-                                      if (_selectedMessageIds.length >=
-                                          _maxSelectedMessages) return;
-                                      setState(() =>
-                                          _selectedMessageIds.add(message.id));
-                                    } else if (_hasMessageActions(message)) {
-                                      _showMessageActions(
-                                          conversationId, message);
-                                    }
-                                  },
-                                  child: Listener(
-                                    onPointerDown: _onMessagePointerDown,
-                                    onPointerMove: _onMessagePointerMove,
-                                    onPointerUp: (event) =>
-                                        _onMessagePointerUp(event, message),
-                                    child: Dismissible(
-                                      key: ValueKey(
-                                          'message-swipe-${message.id}'),
-                                      direction: _canReplyToMessage(
-                                              conversationId, message)
-                                          ? DismissDirection.endToStart
-                                          : DismissDirection.none,
-                                      resizeDuration: null,
-                                      dismissThresholds: const {
-                                        DismissDirection.endToStart: .25,
-                                      },
-                                      confirmDismiss: (_) async {
-                                        _replyToMessage(
-                                            conversationId, message);
-                                        return false;
-                                      },
-                                      background: const SizedBox.shrink(),
-                                      secondaryBackground: Container(
-                                        alignment: Alignment.centerRight,
-                                        padding:
-                                            const EdgeInsets.only(right: 18),
-                                        child: const Icon(Icons.reply),
-                                      ),
-                                      child: Container(
-                                          padding:
-                                              _highlightedMessageId == message.id
-                                                  ? const EdgeInsets.all(2)
-                                                  : EdgeInsets.zero,
-                                          decoration: _highlightedMessageId ==
-                                                  message.id
-                                              ? BoxDecoration(
-                                                  color: Theme.of(context)
-                                                      .colorScheme
-                                                      .primaryContainer
-                                                      .withValues(alpha: .65),
-                                                  borderRadius:
-                                                      BorderRadius.circular(18))
-                                              : null,
-                                          child: _MessageBubble(
-                                              message: message,
-                                              replyTarget:
-                                                  byId[message.replyTo?.id],
-                                              repository: widget.repository,
-                                              conversationId: conversationId,
-                                              galleryMessages: allMessages,
-                                              galleryHasOlder: _hasMoreOlder,
-                                              canReact:
-                                                  _topicIsOpen(conversationId),
-                                              canRespond: canSend,
-                                              onOpenTopic:
-                                                  widget.onOpenConversation,
-                                              onOpenInternalLink:
-                                                  widget.onOpenInternalLink,
-                                              onForwardMessage: (id) =>
-                                                  _showForwardDialog(
-                                                      conversationId, [id]),
-                                              contactsFuture: _contactsFuture,
-                                              isGroupConversation: _isGroupConversation,
-                                              onOpenMemberConversation: _openMemberConversation,
-                                              onReeditMessage: _reeditMessage,
-                                              cacheScope: widget.cacheScope,
-                                              preloadedImages: _preloadedImages,
-                                              preloadedAttachmentUrls: _preloadedAttachmentUrls)),
-                                    ),
-                                  ),
+                      children: allMessages.map((message) {
+                        final optimistic = optimisticByMessageId[message.id];
+                        if (optimistic != null) {
+                          return Align(
+                            key: _messageKey(message.id),
+                            alignment: Alignment.centerRight,
+                            child: _OptimisticMessageBubble(
+                              item: optimistic,
+                              contactsFuture: _contactsFuture,
+                              onRetry: () => _retryOptimisticMessage(
+                                  optimistic.descriptor.clientMessageId),
+                            ),
+                          );
+                        }
+                        return Align(
+                          key: _messageKey(message.id),
+                          alignment: message.contentType == 'system_event'
+                              ? Alignment.center
+                              : message.mine
+                                  ? Alignment.centerRight
+                                  : Alignment.centerLeft,
+                          child: GestureDetector(
+                            onTap: _selectedMessageIds.isEmpty ||
+                                    !_canForwardOrSelect(message)
+                                ? null
+                                : () => setState(() {
+                                      if (!_selectedMessageIds
+                                          .remove(message.id)) {
+                                        if (_selectedMessageIds.length >=
+                                            _maxSelectedMessages) return;
+                                        _selectedMessageIds.add(message.id);
+                                      }
+                                    }),
+                            onLongPress: () {
+                              if (_selectedMessageIds.isNotEmpty) {
+                                if (!_canForwardOrSelect(message)) return;
+                                if (_selectedMessageIds.length >=
+                                    _maxSelectedMessages) return;
+                                setState(
+                                    () => _selectedMessageIds.add(message.id));
+                              } else if (_hasMessageActions(message)) {
+                                _showMessageActions(conversationId, message);
+                              }
+                            },
+                            child: Listener(
+                              onPointerDown: _onMessagePointerDown,
+                              onPointerMove: _onMessagePointerMove,
+                              onPointerUp: (event) =>
+                                  _onMessagePointerUp(event, message),
+                              child: Dismissible(
+                                key: ValueKey('message-swipe-${message.id}'),
+                                direction:
+                                    _canReplyToMessage(conversationId, message)
+                                        ? DismissDirection.endToStart
+                                        : DismissDirection.none,
+                                resizeDuration: null,
+                                dismissThresholds: const {
+                                  DismissDirection.endToStart: .25,
+                                },
+                                confirmDismiss: (_) async {
+                                  _replyToMessage(conversationId, message);
+                                  return false;
+                                },
+                                background: const SizedBox.shrink(),
+                                secondaryBackground: Container(
+                                  alignment: Alignment.centerRight,
+                                  padding: const EdgeInsets.only(right: 18),
+                                  child: const Icon(Icons.reply),
                                 ),
-                              ))
-                          .toList(),
+                                child: Container(
+                                    padding: _highlightedMessageId == message.id
+                                        ? const EdgeInsets.all(2)
+                                        : EdgeInsets.zero,
+                                    decoration:
+                                        _highlightedMessageId == message.id
+                                            ? BoxDecoration(
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .primaryContainer
+                                                    .withValues(alpha: .65),
+                                                borderRadius:
+                                                    BorderRadius.circular(18))
+                                            : null,
+                                    child: _MessageBubble(
+                                        message: message,
+                                        replyTarget:
+                                            confirmedById[message.replyTo?.id] ??
+                                                _replyTargetsById[
+                                                    message.replyTo?.id],
+                                        repository: widget.repository,
+                                        conversationId: conversationId,
+                                        galleryMessages: confirmedMessages,
+                                        galleryHasOlder: _hasMoreOlder,
+                                        canReact: _topicIsOpen(conversationId),
+                                        canRespond: canSend,
+                                        onOpenTopic: widget.onOpenConversation,
+                                        onOpenInternalLink:
+                                            widget.onOpenInternalLink,
+                                        onForwardMessage: (id) =>
+                                            _showForwardDialog(
+                                                conversationId, [id]),
+                                        contactsFuture: _contactsFuture,
+                                        isGroupConversation: _isGroupConversation,
+                                        onOpenMemberConversation: _openMemberConversation,
+                                        onReeditMessage: _reeditMessage,
+                                        cacheScope: widget.cacheScope,
+                                        preloadedImages: _preloadedImages,
+                                        preloadedAttachmentUrls: _preloadedAttachmentUrls)),
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
                     ),
                   );
                 },
@@ -1658,18 +1947,13 @@ class _ConversationViewState extends State<ConversationView>
                   )),
                   const SizedBox(width: 6),
                   IconButton.filled(
-                    icon: _sendingMessage
-                        ? const SizedBox.square(
-                            dimension: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.send_rounded),
+                    icon: const Icon(Icons.send_rounded),
                     style: IconButton.styleFrom(
                         minimumSize: const Size(46, 46),
                         shape: const CircleBorder()),
                     tooltip: '发送',
-                    onPressed: !canSend || _sendingMessage || _sendingFile
-                        ? null
-                        : () => _sendMessage(conversationId),
+                    onPressed:
+                        !canSend ? null : () => _sendMessage(conversationId),
                   ),
                 ]),
                 const SizedBox(height: 2),
@@ -1878,44 +2162,46 @@ class _ConversationViewState extends State<ConversationView>
   }
 
   Future<void> _pickAndSendFile(String conversationId) async {
-    final result = await FilePicker.pickFiles(withData: kIsWeb);
-    final file = result?.files.single;
-    if (!mounted || file == null || (file.path == null && file.bytes == null)) {
-      if (mounted && result != null) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('当前平台无法读取所选文件')));
-      }
-      return;
-    }
-    if (file.size > 200 * 1024 * 1024) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('文件不能超过 200MiB')));
-      return;
-    }
+    if (_sendingFile) return;
     setState(() => _sendingFile = true);
     try {
+      final result = await FilePicker.pickFiles(withData: kIsWeb);
+      final file = result?.files.single;
+      if (!mounted ||
+          file == null ||
+          (file.path == null && file.bytes == null)) {
+        if (mounted && result != null) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(const SnackBar(content: Text('当前平台无法读取所选文件')));
+        }
+        return;
+      }
+      if (file.size > 200 * 1024 * 1024) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('文件不能超过 200MiB')));
+        return;
+      }
       final upload = AttachmentUpload(
           path: file.path ?? '',
           name: file.name,
           mimeType: _mimeType(file.extension),
           bytes: file.bytes);
-      if (upload.mimeType.startsWith('image/')) {
-        await widget.repository
-            .sendImage(conversationId, upload, replyToMessageId: _replyTo?.id);
-      } else {
-        await widget.repository
-            .sendFile(conversationId, upload, replyToMessageId: _replyTo?.id);
-      }
-      if (mounted) {
-        setState(() {
-          _replyTo = null;
-          _messagesFuture = _loadMessages();
-        });
-      }
+      _enqueueOptimisticMessage(
+        conversationId,
+        _OptimisticSendDescriptor(
+          clientMessageId: newMessageClientId(),
+          kind: upload.mimeType.startsWith('image/')
+              ? _OptimisticMessageKind.image
+              : _OptimisticMessageKind.file,
+          upload: upload,
+          replyTo: _replyTo,
+          sizeBytes: file.size,
+        ),
+      );
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('发送附件失败：$error')));
+            .showSnackBar(SnackBar(content: Text('无法读取附件：$error')));
       }
     } finally {
       if (mounted) setState(() => _sendingFile = false);
@@ -1923,32 +2209,20 @@ class _ConversationViewState extends State<ConversationView>
   }
 
   Future<void> _sendMessage(String conversationId) async {
-    if (_sendingMessage || _sendingFile) return;
     final text = _controller.text.trim();
     if (text.isEmpty) return;
-    final replyTo = _replyTo?.id;
-    setState(() => _sendingMessage = true);
-    try {
-      await widget.repository
-          .sendMessage(conversationId, text, replyToMessageId: replyTo);
-      if (_controller.text.trim() == text) {
-        _controller.clear();
-        if (mounted && _replyTo?.id == replyTo) {
-          setState(() => _replyTo = null);
-        }
-        final key = _draftKey;
-        if (key != null) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.remove(key);
-        }
-      }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('发送消息失败：$error')));
-      }
-    } finally {
-      if (mounted) setState(() => _sendingMessage = false);
+    final descriptor = _OptimisticSendDescriptor(
+      clientMessageId: newMessageClientId(),
+      kind: _OptimisticMessageKind.text,
+      text: text,
+      replyTo: _replyTo,
+    );
+    _controller.clear();
+    _enqueueOptimisticMessage(conversationId, descriptor);
+    final key = _draftKey;
+    if (key != null) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(key);
     }
   }
 
@@ -2285,6 +2559,196 @@ class _ConversationViewState extends State<ConversationView>
           );
         },
       ),
+    );
+  }
+}
+
+class _OptimisticMessageBubble extends StatelessWidget {
+  const _OptimisticMessageBubble({
+    required this.item,
+    required this.contactsFuture,
+    required this.onRetry,
+  });
+
+  final _OptimisticMessage item;
+  final Future<List<Contact>>? contactsFuture;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final descriptor = item.descriptor;
+    final colors = Theme.of(context).colorScheme;
+    final maxWidth =
+        (MediaQuery.sizeOf(context).width * .72).clamp(220.0, 520.0);
+    return Padding(
+      padding: const EdgeInsets.only(left: 44, right: 12, bottom: 6),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        SizedBox.square(
+          dimension: 32,
+          child: Center(
+            child: item.status == _OptimisticMessageStatus.sending
+                ? Semantics(
+                    label: '消息发送中',
+                    child: const SizedBox.square(
+                      key: ValueKey('optimistic-message-sending'),
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                : IconButton(
+                    key: const ValueKey('optimistic-message-retry'),
+                    tooltip: '重新发送消息',
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    onPressed: onRetry,
+                    color: colors.error,
+                    icon: const Icon(Icons.error, size: 21),
+                  ),
+          ),
+        ),
+        const SizedBox(width: 2),
+        Container(
+          key: ValueKey('message-bubble-${item.message.id}'),
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          decoration: BoxDecoration(
+            color: colors.primary,
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(18),
+              topRight: Radius.circular(18),
+              bottomLeft: Radius.circular(18),
+              bottomRight: Radius.circular(4),
+            ),
+          ),
+          child: FutureBuilder<List<Contact>>(
+            future: contactsFuture,
+            builder: (context, snapshot) {
+              final contacts = snapshot.data ?? const <Contact>[];
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (descriptor.replyTo != null)
+                    _replyPreview(context, descriptor.replyTo!, contacts),
+                  _content(context, descriptor, contacts),
+                  if (formatMessageTime(item.message.createdAt)
+                      case final time?)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Text(time,
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelSmall
+                              ?.copyWith(
+                                  color:
+                                      colors.onPrimary.withValues(alpha: .8))),
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _content(BuildContext context, _OptimisticSendDescriptor descriptor,
+      List<Contact> contacts) {
+    final color = Theme.of(context).colorScheme.onPrimary;
+    switch (descriptor.kind) {
+      case _OptimisticMessageKind.text:
+        return Text(
+          formatMentionText(
+              descriptor.text,
+              contacts.map(
+                  (contact) => (id: contact.id, name: contact.displayName))),
+          style: TextStyle(color: color),
+        );
+      case _OptimisticMessageKind.image:
+        final bytes = descriptor.upload?.bytes;
+        if (bytes != null && bytes.isNotEmpty) {
+          return ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 280, maxHeight: 280),
+            child: Image.memory(bytes,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) =>
+                    _attachmentLabel(descriptor, Icons.image_outlined, color)),
+          );
+        }
+        return _attachmentLabel(descriptor, Icons.image_outlined, color);
+      case _OptimisticMessageKind.file:
+        return _attachmentLabel(descriptor, Icons.attach_file, color);
+      case _OptimisticMessageKind.voice:
+        final transcript = descriptor.text.trim();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.mic_none, size: 18, color: color),
+              const SizedBox(width: 6),
+              Text('语音 ${formatVoiceDuration(descriptor.durationMs)}',
+                  style: TextStyle(color: color)),
+            ]),
+            if (transcript.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 5),
+                child: Text(transcript, style: TextStyle(color: color)),
+              ),
+          ],
+        );
+    }
+  }
+
+  Widget _attachmentLabel(
+      _OptimisticSendDescriptor descriptor, IconData icon, Color color) {
+    final name = descriptor.upload?.name.trim();
+    final size = descriptor.sizeBytes;
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(icon, size: 18, color: color),
+      const SizedBox(width: 6),
+      Flexible(
+        child: Text(
+          '${name?.isNotEmpty == true ? name : descriptor.kind == _OptimisticMessageKind.image ? '图片' : '文件'}${size == null ? '' : ' · ${_formatAttachmentSize(size)}'}',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: color),
+        ),
+      ),
+    ]);
+  }
+
+  Widget _replyPreview(
+      BuildContext context, MessageReply reply, List<Contact> contacts) {
+    final colors = Theme.of(context).colorScheme;
+    final matched =
+        contacts.where((contact) => contact.id == reply.authorId).firstOrNull;
+    final rawAuthor = reply.author.trim();
+    final author = matched?.displayName ??
+        (rawAuthor.isEmpty ||
+                rawAuthor == reply.authorId ||
+                rawAuthor == '用户' ||
+                rawAuthor == '成员'
+            ? '成员'
+            : rawAuthor);
+    final text = formatMessageReferenceText(
+      reply.text,
+      contacts.map((contact) => (id: contact.id, name: contact.displayName)),
+      messageId: reply.id,
+    );
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.fromLTRB(8, 5, 8, 5),
+      decoration: BoxDecoration(
+        color: colors.onPrimary.withValues(alpha: .16),
+        border: Border(left: BorderSide(color: colors.onPrimary, width: 3)),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text('回复 $author：$text',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context)
+              .textTheme
+              .bodySmall
+              ?.copyWith(color: colors.onPrimary)),
     );
   }
 }
@@ -2925,7 +3389,10 @@ class _MessageBubble extends StatelessWidget {
       final contact = _findContact(contacts, authorId);
       final fallback = (target?.author ?? reply.author).trim();
       final author = _contactName(contact) ??
-          (fallback == authorId || fallback == '用户' || fallback == '成员'
+          (fallback.isEmpty ||
+                  fallback == authorId ||
+                  fallback == '用户' ||
+                  fallback == '成员'
               ? '成员'
               : fallback);
       final labels = contacts.map((contact) => (

@@ -242,6 +242,7 @@ class RealtimeStore extends ChangeNotifier {
     if (reactions is! List) return;
     messages[id] = ChatMessage(
         id: current.id,
+        clientMessageId: current.clientMessageId,
         text: current.text,
         author: current.author,
         authorId: current.authorId,
@@ -286,6 +287,7 @@ class RealtimeStore extends ChangeNotifier {
         : current.choice?.myOptionIds ?? choice.myOptionIds;
     messages[id] = ChatMessage(
         id: current.id,
+        clientMessageId: current.clientMessageId,
         text: current.text,
         author: current.author,
         authorId: current.authorId,
@@ -364,6 +366,7 @@ class RealtimeStore extends ChangeNotifier {
                 id: reply['id'] as String,
                 author: replyName,
                 authorId: replySenderId is String ? replySenderId : null,
+                sequence: (reply['seq'] as num?)?.toInt(),
                 text: reply['summary'] is String &&
                         (reply['summary'] as String).isNotEmpty
                     ? reply['summary'] as String
@@ -374,6 +377,9 @@ class RealtimeStore extends ChangeNotifier {
                 : previous?.replyTo;
     messages[id] = ChatMessage(
         id: id,
+        clientMessageId: payload['client_message_id'] is String
+            ? payload['client_message_id'] as String
+            : previous?.clientMessageId,
         sequence: sequence,
         createdAt: createdAt,
         conversationId: resolvedConversationId,

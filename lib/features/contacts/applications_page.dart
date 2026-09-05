@@ -198,11 +198,35 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
     }
   }
 
-  Future<_AppFormInput?> _showAppForm({OwnedApp? app}) =>
-      showDialog<_AppFormInput>(
-        context: context,
-        builder: (context) => _AppFormDialog(app: app),
-      );
+  Future<_AppFormInput?> _showAppForm({OwnedApp? app}) async {
+    final usersById = <String, Contact>{};
+    try {
+      for (final contact in await widget.repository.contacts()) {
+        if (contact.type == 'user') usersById[contact.id] = contact;
+      }
+      final missingIds = app?.userIds
+              .where((id) => !usersById.containsKey(id))
+              .toList(growable: false) ??
+          const <String>[];
+      if (missingIds.isNotEmpty) {
+        for (final contact
+            in await widget.repository.resolveUsers(missingIds)) {
+          usersById[contact.id] = contact;
+        }
+      }
+    } catch (_) {
+      // 联系人加载失败时仍允许编辑应用的其他字段。
+    }
+    for (final id in app?.userIds ?? const <String>[]) {
+      usersById.putIfAbsent(id, () => Contact(id: id, name: ''));
+    }
+    if (!mounted) return null;
+    return showDialog<_AppFormInput>(
+      context: context,
+      builder: (context) =>
+          _AppFormDialog(app: app, users: usersById.values.toList()),
+    );
+  }
 
   void _showError(String message) {
     if (mounted) {
@@ -397,9 +421,10 @@ class _AppFormInput {
 }
 
 class _AppFormDialog extends StatefulWidget {
-  const _AppFormDialog({this.app});
+  const _AppFormDialog({this.app, this.users = const []});
 
   final OwnedApp? app;
+  final List<Contact> users;
 
   @override
   State<_AppFormDialog> createState() => _AppFormDialogState();
@@ -409,29 +434,22 @@ class _AppFormDialogState extends State<_AppFormDialog> {
   late final _name = TextEditingController(text: widget.app?.name ?? '');
   late final _description =
       TextEditingController(text: widget.app?.description ?? '');
-  late final _users =
-      TextEditingController(text: widget.app?.userIds.join(', ') ?? '');
+  late final _selectedUserIds = widget.app?.userIds.toSet() ?? <String>{};
   late String _visibility = widget.app?.visibility ?? 'creator';
 
   @override
   void dispose() {
     _name.dispose();
     _description.dispose();
-    _users.dispose();
     super.dispose();
   }
 
   void _submit() {
     final name = _name.text.trim();
-    final userIds = _users.text
-        .split(',')
-        .map((value) => value.trim())
-        .where((value) => value.isNotEmpty)
-        .toSet()
-        .toList();
+    final userIds = _selectedUserIds.toList(growable: false);
     if (name.isEmpty || (_visibility == 'restricted' && userIds.isEmpty)) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('请填写应用名称；限定用户模式至少需要一个用户 ID')));
+          const SnackBar(content: Text('请填写应用名称；部分用户模式至少需要选择一位用户')));
       return;
     }
     Navigator.pop(
@@ -478,15 +496,50 @@ class _AppFormDialogState extends State<_AppFormDialog> {
                   onChanged: (value) =>
                       setState(() => _visibility = value ?? 'creator'),
                 ),
-                if (_visibility == 'restricted')
-                  TextField(
-                    controller: _users,
-                    maxLines: 2,
-                    decoration: const InputDecoration(
-                      labelText: '可访问用户 ID',
-                      hintText: '多个 ID 用英文逗号分隔',
-                    ),
+                if (_visibility == 'restricted') ...[
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('可访问用户 · 已选择 ${_selectedUserIds.length} 位'),
                   ),
+                  const SizedBox(height: 6),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 220),
+                    child: widget.users.isEmpty
+                        ? const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 16),
+                            child: Text('暂无可选择的用户'),
+                          )
+                        : ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: widget.users.length,
+                            itemBuilder: (context, index) {
+                              final user = widget.users[index];
+                              final genericName = user.displayName == '成员';
+                              final name = genericName
+                                  ? '成员 ${index + 1}'
+                                  : user.displayName;
+                              final detail = user.email.trim().isNotEmpty
+                                  ? user.email.trim()
+                                  : user.phone.trim();
+                              return CheckboxListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                value: _selectedUserIds.contains(user.id),
+                                title: Text(name),
+                                subtitle: detail.isEmpty ? null : Text(detail),
+                                onChanged: (selected) => setState(() {
+                                  if (selected == true) {
+                                    _selectedUserIds.add(user.id);
+                                  } else {
+                                    _selectedUserIds.remove(user.id);
+                                  }
+                                }),
+                              );
+                            },
+                          ),
+                  ),
+                ],
               ],
             ),
           ),

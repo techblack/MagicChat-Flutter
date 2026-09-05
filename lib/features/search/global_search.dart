@@ -326,7 +326,7 @@ class _GlobalSearchDialogState extends State<GlobalSearchDialog> {
           key: ValueKey(result.key),
           leading: const Icon(Icons.message_outlined),
           title: Text(text, maxLines: 2, overflow: TextOverflow.ellipsis),
-          subtitle: Text(value.conversationName),
+          subtitle: Text(value.displayConversationName),
           onTap: () => _open(result),
         );
     }

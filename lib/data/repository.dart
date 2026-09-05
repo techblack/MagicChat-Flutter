@@ -47,7 +47,7 @@ abstract interface class MagicChatRepository {
   Future<AttachmentPage> attachments(String conversationId,
       {String? cursor, int limit = 50});
   Future<void> sendMessage(String conversationId, String text,
-      {String? replyToMessageId});
+      {String? replyToMessageId, String? clientMessageId});
   Future<bool> setConversationPinned(String conversationId, bool pinned);
   Future<bool> setConversationMuted(String conversationId, bool muted);
   Future<ConversationReadResult> markConversationRead(
@@ -56,14 +56,17 @@ abstract interface class MagicChatRepository {
       {String? conversationId, String? senderId, DateTime? from, DateTime? to});
   Future<void> revokeMessage(String conversationId, String messageId);
   Future<void> sendFile(String conversationId, AttachmentUpload upload,
-      {String? replyToMessageId});
+      {String? replyToMessageId, String? clientMessageId});
   Future<Uri?> attachmentUrl(String fileId);
   Future<Uint8List?> downloadAttachment(String fileId);
   Future<Uint8List?> downloadResource(Uri uri);
   Future<void> sendImage(String conversationId, AttachmentUpload upload,
-      {String caption = '', String? replyToMessageId});
+      {String caption = '', String? replyToMessageId, String? clientMessageId});
   Future<void> sendVoice(String conversationId, AttachmentUpload upload,
-      {String transcript = '', int durationMs = 0, String? replyToMessageId});
+      {String transcript = '',
+      int durationMs = 0,
+      String? replyToMessageId,
+      String? clientMessageId});
   Future<List<MessageReaction>> setReaction(
       String conversationId, String messageId,
       {required String text, required bool reacted});
@@ -415,7 +418,7 @@ class DemoRepository implements MagicChatRepository {
                       id: 'demo-forward-$id-${DateTime.now().microsecondsSinceEpoch}',
                       conversationId: targetId,
                       author: '我',
-                      text: '转发消息 $id',
+                      text: '已转发一条消息',
                       mine: true))
                   .toList());
     }).toList(growable: false);
@@ -441,9 +444,10 @@ class DemoRepository implements MagicChatRepository {
 
   @override
   Future<void> sendMessage(String conversationId, String text,
-      {String? replyToMessageId}) async {
+      {String? replyToMessageId, String? clientMessageId}) async {
     _messages.add(ChatMessage(
-        id: DateTime.now().toIso8601String(),
+        id: clientMessageId ?? DateTime.now().toIso8601String(),
+        clientMessageId: clientMessageId,
         author: '我',
         text: text,
         mine: true,
@@ -475,7 +479,7 @@ class DemoRepository implements MagicChatRepository {
 
   @override
   Future<void> sendFile(String conversationId, AttachmentUpload upload,
-      {String? replyToMessageId}) async {}
+      {String? replyToMessageId, String? clientMessageId}) async {}
   @override
   Future<Uri?> attachmentUrl(String fileId) async => null;
   @override
@@ -487,12 +491,15 @@ class DemoRepository implements MagicChatRepository {
   Future<void> revokeMessage(String conversationId, String messageId) async {}
   @override
   Future<void> sendImage(String conversationId, AttachmentUpload upload,
-      {String caption = '', String? replyToMessageId}) async {}
+      {String caption = '',
+      String? replyToMessageId,
+      String? clientMessageId}) async {}
   @override
   Future<void> sendVoice(String conversationId, AttachmentUpload upload,
       {String transcript = '',
       int durationMs = 0,
-      String? replyToMessageId}) async {}
+      String? replyToMessageId,
+      String? clientMessageId}) async {}
 
   @override
   Future<List<MessageReaction>> setReaction(
@@ -1463,6 +1470,9 @@ class HttpMagicChatRepository implements MagicChatRepository {
         sender is Map<String, dynamic> ? sender['nickname'] : null;
     return ChatMessage(
         id: '${item['id'] ?? ''}',
+        clientMessageId: item['client_message_id'] is String
+            ? item['client_message_id'] as String
+            : null,
         sequence: (item['seq'] as num?)?.toInt(),
         createdAt:
             item['created_at'] is String ? item['created_at'] as String : '',
@@ -1618,6 +1628,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
         id: value['id'] as String,
         author: author,
         authorId: senderId is String ? senderId : null,
+        sequence: (value['seq'] as num?)?.toInt(),
         text: summary is String && summary.isNotEmpty ? summary : '[消息]');
   }
 
@@ -1636,12 +1647,11 @@ class HttpMagicChatRepository implements MagicChatRepository {
 
   @override
   Future<void> sendMessage(String conversationId, String text,
-          {String? replyToMessageId}) async =>
+          {String? replyToMessageId, String? clientMessageId}) async =>
       _request('POST',
           '/api/client/conversations/${Uri.encodeComponent(conversationId)}/messages',
           body: {
-            'client_message_id':
-                DateTime.now().microsecondsSinceEpoch.toString(),
+            'client_message_id': clientMessageId ?? newMessageClientId(),
             'body': {'type': 'text', 'content': text},
             if (replyToMessageId != null)
               'reply_to_message_id': replyToMessageId,
@@ -1722,6 +1732,9 @@ class HttpMagicChatRepository implements MagicChatRepository {
           final conversationName = conversation['name'];
           final chat = ChatMessage(
               id: '${message['id'] ?? ''}',
+              clientMessageId: message['client_message_id'] is String
+                  ? message['client_message_id'] as String
+                  : null,
               sequence: (message['seq'] as num?)?.toInt(),
               createdAt: message['created_at'] is String
                   ? message['created_at'] as String
@@ -1762,9 +1775,9 @@ class HttpMagicChatRepository implements MagicChatRepository {
 
   @override
   Future<void> sendFile(String conversationId, AttachmentUpload upload,
-      {String? replyToMessageId}) async {
+      {String? replyToMessageId, String? clientMessageId}) async {
     await _sendMultipart(conversationId, 'files', 'file', upload, const {},
-        replyToMessageId: replyToMessageId);
+        replyToMessageId: replyToMessageId, clientMessageId: clientMessageId);
   }
 
   @override
@@ -1807,30 +1820,32 @@ class HttpMagicChatRepository implements MagicChatRepository {
 
   @override
   Future<void> sendImage(String conversationId, AttachmentUpload upload,
-          {String caption = '', String? replyToMessageId}) async =>
+          {String caption = '',
+          String? replyToMessageId,
+          String? clientMessageId}) async =>
       _sendMultipart(conversationId, 'images', 'image', upload,
           {'caption': caption, 'caption_type': 'text'},
-          replyToMessageId: replyToMessageId);
+          replyToMessageId: replyToMessageId, clientMessageId: clientMessageId);
 
   @override
   Future<void> sendVoice(String conversationId, AttachmentUpload upload,
           {String transcript = '',
           int durationMs = 0,
-          String? replyToMessageId}) async =>
+          String? replyToMessageId,
+          String? clientMessageId}) async =>
       _sendMultipart(conversationId, 'voices', 'voice', upload,
           {'transcript': transcript, 'duration_ms': '$durationMs'},
-          replyToMessageId: replyToMessageId);
+          replyToMessageId: replyToMessageId, clientMessageId: clientMessageId);
 
   Future<void> _sendMultipart(String conversationId, String route, String field,
       AttachmentUpload upload, Map<String, String> fields,
-      {String? replyToMessageId}) async {
+      {String? replyToMessageId, String? clientMessageId}) async {
     final uri = baseUri.resolve(
         'api/client/conversations/${Uri.encodeComponent(conversationId)}/messages/$route');
     final request = http.MultipartRequest('POST', uri)
       ..headers.addAll(_sessionHeaders)
       ..headers['Accept'] = 'application/json'
-      ..fields['client_message_id'] =
-          DateTime.now().microsecondsSinceEpoch.toString()
+      ..fields['client_message_id'] = clientMessageId ?? newMessageClientId()
       ..fields.addAll(fields);
     if (replyToMessageId != null) {
       request.fields['reply_to_message_id'] = replyToMessageId;

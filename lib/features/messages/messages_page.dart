@@ -73,22 +73,24 @@ class MessagesPage extends StatelessWidget {
           onOpenInternalLink: onOpenInternalLink,
           onMessageFocused: onMessageFocused,
         );
+        final conversationHeader = selectedId == null
+            ? null
+            : _ConversationHeader(
+                repository: repository,
+                realtimeStore: realtimeStore,
+                conversationId: selectedId!,
+                compact: !split,
+                onBack: onBack ?? () => onSelect(''),
+                onSearch: onOpenMessage == null
+                    ? null
+                    : (title) =>
+                        _showAdvancedMessageSearch(context, selectedId!, title),
+                onDetails: () => _showConversationDetails(context, selectedId!),
+              );
         final conversationPane = selectedId == null
             ? conversationView
             : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                _ConversationHeader(
-                  repository: repository,
-                  realtimeStore: realtimeStore,
-                  conversationId: selectedId!,
-                  compact: !split,
-                  onBack: onBack ?? () => onSelect(''),
-                  onSearch: onOpenMessage == null
-                      ? null
-                      : (title) => _showAdvancedMessageSearch(
-                          context, selectedId!, title),
-                  onDetails: () =>
-                      _showConversationDetails(context, selectedId!),
-                ),
+                conversationHeader!,
                 Expanded(child: conversationView),
               ]);
         if (!split) {
@@ -103,9 +105,31 @@ class MessagesPage extends StatelessWidget {
             ],
           );
         }
-        return Row(children: [
-          SizedBox(width: 300, child: conversationList),
-          Expanded(child: conversationPane),
+        if (conversationHeader == null) {
+          return Row(children: [
+            SizedBox(width: 300, child: conversationList),
+            Expanded(child: conversationView),
+          ]);
+        }
+        return Column(children: [
+          Material(
+            key: const ValueKey('conversation-wide-top-bar'),
+            color: Theme.of(context).colorScheme.surfaceContainer,
+            child: SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: Row(children: [
+                const SizedBox(width: 300),
+                Expanded(child: conversationHeader),
+              ]),
+            ),
+          ),
+          Expanded(
+            child: Row(children: [
+              SizedBox(width: 300, child: conversationList),
+              Expanded(child: conversationView),
+            ]),
+          ),
         ]);
       });
 

@@ -135,6 +135,13 @@ void main() {
             .displayName,
         'user@example.com');
     expect(conversation.displayTitle, 'Alice');
+    expect(
+        const MessageSearchResult(
+                conversationId: 'conversation-id',
+                conversationName: 'conversation-id',
+                message: ChatMessage(id: 'message-id', author: '', text: ''))
+            .displayConversationName,
+        '会话');
   });
 
   test('导航未读数包含普通未读和独立提醒', () {

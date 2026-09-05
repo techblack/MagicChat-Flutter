@@ -23,7 +23,7 @@ void main() {
     expect(repository.sentMessages, isEmpty);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-    await tester.pumpAndSettle();
+    await tester.pump();
     expect(repository.sentMessages, ['第一条']);
   });
 
@@ -41,7 +41,7 @@ void main() {
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
-    await tester.pumpAndSettle();
+    await tester.pump();
     expect(repository.sentMessages, ['快捷发送']);
   });
 
@@ -83,7 +83,7 @@ class _ShortcutRepository extends DemoRepository {
 
   @override
   Future<void> sendMessage(String conversationId, String text,
-      {String? replyToMessageId}) async {
+      {String? replyToMessageId, String? clientMessageId}) async {
     sentMessages.add(text);
   }
 }
