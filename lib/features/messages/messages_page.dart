@@ -856,7 +856,8 @@ class _ConversationListState extends State<_ConversationList> {
     final unread = all
         .where((conversation) =>
             conversationUnreadCount(conversation) > 0 &&
-            conversation.lastMessageSeq > conversation.lastReadSeq)
+            conversationReadTargetSequence(conversation) >
+                conversation.lastReadSeq)
         .toList(growable: false);
     if (unread.isEmpty) {
       if (mounted) {
@@ -869,8 +870,9 @@ class _ConversationListState extends State<_ConversationList> {
     var failed = 0;
     for (final conversation in unread) {
       try {
+        final targetSequence = conversationReadTargetSequence(conversation);
         final result = await widget.repository
-            .markConversationRead(conversation.id, conversation.lastMessageSeq);
+            .markConversationRead(conversation.id, targetSequence);
         widget.realtimeStore?.markConversationRead(result);
       } catch (_) {
         failed++;
