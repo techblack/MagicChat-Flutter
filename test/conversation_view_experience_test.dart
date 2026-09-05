@@ -54,6 +54,18 @@ void main() {
     expect(find.textContaining('{(@user/alice)}'), findsNothing);
   });
 
+  testWidgets('消息操作菜单可直接复制单条消息', (tester) async {
+    await _pumpConversation(tester, _ExperienceRepository());
+
+    await tester.longPress(find.text('可以自由选择复制的正文'));
+    await tester.pumpAndSettle();
+    expect(find.text('复制消息'), findsOneWidget);
+    await tester.tap(find.text('复制消息'));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('已复制消息'), findsOneWidget);
+  });
+
   testWidgets('图片消息只显示图片并按原始比例调整尺寸', (tester) async {
     final repository = _ImageRepository()..primeCache();
     await _pumpConversation(tester, repository, settle: false);

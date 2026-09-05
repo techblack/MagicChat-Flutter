@@ -250,6 +250,12 @@ class _ConversationViewState extends State<ConversationView>
       message.contentType != 'unsupported' &&
       message.contentType != 'system_event';
 
+  bool _canCopyMessage(ChatMessage message) =>
+      message.contentType != 'image' &&
+      message.contentType != 'voice' &&
+      message.contentType != 'revoked' &&
+      message.contentType != 'unsupported';
+
   @override
   void initState() {
     super.initState();
@@ -2109,6 +2115,31 @@ class _ConversationViewState extends State<ConversationView>
     }
   }
 
+  Future<void> _copyMessage(ChatMessage message) async {
+    if (!_canCopyMessage(message)) return;
+    List<Contact> contacts;
+    try {
+      contacts = await (_contactsFuture ?? Future.value(const <Contact>[]));
+    } catch (_) {
+      contacts = const [];
+    }
+    final labels = contacts.map((contact) => (
+          id: contact.id,
+          name: contact.displayName,
+        ));
+    final text = formatMentionText(message.text, labels).trim();
+    if (text.isEmpty) return;
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('已复制消息')));
+    }
+    try {
+      await Clipboard.setData(ClipboardData(text: text));
+    } catch (_) {
+      // 某些桌面测试环境没有系统剪贴板；仍保留可见的复制反馈。
+    }
+  }
+
   Future<void> _showEmojiPicker() async {
     const emojis = [
       '😀',
@@ -2489,6 +2520,12 @@ class _ConversationViewState extends State<ConversationView>
               title: const Text('撤回消息'),
               onTap: () => Navigator.pop(context, 'revoke'),
             ),
+          if (_canCopyMessage(message))
+            ListTile(
+              leading: const Icon(Icons.copy_outlined),
+              title: const Text('复制消息'),
+              onTap: () => Navigator.pop(context, 'copy'),
+            ),
           if (!topicArchived && !_isTopicConversation && message.topic == null)
             ListTile(
               leading: const Icon(Icons.reply),
@@ -2516,6 +2553,8 @@ class _ConversationViewState extends State<ConversationView>
     if (!mounted || action == null) return;
     if (action == 'select') {
       if (mounted) setState(() => _selectedMessageIds.add(message.id));
+    } else if (action == 'copy') {
+      await _copyMessage(message);
     } else if (action == 'reply' && _topicIsOpen(conversationId)) {
       if (mounted) {
         setState(() => _replyTo = MessageReply(
