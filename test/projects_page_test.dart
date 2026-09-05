@@ -49,6 +49,16 @@ void main() {
     expect(find.text('演示用户'), findsOneWidget);
   });
 
+  testWidgets('项目列表支持中文拼音关键词搜索', (tester) async {
+    await tester.pumpWidget(_app());
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'kehuduan');
+    await tester.pump();
+    expect(find.text('客户端迭代'), findsOneWidget);
+    expect(find.text('我的项目'), findsNothing);
+  });
+
   testWidgets('项目搜索无结果时给出提示并支持清除', (tester) async {
     await tester.pumpWidget(_app());
     await tester.pumpAndSettle();
