@@ -22,6 +22,22 @@ void main() {
     expect(store.contacts, isEmpty);
   });
 
+  test('详情页可替换会话并在退出后清理所属消息', () {
+    final store = RealtimeStore()
+      ..conversations['c1'] = const ChatConversation(id: 'c1', title: '旧名称')
+      ..messages['m1'] = const ChatMessage(
+          id: 'm1', conversationId: 'c1', author: '成员', text: '消息');
+
+    store.replaceConversation(
+        const ChatConversation(id: 'c1', title: '新名称', pinned: true));
+    expect(store.conversations['c1']?.title, '新名称');
+    expect(store.conversations['c1']?.pinned, isTrue);
+
+    store.removeConversation('c1');
+    expect(store.conversations, isEmpty);
+    expect(store.messages, isEmpty);
+  });
+
   test('按 cursor 忽略重复事件并投影消息', () {
     final store = RealtimeStore();
     store.apply({

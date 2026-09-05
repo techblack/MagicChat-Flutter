@@ -110,7 +110,7 @@ void main() {
     await tester.longPress(find.text('角色群聊'));
     await tester.pumpAndSettle();
 
-    expect(find.text('修改群名称'), findsOneWidget);
+    expect(find.text('修改群名称'), findsNothing);
     expect(find.text('添加群成员'), findsOneWidget);
     expect(find.text('退出群聊'), findsOneWidget);
     expect(find.text('修改群公告'), findsNothing);

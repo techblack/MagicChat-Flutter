@@ -205,6 +205,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
             right: 16,
             bottom: 16,
             child: FloatingActionButton(
+                heroTag: 'projects-create-project',
                 onPressed: () => _createProject(context),
                 tooltip: '新建项目',
                 child: const Icon(Icons.create_new_folder))),
@@ -973,6 +974,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
                   right: 16,
                   bottom: 16,
                   child: FloatingActionButton.small(
+                      heroTag: 'projects-create-document',
                       onPressed: () => _createDocument(context, project),
                       tooltip: '新建文档',
                       child: const Icon(Icons.note_add_outlined))),

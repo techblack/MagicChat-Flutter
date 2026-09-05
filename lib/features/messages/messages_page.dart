@@ -53,6 +53,7 @@ class MessagesPage extends StatelessWidget {
               right: 16,
               bottom: 16,
               child: FloatingActionButton(
+                  heroTag: 'messages-create-group',
                   onPressed: () => _createGroup(context),
                   tooltip: '新建群聊',
                   child: const Icon(Icons.group_add))),
@@ -82,6 +83,8 @@ class MessagesPage extends StatelessWidget {
                       ? null
                       : (title) => _showAdvancedMessageSearch(
                           context, selectedId!, title),
+                  onDetails: () =>
+                      _showConversationDetails(context, selectedId!),
                 ),
                 Expanded(child: conversationView),
               ]);
@@ -117,6 +120,25 @@ class MessagesPage extends StatelessWidget {
         conversationType:
             realtimeStore?.conversations[conversationId]?.type ?? 'direct',
         onOpenMessage: openMessage,
+      ),
+    );
+  }
+
+  Future<void> _showConversationDetails(
+      BuildContext context, String conversationId) async {
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ConversationDetailsPage(
+          repository: repository,
+          conversationId: conversationId,
+          initialConversation: realtimeStore?.conversations[conversationId],
+          serverUrl: serverUrl,
+          cacheScope: cacheScope,
+          realtimeStore: realtimeStore,
+          onOpenConversation: onOpenConversation ?? onSelect,
+          onConversationRemoved: () => onSelect(''),
+        ),
       ),
     );
   }
@@ -209,6 +231,7 @@ class _ConversationHeader extends StatefulWidget {
     required this.compact,
     required this.onBack,
     required this.onSearch,
+    required this.onDetails,
   });
 
   final MagicChatRepository repository;
@@ -217,6 +240,7 @@ class _ConversationHeader extends StatefulWidget {
   final bool compact;
   final VoidCallback onBack;
   final ValueChanged<String>? onSearch;
+  final Future<void> Function() onDetails;
 
   @override
   State<_ConversationHeader> createState() => _ConversationHeaderState();
@@ -297,7 +321,7 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
                   ),
                 ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 56),
+                padding: const EdgeInsets.symmetric(horizontal: 104),
                 child: Text(
                   title,
                   key: const ValueKey('conversation-header-title'),
@@ -307,15 +331,22 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
               ),
-              if (widget.onSearch != null)
-                Positioned(
-                  right: 0,
-                  child: IconButton(
-                    tooltip: '检索当前会话',
-                    onPressed: () => widget.onSearch!(title),
-                    icon: const Icon(Icons.manage_search),
+              Positioned(
+                right: 0,
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  if (widget.onSearch != null)
+                    IconButton(
+                      tooltip: '检索当前会话',
+                      onPressed: () => widget.onSearch!(title),
+                      icon: const Icon(Icons.manage_search),
+                    ),
+                  IconButton(
+                    tooltip: '聊天详情',
+                    onPressed: widget.onDetails,
+                    icon: const Icon(Icons.more_horiz),
                   ),
-                ),
+                ]),
+              ),
             ]);
           },
         ));
@@ -670,7 +701,7 @@ class _ConversationListState extends State<_ConversationList> {
                   title: const Text('从列表移除'),
                   onTap: () => Navigator.pop(context, 'dismiss')),
               if (isGroup) ...[
-                if (currentMember != null)
+                if (canManage)
                   ListTile(
                       leading: const Icon(Icons.edit_outlined),
                       title: const Text('修改群名称'),
@@ -741,7 +772,7 @@ class _ConversationListState extends State<_ConversationList> {
         await widget.repository.renameGroupConversation(conversation.id, name);
       }
     } else if (action == 'announcement') {
-      final controller = TextEditingController();
+      final controller = TextEditingController(text: conversation.announcement);
       final announcement = await showDialog<String>(
           context: context,
           builder: (context) => AlertDialog(
@@ -787,6 +818,12 @@ class _ConversationListState extends State<_ConversationList> {
     } else if (action == 'members') {
       final contacts = await widget.repository.contacts();
       if (!context.mounted) return;
+      final existingIds =
+          conversation.members.map((member) => member.id).toSet();
+      final available = contacts
+          .where((contact) =>
+              contact.type == 'user' && !existingIds.contains(contact.id))
+          .toList(growable: false);
       final selected = <String>{};
       final members = await showDialog<List<String>>(
         context: context,
@@ -797,10 +834,10 @@ class _ConversationListState extends State<_ConversationList> {
                 width: 360,
                 height: 320,
                 child: ListView(
-                    children: contacts
+                    children: available
                         .map((contact) => CheckboxListTile(
                               value: selected.contains(contact.id),
-                              title: Text(contact.name),
+                              title: Text(contact.displayName),
                               onChanged: (checked) => setDialogState(() {
                                 if (checked == true) {
                                   selected.add(contact.id);
@@ -835,7 +872,7 @@ class _ConversationListState extends State<_ConversationList> {
                     .map((item) => SimpleDialogOption(
                         onPressed: () => Navigator.pop(dialogContext, item),
                         child: Row(children: [
-                          Expanded(child: Text(item.name)),
+                          Expanded(child: Text(item.displayName)),
                           if (item.role != 'member')
                             Chip(
                                 label:
