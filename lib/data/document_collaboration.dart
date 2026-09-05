@@ -45,6 +45,9 @@ class DocumentCollaborationSession extends ChangeNotifier {
     _awareness = yjs.Awareness(_document);
     _markdown = _document.getText('markdown')!;
     _body = _document.get<yjs.YXmlFragment>('body', yjs.YXmlFragment.new)!;
+    _undoManager = documentType == 'document'
+        ? yjs.UndoManager(_body, yjs.UndoManagerOpts(captureTimeout: 500))
+        : null;
   }
 
   final String documentId;
@@ -54,6 +57,7 @@ class DocumentCollaborationSession extends ChangeNotifier {
   late final yjs.Awareness _awareness;
   late final yjs.YText _markdown;
   late final yjs.YXmlFragment _body;
+  late final yjs.UndoManager? _undoManager;
   StreamSubscription<Uint8List>? _subscription;
   DocumentCollaborationStatus status = DocumentCollaborationStatus.disconnected;
   bool _closed = false;
@@ -74,6 +78,27 @@ class DocumentCollaborationSession extends ChangeNotifier {
   /// 当前 Awareness 状态，供编辑器展示用户信息或光标扩展使用。
   Map<int, Map<String, Object?>> get awarenessStates =>
       Map.unmodifiable(_awareness.states);
+
+  bool get canUndo => _undoManager?.canUndo() ?? false;
+  bool get canRedo => _undoManager?.canRedo() ?? false;
+
+  void stopUndoCapture() => _undoManager?.stopCapturing();
+
+  bool undo() {
+    if (status != DocumentCollaborationStatus.synced || !canUndo) return false;
+    _undoManager!.stopCapturing();
+    final changed = _undoManager.undo() != null;
+    if (changed) notifyListeners();
+    return changed;
+  }
+
+  bool redo() {
+    if (status != DocumentCollaborationStatus.synced || !canRedo) return false;
+    _undoManager!.stopCapturing();
+    final changed = _undoManager.redo() != null;
+    if (changed) notifyListeners();
+    return changed;
+  }
 
   void setPresence(Map<String, Object?> state) {
     if (_closed) return;
@@ -114,17 +139,16 @@ class DocumentCollaborationSession extends ChangeNotifier {
       return;
     }
     final oldText = text;
+    final isolateUndo = _isBulkTextChange(oldText, value);
+    if (isolateUndo) _undoManager?.stopCapturing();
     _document.transact((_) {
       if (documentType == 'markdown') {
-        // Remote Y.Text content may span several items in the Dart binding.
-        // Replacing the complete value avoids partial-split index issues while
-        // still emitting one Yjs transaction on the wire.
-        if (oldText.isNotEmpty) _markdown.delete(0, oldText.length);
-        if (value.isNotEmpty) _markdown.insert(0, value);
+        _replaceTextRange(_markdown, oldText, value);
       } else {
         _replaceBodyText(value);
       }
     });
+    if (isolateUndo) _undoManager?.stopCapturing();
   }
 
   /// 更新一个已有的 XML 文本叶子，保留该叶子的 marks 属性。
@@ -135,13 +159,23 @@ class DocumentCollaborationSession extends ChangeNotifier {
       return;
     }
     final nextMarks = marks ?? _marksFor(node);
-    if (node.toString() == value && mapEquals(_marksFor(node), nextMarks)) {
+    final current = node.toString();
+    final currentMarks = _marksFor(node);
+    if (current == value && mapEquals(currentMarks, nextMarks)) {
       return;
     }
+    final sameMarks = mapEquals(currentMarks, nextMarks);
+    final isolateUndo = !sameMarks || _isBulkTextChange(current, value);
+    if (isolateUndo) _undoManager?.stopCapturing();
     _document.transact((_) {
-      _clearText(node);
-      if (value.isNotEmpty) node.insert(0, value, nextMarks);
+      if (sameMarks) {
+        _replaceTextRange(node, current, value, attributes: nextMarks);
+      } else {
+        _clearText(node);
+        if (value.isNotEmpty) node.insert(0, value, nextMarks);
+      }
     });
+    if (isolateUndo) _undoManager?.stopCapturing();
     notifyListeners();
   }
 
@@ -180,6 +214,7 @@ class DocumentCollaborationSession extends ChangeNotifier {
     }
     final block = _textAlignmentBlock(node);
     if (block == null || xmlTextAlignment(node) == alignment) return false;
+    _undoManager?.stopCapturing();
     if (alignment == 'left') {
       block.removeAttribute('textAlign');
     } else {
@@ -207,6 +242,7 @@ class DocumentCollaborationSession extends ChangeNotifier {
     final block = _topLevelBlock(node)!;
     final index = _body.toArray().indexOf(block);
     if (index < 0) return null;
+    _undoManager?.stopCapturing();
     final replacement = _createTextBlock(type, node.toString(),
         type == RichDocumentBlockType.codeBlock ? const {} : _marksFor(node));
     final alignment = xmlTextAlignment(node);
@@ -231,6 +267,7 @@ class DocumentCollaborationSession extends ChangeNotifier {
     if (block == null) return null;
     final index = _body.toArray().indexOf(block);
     if (index < 0) return null;
+    _undoManager?.stopCapturing();
     final paragraph = _createTextBlock(RichDocumentBlockType.paragraph, '');
     _document.transact((_) {
       _body.insert(index + (after ? 1 : 0), [paragraph.block]);
@@ -249,6 +286,7 @@ class DocumentCollaborationSession extends ChangeNotifier {
     if (block == null) return null;
     final index = _body.toArray().indexOf(block);
     if (index < 0) return null;
+    _undoManager?.stopCapturing();
     yjs.YXmlText? replacement;
     _document.transact((_) {
       _body.delete(index);
@@ -274,6 +312,7 @@ class DocumentCollaborationSession extends ChangeNotifier {
       return false;
     }
     final text = value.trim();
+    _undoManager?.stopCapturing();
     _document.transact((_) {
       if (type == RichDocumentBlockType.bulletList ||
           type == RichDocumentBlockType.orderedList ||
@@ -429,9 +468,58 @@ class DocumentCollaborationSession extends ChangeNotifier {
   }
 
   void _clearText(yjs.YXmlText node) {
-    while (node.toString().isNotEmpty) {
-      node.delete(0, 1);
+    if (node.length > 0) node.delete(0, node.length);
+  }
+
+  void _replaceTextRange(yjs.YText text, String current, String next,
+      {Map<String, Object?> attributes = const {}}) {
+    final change = _textChange(current, next);
+    if (change.deleteLength > 0) {
+      if (current.isNotEmpty) text.delete(0, current.length);
+      if (next.isNotEmpty) text.insert(0, next, attributes);
+      return;
     }
+    if (change.insertion.isNotEmpty) {
+      text.insert(change.prefix, change.insertion, attributes);
+    }
+  }
+
+  bool _isBulkTextChange(String current, String next) {
+    final change = _textChange(current, next);
+    return change.deleteLength > 0 || change.insertion.runes.length > 1;
+  }
+
+  ({int prefix, int deleteLength, String insertion}) _textChange(
+      String current, String next) {
+    final currentRunes = current.runes.toList(growable: false);
+    final nextRunes = next.runes.toList(growable: false);
+    var prefixRunes = 0;
+    while (prefixRunes < currentRunes.length &&
+        prefixRunes < nextRunes.length &&
+        currentRunes[prefixRunes] == nextRunes[prefixRunes]) {
+      prefixRunes++;
+    }
+    var suffixRunes = 0;
+    while (suffixRunes < currentRunes.length - prefixRunes &&
+        suffixRunes < nextRunes.length - prefixRunes &&
+        currentRunes[currentRunes.length - suffixRunes - 1] ==
+            nextRunes[nextRunes.length - suffixRunes - 1]) {
+      suffixRunes++;
+    }
+    final prefix = String.fromCharCodes(currentRunes.take(prefixRunes)).length;
+    final currentSuffix = String.fromCharCodes(
+            currentRunes.skip(currentRunes.length - suffixRunes))
+        .length;
+    final nextSuffix =
+        String.fromCharCodes(nextRunes.skip(nextRunes.length - suffixRunes))
+            .length;
+    final deleteLength = current.length - prefix - currentSuffix;
+    final insertion = next.substring(prefix, next.length - nextSuffix);
+    return (
+      prefix: prefix,
+      deleteLength: deleteLength,
+      insertion: insertion,
+    );
   }
 
   String _readBodyText() {

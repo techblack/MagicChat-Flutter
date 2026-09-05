@@ -251,6 +251,7 @@ void main() {
     final paragraph =
         session.body.toArray().whereType<yjs.YXmlElement>().single;
     final text = paragraph.toArray().whereType<yjs.YXmlText>().single;
+    expect(session.canUndo, isFalse, reason: '远端同步不能进入本机撤销历史');
     final sentBeforeEdit = channel.sent.length;
     var notifications = 0;
     session.addListener(() => notifications++);
@@ -262,6 +263,12 @@ void main() {
     expect(yjs.readVarUint(update), HocuspocusMessageType.sync);
     yjs.readSyncMessage(update, yjs.createEncoder(), serverDocument, 'server');
     expect(_xmlText(serverBody), '编辑后的正文');
+    expect(session.canUndo, isTrue);
+    expect(session.undo(), isTrue);
+    expect(session.text, '原始正文');
+    expect(session.canRedo, isTrue);
+    expect(session.redo(), isTrue);
+    expect(session.text, '编辑后的正文');
 
     final markedParagraph = yjs.YXmlElement('paragraph');
     final markedText = yjs.YXmlText()..insert(0, '带标记正文', {'bold': true});
@@ -269,12 +276,22 @@ void main() {
     session.body.insert(session.body.length, [markedParagraph]);
     session.replaceXmlText(markedText, '编辑后的加粗正文');
     expect(
-        markedText.toDelta().single['attributes'], containsPair('bold', true));
+        markedText.toDelta().every((operation) {
+          final attributes = operation['attributes'];
+          return attributes is Map && attributes['bold'] == true;
+        }),
+        isTrue);
 
     final markedUpdateCount = channel.sent.length;
     session.replaceXmlText(markedText, '编辑后的加粗正文', marks: const {});
     expect(channel.sent, hasLength(markedUpdateCount + 1));
-    expect(markedText.toDelta().single['attributes'], isNull);
+    expect(
+        markedText.toDelta().every((operation) {
+          final attributes = operation['attributes'];
+          return attributes == null ||
+              (attributes is Map && attributes.isEmpty);
+        }),
+        isTrue);
     expect(session.xmlTextAlignment(markedText), 'left');
     expect(session.setXmlTextAlignment(markedText, 'center'), isTrue);
     expect(markedParagraph.getAttribute('textAlign'), 'center');

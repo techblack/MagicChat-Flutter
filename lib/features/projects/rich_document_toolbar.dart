@@ -10,11 +10,19 @@ class RichDocumentToolbar extends StatelessWidget {
   const RichDocumentToolbar({
     required this.enabled,
     required this.onInsert,
+    this.canUndo = false,
+    this.canRedo = false,
+    this.onUndo,
+    this.onRedo,
     super.key,
   });
 
   final bool enabled;
   final ValueChanged<RichDocumentBlockType> onInsert;
+  final bool canUndo;
+  final bool canRedo;
+  final VoidCallback? onUndo;
+  final VoidCallback? onRedo;
 
   @override
   Widget build(BuildContext context) => Semantics(
@@ -29,6 +37,15 @@ class RichDocumentToolbar extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 8),
               child: Row(
                 children: [
+                  IconButton(
+                      tooltip: '撤销',
+                      onPressed: enabled && canUndo ? onUndo : null,
+                      icon: const Icon(Icons.undo, size: 20)),
+                  IconButton(
+                      tooltip: '重做',
+                      onPressed: enabled && canRedo ? onRedo : null,
+                      icon: const Icon(Icons.redo, size: 20)),
+                  const VerticalDivider(width: 12, indent: 10, endIndent: 10),
                   _tool(context, Icons.notes_outlined, '段落',
                       RichDocumentBlockType.paragraph),
                   _tool(context, Icons.title, '一级标题',
