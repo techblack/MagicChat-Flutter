@@ -24,7 +24,8 @@ void main() {
                   'directory_mode': 'organization',
                 }
               }),
-              200);
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'});
         }
         final ids =
             (jsonDecode(request.body)['user_ids'] as List).cast<String>();
@@ -36,7 +37,8 @@ void main() {
                 ]
               }
             }),
-            200);
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'});
       }),
     );
 
