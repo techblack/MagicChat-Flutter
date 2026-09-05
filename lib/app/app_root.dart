@@ -1602,85 +1602,104 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       onPopInvokedWithResult: (didPop, result) {
         if (!didPop) _handleSystemBack();
       },
-      child: Scaffold(
-        appBar: compactConversation
-            ? null
-            : AppBar(
-                title: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('MagicChat',
-                        style: TextStyle(fontWeight: FontWeight.w700)),
-                    Text(sectionTitles[_index],
-                        key: const ValueKey('app-section-title'),
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color:
-                                Theme.of(context).colorScheme.onSurfaceVariant,
-                            letterSpacing: 0)),
-                  ],
-                ),
-                actions: [
-                    IconButton(
-                        onPressed: () => _showSearch(context),
-                        icon: const Icon(Icons.search),
-                        tooltip: '搜索')
-                  ]),
-        body: Column(children: [
-          if (_realtimeReconnecting)
-            Material(
-              color: Theme.of(context).colorScheme.tertiaryContainer,
-              child: SizedBox(
-                width: double.infinity,
-                height: 36,
-                child: Row(children: [
-                  const SizedBox(width: 16),
-                  Icon(Icons.sync_problem_outlined,
-                      size: 18,
-                      color: Theme.of(context).colorScheme.onTertiaryContainer),
-                  const SizedBox(width: 8),
-                  Expanded(
-                      child: Text('实时连接已断开，正在重新连接；本地缓存仍可浏览',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+      child: Focus(
+        autofocus: true,
+        onKeyEvent: (node, event) {
+          final keyboard = HardwareKeyboard.instance;
+          if (event is KeyDownEvent &&
+              event.logicalKey == LogicalKeyboardKey.keyK &&
+              (keyboard.isControlPressed || keyboard.isMetaPressed)) {
+            unawaited(_showSearch(context));
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: Scaffold(
+          appBar: compactConversation
+              ? null
+              : AppBar(
+                  title: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('MagicChat',
+                          style: TextStyle(fontWeight: FontWeight.w700)),
+                      Text(sectionTitles[_index],
+                          key: const ValueKey('app-section-title'),
                           style: Theme.of(context)
                               .textTheme
-                              .labelMedium
+                              .labelSmall
                               ?.copyWith(
                                   color: Theme.of(context)
                                       .colorScheme
-                                      .onTertiaryContainer))),
-                  const SizedBox(width: 16),
-                ]),
+                                      .onSurfaceVariant,
+                                  letterSpacing: 0)),
+                    ],
+                  ),
+                  actions: [
+                      IconButton(
+                          onPressed: () => _showSearch(context),
+                          icon: const Icon(Icons.search),
+                          tooltip: '搜索')
+                    ]),
+          body: Column(children: [
+            if (_realtimeReconnecting)
+              Material(
+                color: Theme.of(context).colorScheme.tertiaryContainer,
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 36,
+                  child: Row(children: [
+                    const SizedBox(width: 16),
+                    Icon(Icons.sync_problem_outlined,
+                        size: 18,
+                        color:
+                            Theme.of(context).colorScheme.onTertiaryContainer),
+                    const SizedBox(width: 8),
+                    Expanded(
+                        child: Text('实时连接已断开，正在重新连接；本地缓存仍可浏览',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelMedium
+                                ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onTertiaryContainer))),
+                    const SizedBox(width: 16),
+                  ]),
+                ),
               ),
+            Expanded(
+              child: Row(children: [
+                if (wide)
+                  NavigationRail(
+                      backgroundColor:
+                          Theme.of(context).scaffoldBackgroundColor,
+                      useIndicator: true,
+                      selectedIndex: _index,
+                      onDestinationSelected: (i) => setState(() => _index = i),
+                      labelType: NavigationRailLabelType.all,
+                      destinations: destinations
+                          .map((d) => NavigationRailDestination(
+                              icon: d.icon,
+                              selectedIcon: d.selectedIcon,
+                              label: Text(d.label)))
+                          .toList()),
+                Expanded(child: IndexedStack(index: _index, children: pages))
+              ]),
             ),
-          Expanded(
-            child: Row(children: [
-              if (wide)
-                NavigationRail(
-                    backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-                    useIndicator: true,
-                    selectedIndex: _index,
-                    onDestinationSelected: (i) => setState(() => _index = i),
-                    labelType: NavigationRailLabelType.all,
-                    destinations: destinations
-                        .map((d) => NavigationRailDestination(
-                            icon: d.icon,
-                            selectedIcon: d.selectedIcon,
-                            label: Text(d.label)))
-                        .toList()),
-              Expanded(child: IndexedStack(index: _index, children: pages))
-            ]),
-          ),
-        ]),
-        bottomNavigationBar: wide || compactConversation
-            ? null
-            : NavigationBar(
-                backgroundColor: Theme.of(context).colorScheme.surface,
-                elevation: 0,
-                selectedIndex: _index,
-                onDestinationSelected: (i) => setState(() => _index = i),
-                destinations: destinations),
+          ]),
+          bottomNavigationBar: wide || compactConversation
+              ? null
+              : NavigationBar(
+                  backgroundColor: Theme.of(context).colorScheme.surface,
+                  elevation: 0,
+                  selectedIndex: _index,
+                  onDestinationSelected: (i) => setState(() => _index = i),
+                  destinations: destinations),
+        ),
       ),
     );
   }
