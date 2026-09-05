@@ -183,6 +183,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
     await ContactCacheStore().clearAll();
     await LocalAssetCache().clearAll();
     await const AppBadgeService().setCount(0);
+    _realtimeStore.reset();
     if (mounted) {
       setState(() {
         _repository = null;
@@ -217,6 +218,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
     await LocalAssetCache().clearAll();
     await const AppBadgeService().setCount(0);
     await _realtime?.close();
+    _realtimeStore.reset();
     if (mounted) {
       setState(() {
         _repository = null;
@@ -250,6 +252,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
     await ContactCacheStore().clearAll();
     await LocalAssetCache().clearAll();
     await const AppBadgeService().setCount(0);
+    _realtimeStore.reset();
     await prefs.setString('magicchat.server_url', normalized);
     if (mounted)
       setState(() {
@@ -266,10 +269,9 @@ class _MagicChatAppState extends State<MagicChatApp> {
     final oldToken = await const SessionStore().readToken();
     if (oldServer != null && oldToken != null) {
       await _revokePush(oldServer, oldToken);
-      await const SessionStore()
-          .markAccountReauthRequired(serverUrl: oldServer, token: oldToken);
     }
     await _realtime?.close();
+    _realtimeStore.reset();
     await const SessionStore().writeToken(account.token);
     await const AppBadgeService().setCount(0);
 
@@ -286,6 +288,71 @@ class _MagicChatAppState extends State<MagicChatApp> {
               connector: connectWithAuthorization));
     });
     unawaited(_registerPush(account.serverUrl, account.token));
+  }
+
+  Future<void> _deactivateAccount(String code) async {
+    final preferences = await SharedPreferences.getInstance();
+    final server = _serverUrl ?? preferences.getString('magicchat.server_url');
+    final sessions = const SessionStore();
+    final token = await sessions.readToken();
+    if (server == null || token == null) {
+      throw const AuthRequestException('当前账号已失效');
+    }
+
+    try {
+      await AuthService().deactivateAccount(serverUrl: server, code: code);
+    } catch (error) {
+      if (error is FormatException ||
+          isSafeAccountDeactivationRejection(error)) {
+        rethrow;
+      }
+      await sessions.markAccountReauthRequired(serverUrl: server, token: token);
+      await _realtime?.close();
+      await sessions.clear();
+      await preferences.remove('magicchat.server_url');
+      _realtimeStore.reset();
+      await const AppBadgeService().setCount(0);
+      if (mounted) {
+        setState(() {
+          _repository = null;
+          _realtime = null;
+          _serverUrl = null;
+          _loginError = '账号状态需要重新确认，请重新登录';
+        });
+      }
+      rethrow;
+    }
+
+    await _realtime?.close();
+    final removed =
+        await sessions.removeAccountForSession(serverUrl: server, token: token);
+    final remaining = (await sessions.readAccounts())
+        .where(
+            (account) => account.serverUrl != server || account.token != token)
+        .toList(growable: false);
+    final candidate = selectRecentReadyAccount(remaining, removed?.id);
+    await sessions.clear();
+    await MessageCacheStore().clearAll();
+    await ContactCacheStore().clearAll();
+    await LocalAssetCache().clearAll();
+    await const AppBadgeService().setCount(0);
+    _realtimeStore.reset();
+
+    if (candidate != null) {
+      await preferences.remove('magicchat.server_url');
+      await _switchAccount(candidate);
+      return;
+    }
+
+    await preferences.remove('magicchat.server_url');
+    if (mounted) {
+      setState(() {
+        _repository = null;
+        _realtime = null;
+        _serverUrl = null;
+        _loginError = null;
+      });
+    }
   }
 
   @override
@@ -359,6 +426,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
                     realtime: _realtime,
                     realtimeStore: _realtimeStore,
                     onLogout: _logout,
+                    onDeactivateAccount: _deactivateAccount,
                     onThemeChanged: _setTheme,
                     themeMode: _themeMode),
       );
@@ -922,6 +990,7 @@ class AppShell extends StatefulWidget {
       this.realtime,
       this.realtimeStore,
       this.onLogout,
+      this.onDeactivateAccount,
       this.onThemeChanged,
       this.themeMode = ThemeMode.system,
       super.key});
@@ -932,6 +1001,7 @@ class AppShell extends StatefulWidget {
   final RealtimeSession? realtime;
   final RealtimeStore? realtimeStore;
   final Future<void> Function()? onLogout;
+  final Future<void> Function(String code)? onDeactivateAccount;
   final ValueChanged<ThemeMode>? onThemeChanged;
   final ThemeMode themeMode;
   @override
@@ -1255,6 +1325,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           onServerChanged: widget.onServerChanged,
           onAccountSwitch: widget.onAccountSwitch,
           onLogout: widget.onLogout,
+          onDeactivateAccount: widget.onDeactivateAccount,
           onThemeChanged: widget.onThemeChanged,
           onSendMessageShortcutChanged: (shortcut) {
             setState(() => _sendMessageShortcut = shortcut);

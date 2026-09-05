@@ -5,6 +5,7 @@ import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/data/chat_preferences.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/settings/settings_page.dart';
+import 'package:magicchat_client/features/settings/account_deactivation_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -121,6 +122,27 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('恢复后的用户'), findsOneWidget);
     expect(repository.attempts, 2);
+  });
+
+  testWidgets('设置页可进入当前账号注销流程', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(600, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SettingsPage(
+                repository: DemoRepository(),
+                serverUrl: 'https://chat.example.com',
+                onDeactivateAccount: (_) async {}))));
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(find.text('注销账号'), 250,
+        scrollable: find.byType(Scrollable).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('注销账号'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AccountDeactivationPage), findsOneWidget);
+    expect(find.text('demo@example.com'), findsOneWidget);
   });
 }
 

@@ -27,13 +27,25 @@ String normalizeServerUrl(String value) {
 }
 
 class AuthRequestException implements Exception {
-  const AuthRequestException(this.message);
+  const AuthRequestException(this.message, {this.code, this.statusCode});
 
   final String message;
+  final String? code;
+  final int? statusCode;
 
   @override
   String toString() => message;
 }
+
+String normalizeAccountDeactivationCode(String value) {
+  final digits = value.replaceAll(RegExp(r'\D'), '');
+  return digits.length <= 8 ? digits : digits.substring(0, 8);
+}
+
+bool isSafeAccountDeactivationRejection(Object error) =>
+    error is AuthRequestException &&
+    ((error.statusCode == 401 && error.code == 'invalid_code') ||
+        (error.statusCode == 400 && error.code == 'invalid_request'));
 
 class AuthService {
   static const requestTimeout = Duration(seconds: 15);
@@ -166,6 +178,72 @@ class AuthService {
     await _storeLoginSession(decoded);
   }
 
+  Future<AccountDeactivationCodeResult> requestAccountDeactivationCode(
+      {required String serverUrl}) async {
+    final base = _baseUri(serverUrl);
+    final response = await _client
+        .post(base.resolve('api/client/me/deactivation/code'),
+            headers: await _authenticatedHeaders())
+        .timeout(requestTimeout);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw _responseError(response, '发送注销验证码失败');
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is Map<String, dynamic> && decoded['success'] == false) {
+      throw _responseError(response, '发送注销验证码失败');
+    }
+    final data = decoded is Map<String, dynamic> ? decoded['data'] : null;
+    final expiresIn =
+        data is Map<String, dynamic> ? data['expires_in_seconds'] : null;
+    final retryAfter =
+        data is Map<String, dynamic> ? data['retry_after_seconds'] : null;
+    if (expiresIn is! int ||
+        expiresIn <= 0 ||
+        retryAfter is! int ||
+        retryAfter < 0) {
+      throw const FormatException('注销验证码响应格式不正确');
+    }
+    return AccountDeactivationCodeResult(
+        expiresInSeconds: expiresIn, retryAfterSeconds: retryAfter);
+  }
+
+  Future<void> deactivateAccount(
+      {required String serverUrl, required String code}) async {
+    final normalizedCode = normalizeAccountDeactivationCode(code);
+    if (normalizedCode.length != 8) {
+      throw const FormatException('请输入 8 位邮箱验证码');
+    }
+    final base = _baseUri(serverUrl);
+    final response = await _client
+        .post(base.resolve('api/client/me/deactivation'),
+            headers: await _authenticatedHeaders(json: true),
+            body: jsonEncode({'code': normalizedCode}))
+        .timeout(requestTimeout);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw _responseError(response, '注销账号失败');
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is Map<String, dynamic> && decoded['success'] == false) {
+      throw _responseError(response, '注销账号失败');
+    }
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('注销账号响应格式不正确');
+    }
+  }
+
+  Future<Map<String, String>> _authenticatedHeaders({bool json = false}) async {
+    final token = await _sessions.readToken();
+    if (token == null || token.isEmpty) {
+      throw const AuthRequestException('当前账号已失效');
+    }
+    return {
+      'Accept': 'application/json',
+      if (json) 'Content-Type': 'application/json',
+      if (token != SessionStore.cookieSessionToken)
+        'Authorization': 'Bearer $token',
+    };
+  }
+
   Future<void> _storeLoginSession(Object? decoded) async {
     final data = decoded is Map<String, dynamic> ? decoded['data'] : null;
     final session =
@@ -221,19 +299,32 @@ class AuthService {
       final decoded = jsonDecode(response.body);
       final error = decoded is Map<String, dynamic> ? decoded['error'] : null;
       final message = error is Map<String, dynamic> ? error['message'] : null;
+      final code = error is Map<String, dynamic> ? error['code'] : null;
       if (message is String && message.trim().isNotEmpty) {
-        return AuthRequestException(message.trim());
+        return AuthRequestException(message.trim(),
+            code: code is String ? code : null,
+            statusCode: response.statusCode);
       }
     } catch (_) {
       // 非 JSON 错误响应使用带状态码的通用消息。
     }
-    return AuthRequestException(
-        '$fallbackMessage（HTTP ${response.statusCode}）');
+    return AuthRequestException('$fallbackMessage（HTTP ${response.statusCode}）',
+        statusCode: response.statusCode);
   }
 }
 
 class EmailCodeRequestResult {
   const EmailCodeRequestResult({
+    required this.expiresInSeconds,
+    required this.retryAfterSeconds,
+  });
+
+  final int expiresInSeconds;
+  final int retryAfterSeconds;
+}
+
+class AccountDeactivationCodeResult {
+  const AccountDeactivationCodeResult({
     required this.expiresInSeconds,
     required this.retryAfterSeconds,
   });

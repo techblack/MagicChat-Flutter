@@ -3,6 +3,25 @@ import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/domain/models.dart';
 
 void main() {
+  test('切换账号时清空全部实时内存状态和游标', () {
+    final store = RealtimeStore()
+      ..currentUserId = 'user-1'
+      ..cursor = 12
+      ..lastEvent = 'message.created'
+      ..conversations['c1'] = const ChatConversation(id: 'c1', title: '旧会话')
+      ..messages['m1'] = const ChatMessage(id: 'm1', author: '旧成员', text: '旧消息')
+      ..contacts['u1'] = const Contact(id: 'u1', name: '旧成员');
+
+    store.reset();
+
+    expect(store.currentUserId, isNull);
+    expect(store.cursor, 0);
+    expect(store.lastEvent, isNull);
+    expect(store.conversations, isEmpty);
+    expect(store.messages, isEmpty);
+    expect(store.contacts, isEmpty);
+  });
+
   test('按 cursor 忽略重复事件并投影消息', () {
     final store = RealtimeStore();
     store.apply({

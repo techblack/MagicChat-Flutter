@@ -16,6 +16,7 @@ import '../../data/message_cache_store.dart';
 import '../../domain/models.dart';
 import '../qr_scanner_page.dart';
 import '../shared/cached_avatar.dart';
+import 'account_deactivation_page.dart';
 import 'storage_management_page.dart';
 
 Uri? _resolveAssetUri(String? serverUrl, String value) {
@@ -35,12 +36,14 @@ class SettingsPage extends StatefulWidget {
       this.onServerChanged,
       this.onAccountSwitch,
       this.onLogout,
+      this.onDeactivateAccount,
       this.onThemeChanged,
       this.onSendMessageShortcutChanged,
       this.themeMode = ThemeMode.system,
       this.sendMessageShortcut = MessageSendShortcut.enter,
       super.key});
   final Future<void> Function()? onLogout;
+  final Future<void> Function(String code)? onDeactivateAccount;
   final MagicChatRepository repository;
   final RealtimeStore? realtimeStore;
   final String? serverUrl;
@@ -377,6 +380,31 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _openAccountDeactivation() async {
+    final deactivate = widget.onDeactivateAccount;
+    final server = widget.serverUrl;
+    if (deactivate == null || server == null) return;
+    try {
+      final user = await _userFuture;
+      if (!mounted || user == null) return;
+      await Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => AccountDeactivationPage(
+            serverUrl: server,
+            email: user.email,
+            onDeactivate: deactivate,
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('账户信息加载失败：$error')));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) =>
       ListView(padding: const EdgeInsets.fromLTRB(12, 12, 12, 24), children: [
@@ -508,6 +536,19 @@ class _SettingsPageState extends State<SettingsPage> {
                   child: ListTile(
                       leading: const Icon(Icons.logout),
                       title: const Text('退出登录'),
-                      onTap: widget.onLogout)))
+                      onTap: widget.onLogout))),
+        if (widget.onDeactivateAccount != null)
+          Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Card(
+                  child: ListTile(
+                      leading: Icon(Icons.person_off_outlined,
+                          color: Theme.of(context).colorScheme.error),
+                      title: Text('注销账号',
+                          style: TextStyle(
+                              color: Theme.of(context).colorScheme.error)),
+                      subtitle: const Text('永久删除当前账号'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: _openAccountDeactivation)))
       ]);
 }

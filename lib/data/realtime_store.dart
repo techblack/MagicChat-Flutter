@@ -15,6 +15,16 @@ class RealtimeStore extends ChangeNotifier {
     currentUserId = id;
   }
 
+  void reset() {
+    conversations.clear();
+    messages.clear();
+    contacts.clear();
+    currentUserId = null;
+    lastEvent = null;
+    cursor = 0;
+    notifyListeners();
+  }
+
   /// 在不改变当前可观察状态的前提下，计算消息事件应用后的消息快照。
   /// 实时流水线用它先持久化消息，再把原事件交给 [apply] 展示。
   ChatMessage? previewMessage(Map<String, dynamic> envelope) {
