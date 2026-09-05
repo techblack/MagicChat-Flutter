@@ -43,6 +43,17 @@ class YXmlFragment extends AbstractType<dynamic> {
     }
   }
 
+  /// Removes an attribute from this XML node.
+  void removeAttribute(String key) {
+    if (doc != null) {
+      doc!.transact((Transaction tr) {
+        typeMapDelete(tr, this, key);
+      });
+    } else {
+      _prelimAttributes.remove(key);
+    }
+  }
+
   /// Returns the attribute value for [key], or null if not set.
   Object? getAttribute(String key) {
     return typeMapGet(this, key);

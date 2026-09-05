@@ -9,6 +9,10 @@ void main() {
     final body = document.get<yjs.YXmlFragment>('body', yjs.YXmlFragment.new)!;
     _addHeading(body, '发布计划');
     _addParagraph(body, '这是加粗文字', marks: {'bold': true});
+    final aligned = yjs.YXmlElement('paragraph')
+      ..setAttribute('textAlign', 'right');
+    aligned.insert(0, [yjs.YXmlText()..insert(0, '右对齐文本')]);
+    body.insert(body.length, [aligned]);
     _addList(body, ordered: false, items: ['准备素材', '安排发布']);
     _addTaskList(body);
     _addTable(body);
@@ -23,6 +27,7 @@ void main() {
     expect(find.text('发布计划'), findsOneWidget);
     expect(find.text('准备素材'), findsOneWidget);
     expect(find.text('安排发布'), findsOneWidget);
+    expect(tester.widget<Text>(find.text('右对齐文本')).textAlign, TextAlign.right);
     expect(find.text('需要确认'), findsOneWidget);
     expect(find.byType(Checkbox), findsOneWidget);
     expect(find.byType(Table), findsOneWidget);

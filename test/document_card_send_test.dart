@@ -113,6 +113,15 @@ void main() {
     expect(title.characters.length, 256);
     expect(title, endsWith('…'));
   });
+
+  test('富文档链接补全 HTTPS 并拒绝危险协议', () {
+    expect(normalizeRichDocumentLink('example.com/docs'),
+        'https://example.com/docs');
+    expect(normalizeRichDocumentLink('mailto:user@example.com'),
+        'mailto:user@example.com');
+    expect(normalizeRichDocumentLink('javascript:alert(1)'), isNull);
+    expect(normalizeRichDocumentLink('https://exa mple.com'), isNull);
+  });
 }
 
 class _DocumentCardRepository extends DemoRepository {

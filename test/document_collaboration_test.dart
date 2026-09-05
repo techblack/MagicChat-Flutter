@@ -275,6 +275,9 @@ void main() {
     session.replaceXmlText(markedText, '编辑后的加粗正文', marks: const {});
     expect(channel.sent, hasLength(markedUpdateCount + 1));
     expect(markedText.toDelta().single['attributes'], isNull);
+    expect(session.xmlTextAlignment(markedText), 'left');
+    expect(session.setXmlTextAlignment(markedText, 'center'), isTrue);
+    expect(markedParagraph.getAttribute('textAlign'), 'center');
 
     final heading = session.transformXmlTextBlock(
         markedText, RichDocumentBlockType.heading1);
@@ -283,7 +286,10 @@ void main() {
     final headingBlock = heading.parent! as yjs.YXmlElement;
     expect(headingBlock.name, 'heading');
     expect(headingBlock.getAttribute('level'), 1);
+    expect(headingBlock.getAttribute('textAlign'), 'center');
     expect(heading.toString(), '编辑后的加粗正文');
+    expect(session.setXmlTextAlignment(heading, 'left'), isTrue);
+    expect(headingBlock.getAttribute('textAlign'), isNull);
 
     final before = session.insertParagraphNear(heading, after: false);
     final after = session.insertParagraphNear(heading, after: true);

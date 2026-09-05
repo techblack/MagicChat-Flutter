@@ -66,7 +66,12 @@ class RichDocumentInlineToolbar extends StatelessWidget {
   const RichDocumentInlineToolbar({
     required this.blockType,
     required this.marks,
+    required this.alignment,
     required this.onToggleMark,
+    required this.onTextColor,
+    required this.onHighlight,
+    required this.onAlignment,
+    required this.onEditLink,
     required this.onClearFormatting,
     required this.onTransform,
     required this.onInsertBefore,
@@ -78,7 +83,12 @@ class RichDocumentInlineToolbar extends StatelessWidget {
 
   final RichDocumentBlockType? blockType;
   final Map<String, Object?> marks;
+  final String alignment;
   final ValueChanged<String> onToggleMark;
+  final ValueChanged<String?> onTextColor;
+  final ValueChanged<String?> onHighlight;
+  final ValueChanged<String> onAlignment;
+  final VoidCallback onEditLink;
   final VoidCallback onClearFormatting;
   final ValueChanged<RichDocumentBlockType> onTransform;
   final VoidCallback onInsertBefore;
@@ -129,9 +139,25 @@ class RichDocumentInlineToolbar extends StatelessWidget {
                 _markTool(Icons.format_underline, '下划线', 'underline'),
                 _markTool(Icons.format_strikethrough, '删除线', 'strike'),
                 _markTool(Icons.code, '行内代码', 'code'),
+                _colorTool(context, Icons.format_color_text, '字体颜色',
+                    _nestedMarkValue('textStyle', 'color'), onTextColor),
+                _colorTool(context, Icons.format_color_fill, '文字背景色',
+                    _nestedMarkValue('highlight', 'color'), onHighlight),
+                _alignmentTool(),
+                IconButton(
+                    tooltip: '链接',
+                    isSelected: _linkHref != null,
+                    onPressed: blockType == RichDocumentBlockType.codeBlock
+                        ? null
+                        : onEditLink,
+                    icon: const Icon(Icons.link, size: 20),
+                    selectedIcon: const Icon(Icons.link, size: 20)),
                 IconButton(
                     tooltip: '清除格式',
-                    onPressed: marks.isEmpty ? null : onClearFormatting,
+                    onPressed: marks.isEmpty ||
+                            blockType == RichDocumentBlockType.codeBlock
+                        ? null
+                        : onClearFormatting,
                     icon: const Icon(Icons.format_clear, size: 20)),
                 const VerticalDivider(width: 8, indent: 10, endIndent: 10),
                 IconButton(
@@ -157,6 +183,95 @@ class RichDocumentInlineToolbar extends StatelessWidget {
         ),
       );
 
+  Widget _colorTool(BuildContext context, IconData icon, String label,
+      String? selected, ValueChanged<String?> onSelected) {
+    final enabled = blockType != RichDocumentBlockType.codeBlock;
+    return PopupMenuButton<String>(
+      tooltip: label,
+      enabled: enabled,
+      onSelected: (value) => onSelected(value.isEmpty ? null : value),
+      itemBuilder: (_) => [
+        PopupMenuItem(
+          value: '',
+          child: Row(children: [
+            Icon(Icons.restart_alt,
+                size: 18, color: Theme.of(context).colorScheme.onSurface),
+            const SizedBox(width: 10),
+            Text(label == '字体颜色' ? '默认颜色' : '无背景色'),
+          ]),
+        ),
+        for (final color in _documentColors)
+          PopupMenuItem(
+            value: color.value,
+            child: Row(children: [
+              Container(
+                width: 18,
+                height: 18,
+                decoration: BoxDecoration(
+                    color: Color(
+                        int.parse('FF${color.value.substring(1)}', radix: 16)),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.black12)),
+              ),
+              const SizedBox(width: 10),
+              Text(color.label),
+              if (selected == color.value) ...[
+                const Spacer(),
+                const Icon(Icons.check, size: 18),
+              ],
+            ]),
+          ),
+      ],
+      icon: Icon(icon,
+          size: 20,
+          color: selected == null
+              ? null
+              : Color(int.parse('FF${selected.substring(1)}', radix: 16))),
+    );
+  }
+
+  Widget _alignmentTool() => PopupMenuButton<String>(
+        tooltip: '文本对齐',
+        enabled: blockType != RichDocumentBlockType.codeBlock,
+        onSelected: onAlignment,
+        itemBuilder: (_) => const [
+          PopupMenuItem(
+              value: 'left',
+              child: ListTile(
+                  leading: Icon(Icons.format_align_left), title: Text('左对齐'))),
+          PopupMenuItem(
+              value: 'center',
+              child: ListTile(
+                  leading: Icon(Icons.format_align_center),
+                  title: Text('居中对齐'))),
+          PopupMenuItem(
+              value: 'right',
+              child: ListTile(
+                  leading: Icon(Icons.format_align_right), title: Text('右对齐'))),
+        ],
+        icon: Icon(
+            switch (alignment) {
+              'center' => Icons.format_align_center,
+              'right' => Icons.format_align_right,
+              _ => Icons.format_align_left,
+            },
+            size: 20),
+      );
+
+  String? _nestedMarkValue(String mark, String key) {
+    final value = marks[mark];
+    final nested = value is Map ? value[key] : null;
+    return nested is String && RegExp(r'^#[0-9A-Fa-f]{6}$').hasMatch(nested)
+        ? nested.toLowerCase()
+        : null;
+  }
+
+  String? get _linkHref {
+    final link = marks['link'];
+    final href = link is Map ? link['href'] : null;
+    return href is String && href.trim().isNotEmpty ? href.trim() : null;
+  }
+
   Widget _markTool(IconData icon, String label, String mark) => IconButton(
         tooltip: label,
         isSelected: marks[mark] == true,
@@ -176,3 +291,16 @@ class RichDocumentInlineToolbar extends StatelessWidget {
         _ => Icons.notes_outlined,
       };
 }
+
+const _documentColors = [
+  (label: '黑色', value: '#111827'),
+  (label: '灰色', value: '#6b7280'),
+  (label: '红色', value: '#dc2626'),
+  (label: '橙色', value: '#ea580c'),
+  (label: '黄色', value: '#ca8a04'),
+  (label: '绿色', value: '#16a34a'),
+  (label: '蓝色', value: '#2563eb'),
+  (label: '靛蓝', value: '#4f46e5'),
+  (label: '紫色', value: '#9333ea'),
+  (label: '粉色', value: '#db2777'),
+];
