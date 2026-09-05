@@ -46,7 +46,7 @@ extension ChatBubbleSkinLabel on ChatBubbleSkin {
 class ChatAppearance {
   const ChatAppearance({
     this.skin = ChatSkin.classic,
-    this.fontSize = 15,
+    this.fontSize = 14,
   });
 
   final ChatSkin skin;
