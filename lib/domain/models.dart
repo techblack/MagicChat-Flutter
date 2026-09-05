@@ -24,6 +24,7 @@ class ChatConversation {
       this.type = 'direct',
       this.memberCount = 0,
       this.members = const [],
+      this.projects = const [],
       this.canSend = true,
       this.topic});
   final String id;
@@ -44,6 +45,7 @@ class ChatConversation {
   final String type;
   final int memberCount;
   final List<Contact> members;
+  final List<Project> projects;
   final bool canSend;
   final TopicMetadata? topic;
 
@@ -96,6 +98,25 @@ class ChatConversation {
                 type: item['type'] == 'app' ? 'app' : 'user'))
             .toList(growable: false)
         : const <Contact>[];
+    final rawProjects = value['projects'];
+    final projects = rawProjects is List
+        ? rawProjects
+            .whereType<Map<String, dynamic>>()
+            .where((item) =>
+                item['id'] is String &&
+                (item['id'] as String).trim().isNotEmpty &&
+                item['name'] is String &&
+                (item['name'] as String).trim().isNotEmpty)
+            .map((item) => Project(
+                id: item['id'] as String,
+                name: item['name'] as String,
+                description: item['description'] is String
+                    ? item['description'] as String
+                    : '',
+                avatar:
+                    item['avatar'] is String ? item['avatar'] as String : ''))
+            .toList(growable: false)
+        : const <Project>[];
     return ChatConversation(
       id: id,
       title: name,
@@ -125,6 +146,7 @@ class ChatConversation {
       memberCount: (value['member_count'] as num?)?.toInt() ?? 0,
       canSend: value['can_send'] != false,
       members: members,
+      projects: projects,
       topic: rawTopic is Map<String, dynamic>
           ? TopicMetadata.fromJson(rawTopic)
           : null,

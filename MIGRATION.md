@@ -18,7 +18,7 @@ Flutter 工程与现有客户端并行演进，页面层通过 `MagicChatReposit
 | 版本检查 | 设置页、`UpdateService` | 移动端版本清单按 Android/iOS 平台选择、HTTPS 下载地址和非负整数 build 严格校验；Windows/macOS/Linux 在 release 源下读取 GitHub Release 并选择对应安装包，所有平台发现新版本均可打开下载地址 |
 | 推送授权与通知路由 | `PushService`、`PushTokenProvider`、`PushRegistrationStore`、设置页、`AppShell` | 公共 Push Gateway installation/grant 注册、续期、持久化和撤销，私有 Server grant 注册/撤销、启动及前台通知点击路由、通知总开关、Android/iOS 本地通知点击会话、Android/iOS/macOS 系统角标及所有平台应用内未读红点已接入；Android JPush SDK 可通过 `JPUSH_APP_KEY` 构建参数启用，厂商渠道参数与推送凭据仍需按发布环境配置 |
 | 二维码 | `QrScannerPage` | Android/iOS/macOS/Web 相机扫码、HTTP(S) 链接打开、文本结果展示及桌面粘贴兜底已接入 |
-| 项目、任务视图 | `features/projects` | 个人/团队项目摘要、项目创建/编辑/删除、项目关键词过滤与游标分页、任务连续分页加载及关键词/状态/优先级筛选、列表/看板/月历/甘特、任务创建、编辑（描述/项目成员负责人/状态/优先级/日期/标签/一次性与周期提醒）、状态更新、删除、任务详情、完整活动流与 Markdown 评论、任务卡片选择会话发送及卡片深链直达任务、成员列表、群组授权管理已接入；目标仍与原版一致为待完善占位 |
+| 项目、任务视图 | `features/projects` | 个人/团队项目摘要、项目创建/编辑/删除、项目关键词过滤与游标分页、任务连续分页加载及关键词/状态/优先级筛选、列表/看板/月历/甘特、任务创建、编辑（描述/项目成员负责人/状态/优先级/日期/标签/一次性与周期提醒）、状态更新、删除、任务详情、完整活动流与 Markdown 评论、任务卡片选择会话发送及卡片深链直达任务、成员列表、群组授权管理、目标进度概览（完成率/状态/逾期/排期）已接入；服务端尚未提供独立 Goals 实体 API |
 | 文档协作 | `features/projects`、`DocumentRealtime`、`DocumentCollaborationSession`、`RichDocumentView` | 文档目录树、富文本/Markdown 类型、创建/重命名/移动/删除、Markdown 编辑预览与格式工具栏（粗体/斜体/删除线、列表/任务、链接/图片、分割线/表格）、Hocuspocus v4 认证与 Yjs `Y.Text("markdown")` 状态同步、富文档 `Y.XmlFragment("body")` 正文状态同步、远端更新灌入编辑器、本地更新回传、断线后保留文档状态并支持重新连接、Awareness 在线协作者计数、协作标题接口、文档卡片选择会话发送及卡片深链打开对应文档已接入；Flutter 支持富文档 XML block/列表/任务/表格/代码/引用/图片/marks 的渲染，可直接追加标准内容块；已有文本块支持点击原位编辑、粗体/斜体/下划线/删除线/代码格式、文字颜色、高亮、左/中/右对齐、链接编辑、清除格式、格式刷、正文/三级标题/代码块转换、上下插入与删除，并支持仅追踪本机操作的撤销/重做；表格可通过 10×10 尺寸选择器原位插入并编辑首个单元格；图片支持占位插入、临时文件上传、HTTPS 外链、替代文本、宽度和对齐设置 |
 | 图片、文件、语音、选择、对象卡片、图表、回应、系统事件 | `_MessageBubble`、`VoiceMessagePlayer`、`flutter_markdown_plus`、文件选择器、`VoiceRecorder`、`_ChartPreview` | 文件选择与 multipart 发送、桌面/Web 文件拖放及发送前预览确认、Markdown 渲染及链接、图片交互预览、附件打开、应用内语音播放/暂停/串音频/转录展开、录音时长上传、历史附件分页列表、麦克风录制发送、类型摘要、折线/柱状/饼图/雷达图专用预览、对象展开、图标、choice 选项响应、choice 状态/响应人数及实时快照恢复、reaction 胶囊及长按参与者列表与历史快照恢复、系统事件摘要和居中展示已接入；普通音频文件按文件类型发送；撤回消息在历史与实时路径统一显示占位并禁用消息操作；文本和附件回复引用、输入表情选择已接入 |
 | 推送、系统通知、平台文件能力 | Flutter platform channels | 待按平台接入 |
@@ -27,7 +27,7 @@ Flutter 工程与现有客户端并行演进，页面层通过 `MagicChatReposit
 
 以下项目已在官方 Mobile/Desktop 的页面、组件或测试中确认存在，但 Flutter 尚未完整对齐；完成一项后应连同验证证据更新状态：
 
-- 项目：目标管理、项目话题页，以及与官方编辑器一致的完整富文档原位编辑能力。
+- 项目：独立 Goals 实体管理、项目话题页，以及与官方编辑器一致的完整富文档原位编辑能力。
 - 平台：桌面原生静默安装、各目标系统安装包与真实设备验收矩阵。
 
 ## 迁移顺序

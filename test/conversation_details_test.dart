@@ -5,6 +5,35 @@ import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/messages/conversation_details_page.dart';
 
 void main() {
+  testWidgets('群主可以在聊天详情关联和解除项目', (tester) async {
+    final repository = _DetailsRepository.group('owner', projects: const [
+      Project(id: '1', name: 'MagicChat Flutter 重构'),
+    ]);
+    await _pumpDetails(tester, repository);
+
+    expect(find.text('关联项目（1）'), findsOneWidget);
+    expect(find.text('MagicChat Flutter 重构'), findsOneWidget);
+    await tester.tap(find.byTooltip('关联项目'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.text('产品迭代'), findsOneWidget);
+    final projectTile = find.widgetWithText(ListTile, '产品迭代');
+    await tester.tap(projectTile);
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, '关联'));
+    await tester.pumpAndSettle();
+    expect(repository.conversation.projects.map((project) => project.name),
+        contains('产品迭代'));
+
+    await tester.tap(find.byTooltip('解除关联').last);
+    await tester.pumpAndSettle();
+    expect(find.text('解除项目关联？'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, '解除关联'));
+    await tester.pumpAndSettle();
+    expect(repository.conversation.projects.map((project) => project.name),
+        isNot(contains('产品迭代')));
+  });
+
   testWidgets('群主可在聊天详情管理资料、偏好和成员', (tester) async {
     final repository = _DetailsRepository.group('owner');
     await _pumpDetails(tester, repository);
@@ -152,7 +181,9 @@ Future<void> _pumpDetails(WidgetTester tester, _DetailsRepository repository,
 class _DetailsRepository extends DemoRepository {
   _DetailsRepository._(this.conversation);
 
-  factory _DetailsRepository.group(String role) => _DetailsRepository._(
+  factory _DetailsRepository.group(String role,
+          {List<Project> projects = const []}) =>
+      _DetailsRepository._(
         ChatConversation(
           id: 'group',
           title: '工程群',
@@ -165,6 +196,7 @@ class _DetailsRepository extends DemoRepository {
                 id: 'alice', name: 'Alice', email: 'alice@example.com'),
             const Contact(id: 'app', name: '演示应用', type: 'app'),
           ],
+          projects: projects,
         ),
       );
 
@@ -202,6 +234,23 @@ class _DetailsRepository extends DemoRepository {
   bool left = false;
   String? createdName;
   List<String> createdMemberIds = const [];
+
+  @override
+  Future<void> bindConversationProject(
+      String conversationId, String projectId) async {
+    final project =
+        (await projects()).firstWhere((item) => item.id == projectId);
+    conversation = _copy(projects: [...conversation.projects, project]);
+  }
+
+  @override
+  Future<void> unbindConversationProject(
+      String conversationId, String projectId) async {
+    conversation = _copy(
+        projects: conversation.projects
+            .where((project) => project.id != projectId)
+            .toList(growable: false));
+  }
 
   @override
   Future<CurrentUser> currentUser() async =>
@@ -327,6 +376,7 @@ class _DetailsRepository extends DemoRepository {
     bool? muted,
     bool? pinned,
     List<Contact>? members,
+    List<Project>? projects,
   }) =>
       ChatConversation(
         id: conversation.id,
@@ -346,6 +396,7 @@ class _DetailsRepository extends DemoRepository {
         lastChoiceSeq: conversation.lastChoiceSeq,
         type: conversation.type,
         members: members ?? conversation.members,
+        projects: projects ?? conversation.projects,
         canSend: conversation.canSend,
         topic: conversation.topic,
       );

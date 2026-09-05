@@ -96,6 +96,7 @@ class RealtimeStore extends ChangeNotifier {
         lastChoiceSeq: current.lastChoiceSeq,
         memberCount: current.memberCount,
         members: current.members,
+        projects: current.projects,
         canSend: current.canSend,
         topic: current.topic);
     notifyListeners();
@@ -427,6 +428,7 @@ class RealtimeStore extends ChangeNotifier {
         type: current.type,
         memberCount: current.memberCount,
         members: current.members,
+        projects: current.projects,
         canSend: current.canSend,
         topic: current.topic);
   }
@@ -488,6 +490,7 @@ class RealtimeStore extends ChangeNotifier {
         type: current.type,
         memberCount: current.memberCount,
         members: current.members,
+        projects: current.projects,
         canSend: current.canSend,
         topic: current.topic);
   }
@@ -529,6 +532,7 @@ class RealtimeStore extends ChangeNotifier {
         type: current.type,
         memberCount: current.memberCount,
         members: current.members,
+        projects: current.projects,
         canSend: current.canSend,
         topic: current.topic);
   }
@@ -568,6 +572,7 @@ class RealtimeStore extends ChangeNotifier {
         type: current.type,
         memberCount: current.memberCount,
         members: current.members,
+        projects: current.projects,
         canSend: current.canSend && !archived,
         topic: TopicMetadata(
             archived: archived,
