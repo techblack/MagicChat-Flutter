@@ -24,6 +24,7 @@ void main() {
 
     final body = session.body;
     final source = yjs.YXmlElement('paragraph');
+    source.setAttribute('textAlign', 'center');
     source.insert(0, [
       yjs.YXmlText()..insert(0, '来源文本', {'bold': true})
     ]);
@@ -68,6 +69,7 @@ void main() {
         .whereType<yjs.YXmlText>()
         .single;
     expect(session.xmlTextMarks(sourceText), containsPair('bold', true));
+    expect(session.xmlTextAlignment(sourceText), 'center');
     await tester.tap(find.byTooltip('格式刷'));
     await tester.pump();
     expect(find.byTooltip('取消格式刷'), findsOneWidget);
@@ -84,6 +86,13 @@ void main() {
         .single;
     expect(
         targetText.toDelta().single['attributes'], containsPair('bold', true));
+    expect(
+        session.body
+            .toArray()
+            .whereType<yjs.YXmlElement>()
+            .elementAt(1)
+            .getAttribute('textAlign'),
+        'center');
     expect(find.byTooltip('格式刷'), findsOneWidget);
     expect(find.byTooltip('取消格式刷'), findsNothing);
     serverDocument.destroy();

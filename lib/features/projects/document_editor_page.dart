@@ -40,6 +40,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
   bool _reconnecting = false;
   yjs.YXmlText? _selectedRichText;
   Map<String, Object?>? _formatPainterMarks;
+  String? _formatPainterAlignment;
   yjs.YXmlText? _formatPainterSource;
   final Map<String, Future<Uri?>> _documentImageUrls = {};
 
@@ -59,6 +60,9 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     final session = widget.collaboration!;
     if (session.status != DocumentCollaborationStatus.synced) {
       _selectedRichText = null;
+      _formatPainterMarks = null;
+      _formatPainterAlignment = null;
+      _formatPainterSource = null;
     }
     if (session.status == DocumentCollaborationStatus.synced &&
         _body.text != session.text) {
@@ -175,14 +179,18 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
   void _selectRichText(yjs.YXmlText? node) {
     final session = widget.collaboration;
     final painterMarks = _formatPainterMarks;
+    final painterAlignment = _formatPainterAlignment;
     if (node != null &&
         painterMarks != null &&
+        painterAlignment != null &&
         session != null &&
         !identical(node, _formatPainterSource)) {
       session.replaceXmlText(node, node.toString(), marks: painterMarks);
+      session.setXmlTextAlignment(node, painterAlignment);
       setState(() {
         _selectedRichText = node;
         _formatPainterMarks = null;
+        _formatPainterAlignment = null;
         _formatPainterSource = null;
       });
       return;
@@ -202,6 +210,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     if (_formatPainterMarks != null) {
       setState(() {
         _formatPainterMarks = null;
+        _formatPainterAlignment = null;
         _formatPainterSource = null;
       });
       return;
@@ -214,6 +223,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     setState(() {
       _formatPainterMarks =
           Map<String, Object?>.from(session.xmlTextMarks(source));
+      _formatPainterAlignment = session.xmlTextAlignment(source);
       _formatPainterSource = source;
     });
   }
@@ -222,6 +232,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     if (_formatPainterMarks == null && _formatPainterSource == null) return;
     setState(() {
       _formatPainterMarks = null;
+      _formatPainterAlignment = null;
       _formatPainterSource = null;
     });
   }
@@ -356,6 +367,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     setState(() {
       _selectedRichText = null;
       _formatPainterMarks = null;
+      _formatPainterAlignment = null;
       _formatPainterSource = null;
     });
   }
@@ -366,6 +378,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     setState(() {
       _selectedRichText = null;
       _formatPainterMarks = null;
+      _formatPainterAlignment = null;
       _formatPainterSource = null;
     });
   }
