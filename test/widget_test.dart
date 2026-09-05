@@ -383,6 +383,28 @@ void main() {
     expect(tester.getSize(header).width, 1000);
   });
 
+  testWidgets('未选会话时显示明确的选择引导', (tester) async {
+    tester.view.physicalSize = const Size(1000, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: MessagesPage(
+          repository: DemoRepository(),
+          selectedId: null,
+          onSelect: (_) {},
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('conversation-selection-state')),
+        findsOneWidget);
+    expect(find.text('选择一个会话'), findsOneWidget);
+    expect(find.text('暂无消息'), findsNothing);
+  });
+
   testWidgets('阅读历史时提示新消息并可回到最新', (tester) async {
     SharedPreferences.setMockInitialValues({});
     final store = RealtimeStore();
