@@ -3,8 +3,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/projects/projects_page.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   testWidgets('任务列表摘要展示负责人、排期和标签', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1000, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
