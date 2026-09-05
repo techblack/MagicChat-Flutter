@@ -50,6 +50,8 @@ class _MagicChatAppState extends State<MagicChatApp> {
   ChatAppearance _chatAppearance = const ChatAppearance();
   final _conversationAppearances = <String, ChatConversationAppearance>{};
   bool _messageSoundEnabled = true;
+  MessageNotificationPrivacy _notificationPrivacy =
+      MessageNotificationPrivacy.preview;
   String? _serverUrl;
   String? _loginError;
   bool _loading = true;
@@ -74,6 +76,8 @@ class _MagicChatAppState extends State<MagicChatApp> {
     final chatAppearance = await const ChatAppearancePreferences().readGlobal();
     final messageSoundEnabled =
         await const ChatPreferences().readMessageSoundEnabled();
+    final notificationPrivacy =
+        await const ChatPreferences().readNotificationPrivacy();
     if (!mounted) return;
     setState(() {
       _serverUrl = server;
@@ -93,6 +97,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
       };
       _chatAppearance = chatAppearance;
       _messageSoundEnabled = messageSoundEnabled;
+      _notificationPrivacy = notificationPrivacy;
     });
     if (token != null) {
       unawaited(_registerPush(server, token));
@@ -258,6 +263,12 @@ class _MagicChatAppState extends State<MagicChatApp> {
   Future<void> _setMessageSoundEnabled(bool enabled) async {
     await const ChatPreferences().writeMessageSoundEnabled(enabled);
     if (mounted) setState(() => _messageSoundEnabled = enabled);
+  }
+
+  Future<void> _setNotificationPrivacy(
+      MessageNotificationPrivacy privacy) async {
+    await const ChatPreferences().writeNotificationPrivacy(privacy);
+    if (mounted) setState(() => _notificationPrivacy = privacy);
   }
 
   Future<void> _setConversationAppearance(
@@ -471,6 +482,8 @@ class _MagicChatAppState extends State<MagicChatApp> {
                     onConversationAppearanceChanged: _setConversationAppearance,
                     messageSoundEnabled: _messageSoundEnabled,
                     onMessageSoundChanged: _setMessageSoundEnabled,
+                    notificationPrivacy: _notificationPrivacy,
+                    onNotificationPrivacyChanged: _setNotificationPrivacy,
                     themeMode: _themeMode),
       );
 }
@@ -1141,6 +1154,8 @@ class AppShell extends StatefulWidget {
       this.onConversationAppearanceChanged,
       this.messageSoundEnabled = true,
       this.onMessageSoundChanged,
+      this.notificationPrivacy = MessageNotificationPrivacy.preview,
+      this.onNotificationPrivacyChanged,
       this.themeMode = ThemeMode.system,
       super.key});
   final MagicChatRepository repository;
@@ -1160,6 +1175,8 @@ class AppShell extends StatefulWidget {
       onConversationAppearanceChanged;
   final bool messageSoundEnabled;
   final ValueChanged<bool>? onMessageSoundChanged;
+  final MessageNotificationPrivacy notificationPrivacy;
+  final ValueChanged<MessageNotificationPrivacy>? onNotificationPrivacyChanged;
   final ThemeMode themeMode;
   @override
   State<AppShell> createState() => _AppShellState();
@@ -1354,17 +1371,23 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     if (widget.messageSoundEnabled) {
       unawaited(SystemSound.play(SystemSoundType.alert).catchError((_) {}));
     }
-    final title = sender is Map<String, dynamic> && sender['name'] is String
-        ? sender['name'] as String
-        : '新消息';
+    final senderTitle =
+        sender is Map<String, dynamic> && sender['name'] is String
+            ? sender['name'] as String
+            : '新消息';
     final body =
         MessageContent.fromEnvelope(data['body'], revokedAt: data['revoked_at'])
             .text;
+    final (title, notificationBody) = switch (widget.notificationPrivacy) {
+      MessageNotificationPrivacy.hidden => ('新消息', '你收到了一条新消息'),
+      MessageNotificationPrivacy.metadata => (senderTitle, '你收到了一条新消息'),
+      MessageNotificationPrivacy.preview => (senderTitle, body),
+    };
     await _notifications.showMessage(
         conversationId: conversationId,
         messageId: data['id'] is String ? data['id'] as String : '',
         title: title,
-        body: body);
+        body: notificationBody);
   }
 
   Future<void> _resolveNotificationRoute() async {
@@ -1534,6 +1557,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           onChatAppearanceChanged: widget.onChatAppearanceChanged,
           messageSoundEnabled: widget.messageSoundEnabled,
           onMessageSoundChanged: widget.onMessageSoundChanged,
+          notificationPrivacy: widget.notificationPrivacy,
+          onNotificationPrivacyChanged: widget.onNotificationPrivacyChanged,
           themeMode: widget.themeMode,
           sendMessageShortcut: _sendMessageShortcut),
     ];

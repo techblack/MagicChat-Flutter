@@ -46,6 +46,8 @@ class SettingsPage extends StatefulWidget {
       this.onChatAppearanceChanged,
       this.messageSoundEnabled = true,
       this.onMessageSoundChanged,
+      this.notificationPrivacy = MessageNotificationPrivacy.preview,
+      this.onNotificationPrivacyChanged,
       this.themeMode = ThemeMode.system,
       this.sendMessageShortcut = MessageSendShortcut.enter,
       super.key});
@@ -63,6 +65,8 @@ class SettingsPage extends StatefulWidget {
   final ValueChanged<ChatAppearance>? onChatAppearanceChanged;
   final bool messageSoundEnabled;
   final ValueChanged<bool>? onMessageSoundChanged;
+  final MessageNotificationPrivacy notificationPrivacy;
+  final ValueChanged<MessageNotificationPrivacy>? onNotificationPrivacyChanged;
   final ThemeMode themeMode;
   final MessageSendShortcut sendMessageShortcut;
   @override
@@ -73,12 +77,14 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<CurrentUser>? _userFuture;
   bool _notificationsEnabled = true;
   late bool _messageSoundEnabled;
+  late MessageNotificationPrivacy _notificationPrivacy;
   late MessageSendShortcut _sendMessageShortcut;
   @override
   void initState() {
     super.initState();
     _sendMessageShortcut = widget.sendMessageShortcut;
     _messageSoundEnabled = widget.messageSoundEnabled;
+    _notificationPrivacy = widget.notificationPrivacy;
     widget.realtimeStore?.addListener(_onRealtimeChanged);
     _userFuture = widget.repository.currentUser();
     SharedPreferences.getInstance().then((prefs) {
@@ -101,6 +107,9 @@ class _SettingsPageState extends State<SettingsPage> {
     }
     if (oldWidget.messageSoundEnabled != widget.messageSoundEnabled) {
       _messageSoundEnabled = widget.messageSoundEnabled;
+    }
+    if (oldWidget.notificationPrivacy != widget.notificationPrivacy) {
+      _notificationPrivacy = widget.notificationPrivacy;
     }
   }
 
@@ -156,6 +165,18 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() => _messageSoundEnabled = value);
     widget.onMessageSoundChanged?.call(value);
   }
+
+  void _setNotificationPrivacy(MessageNotificationPrivacy value) {
+    setState(() => _notificationPrivacy = value);
+    widget.onNotificationPrivacyChanged?.call(value);
+  }
+
+  String _notificationPrivacyLabel(MessageNotificationPrivacy value) =>
+      switch (value) {
+        MessageNotificationPrivacy.hidden => '隐藏内容',
+        MessageNotificationPrivacy.metadata => '仅显示来源',
+        MessageNotificationPrivacy.preview => '显示预览',
+      };
 
   Future<void> _checkForUpdate() async {
     try {
@@ -554,6 +575,21 @@ class _SettingsPageState extends State<SettingsPage> {
               subtitle: const Text('收到普通新消息时播放提示音'),
               value: _messageSoundEnabled,
               onChanged: _setMessageSoundEnabled),
+          ListTile(
+            leading: const Icon(Icons.visibility_off_outlined),
+            title: const Text('通知隐私'),
+            subtitle: const Text('控制系统通知中显示的消息内容'),
+            trailing: DropdownButton<MessageNotificationPrivacy>(
+                value: _notificationPrivacy,
+                onChanged: (value) {
+                  if (value != null) _setNotificationPrivacy(value);
+                },
+                items: MessageNotificationPrivacy.values
+                    .map((value) => DropdownMenuItem(
+                        value: value,
+                        child: Text(_notificationPrivacyLabel(value))))
+                    .toList()),
+          ),
         ])),
         const SizedBox(height: 12),
         Card(
