@@ -9,6 +9,7 @@ import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/main.dart';
+import 'package:magicchat_client/features/messages/conversation_image_gallery.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -75,6 +76,19 @@ void main() {
     expect(tall.aspectRatio, closeTo(.5, .01));
     expect(wide.width, greaterThan(tall.width));
     expect(wide.height, lessThan(tall.height));
+  });
+
+  testWidgets('点击图片从当前消息进入同会话画廊', (tester) async {
+    final repository = _ImageRepository()..primeCache();
+    await _pumpConversation(tester, repository);
+
+    await tester
+        .tap(find.byKey(const ValueKey('conversation-image-image-wide')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ConversationImageGallery), findsOneWidget);
+    expect(find.text('1 / 2'), findsOneWidget);
+    expect(find.byTooltip('下一张'), findsOneWidget);
   });
 
   testWidgets('短消息气泡比长消息更窄且输入区不应用顶部安全间距', (tester) async {

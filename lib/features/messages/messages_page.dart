@@ -72,7 +72,7 @@ class MessagesPage extends StatelessWidget {
         );
         final conversationPane = selectedId == null
             ? conversationView
-            : Column(children: [
+            : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 _ConversationHeader(
                   repository: repository,
                   realtimeStore: realtimeStore,
@@ -189,7 +189,7 @@ class MessagesPage extends StatelessWidget {
           final list = contacts
               .map((contact) => CheckboxListTile(
                     value: selected.contains(contact.id),
-                    title: Text(contact.name),
+                    title: Text(contact.displayName),
                     onChanged: (checked) => setDialogState(() {
                       if (checked == true) {
                         selected.add(contact.id);

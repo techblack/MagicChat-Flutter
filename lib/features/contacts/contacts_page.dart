@@ -288,7 +288,7 @@ class _ContactsPageState extends State<ContactsPage> {
           : contact.type == 'user'
               ? await widget.repository.createDirectConversation(contact.id)
               : contact.joined
-                  ? ChatConversation(id: contact.id, title: contact.name)
+                  ? ChatConversation(id: contact.id, title: contact.displayName)
                   : await widget.repository.joinGroupConversation(contact.id);
       if (mounted) widget.onOpenConversation?.call(conversation.id);
     } catch (error) {

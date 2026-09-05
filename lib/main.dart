@@ -31,6 +31,7 @@ import 'data/avatar_processor.dart';
 import 'data/chat_preferences.dart';
 import 'features/contacts/contacts_page.dart';
 import 'features/messages/history_attachments_dialog.dart';
+import 'features/messages/conversation_image_gallery.dart';
 import 'features/messages/conversation_details_page.dart';
 import 'features/messages/message_link_card.dart';
 import 'features/messages/topic_reply_preview.dart';

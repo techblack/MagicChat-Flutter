@@ -49,6 +49,12 @@ class LocalAssetCache {
     await file.writeAsBytes(copy, flush: true);
   }
 
+  Future<void> remove(String key) async {
+    _memory.remove(key);
+    final file = File('${(await _assetDirectory()).path}/${_fileName(key)}');
+    if (await file.exists()) await file.delete();
+  }
+
   Future<void> clearAll() async {
     _memory.clear();
     final directory = _directory;

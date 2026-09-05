@@ -1382,9 +1382,10 @@ class _ConversationViewState extends State<ConversationView> {
                                         child: const Icon(Icons.reply),
                                       ),
                                       child: Container(
-                                          padding: _highlightedMessageId == message.id
-                                              ? const EdgeInsets.all(2)
-                                              : EdgeInsets.zero,
+                                          padding:
+                                              _highlightedMessageId == message.id
+                                                  ? const EdgeInsets.all(2)
+                                                  : EdgeInsets.zero,
                                           decoration: _highlightedMessageId ==
                                                   message.id
                                               ? BoxDecoration(
@@ -1401,6 +1402,8 @@ class _ConversationViewState extends State<ConversationView> {
                                                   byId[message.replyTo?.id],
                                               repository: widget.repository,
                                               conversationId: conversationId,
+                                              galleryMessages: allMessages,
+                                              galleryHasOlder: _hasMoreOlder,
                                               canReact:
                                                   _topicIsOpen(conversationId),
                                               canRespond: canSend,
@@ -1758,10 +1761,10 @@ class _ConversationViewState extends State<ConversationView> {
                   ),
                   ...contacts.map((contact) => ListTile(
                         leading: CircleAvatar(
-                            child: Text(contact.name.isEmpty
+                            child: Text(contact.displayName.isEmpty
                                 ? '?'
-                                : contact.name.substring(0, 1))),
-                        title: Text(contact.name),
+                                : contact.displayName.substring(0, 1))),
+                        title: Text(contact.displayName),
                         subtitle: Text(contact.online ? '在线' : '离线'),
                         onTap: () => Navigator.pop(context, contact),
                       )),
@@ -2256,6 +2259,8 @@ class _MessageBubble extends StatelessWidget {
       this.replyTarget,
       required this.repository,
       required this.conversationId,
+      this.galleryMessages = const [],
+      this.galleryHasOlder = false,
       this.canReact = true,
       this.canRespond = true,
       this.onOpenTopic,
@@ -2272,6 +2277,8 @@ class _MessageBubble extends StatelessWidget {
   final ChatMessage? replyTarget;
   final MagicChatRepository repository;
   final String conversationId;
+  final List<ChatMessage> galleryMessages;
+  final bool galleryHasOlder;
   final bool canReact;
   final bool canRespond;
   final ValueChanged<String>? onOpenTopic;
@@ -2284,109 +2291,6 @@ class _MessageBubble extends StatelessWidget {
   final MessageCacheScope? cacheScope;
   final Map<String, _CachedImageData> preloadedImages;
   final Map<String, Uri> preloadedAttachmentUrls;
-
-  Future<void> _showImageViewer(BuildContext context, Uri? uri,
-      {Uint8List? bytes}) async {
-    final fileId = message.rawBody['file_id'];
-    final name = message.rawBody['name'];
-    await showDialog<void>(
-      context: context,
-      barrierColor: Colors.black87,
-      builder: (dialogContext) => Dialog.fullscreen(
-        backgroundColor: Colors.black,
-        child: SafeArea(
-          child: Stack(children: [
-            Positioned.fill(
-              child: InteractiveViewer(
-                minScale: .25,
-                maxScale: 6,
-                boundaryMargin: const EdgeInsets.all(80),
-                child: Center(
-                  child: bytes != null
-                      ? Image.memory(bytes, fit: BoxFit.contain)
-                      : uri == null
-                          ? const Text('图片加载失败',
-                              style: TextStyle(color: Colors.white))
-                          : Image.network(uri.toString(),
-                              fit: BoxFit.contain,
-                              errorBuilder: (_, __, ___) => const Text('图片加载失败',
-                                  style: TextStyle(color: Colors.white))),
-                ),
-              ),
-            ),
-            Positioned(
-              top: 4,
-              left: 4,
-              right: 4,
-              child: Row(children: [
-                IconButton(
-                    tooltip: '关闭',
-                    color: Colors.white,
-                    onPressed: () => Navigator.pop(dialogContext),
-                    icon: const Icon(Icons.close)),
-                const Spacer(),
-                if (fileId is String && fileId.isNotEmpty)
-                  IconButton(
-                    tooltip: '保存图片',
-                    color: Colors.white,
-                    icon: const Icon(Icons.download_outlined),
-                    onPressed: () => _saveImage(
-                        context,
-                        fileId,
-                        name is String && name.trim().isNotEmpty
-                            ? name.trim()
-                            : 'image-${message.id}.jpg',
-                        bytes: bytes),
-                  ),
-                if (onForwardMessage != null)
-                  IconButton(
-                    tooltip: '转发图片',
-                    color: Colors.white,
-                    icon: const Icon(Icons.forward_outlined),
-                    onPressed: () async {
-                      Navigator.pop(dialogContext);
-                      await onForwardMessage!(message.id);
-                    },
-                  ),
-              ]),
-            ),
-          ]),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _saveImage(BuildContext context, String fileId, String fileName,
-      {Uint8List? bytes}) async {
-    try {
-      final key = _attachmentCacheKey(fileId);
-      if (bytes == null) {
-        try {
-          bytes = await LocalAssetCache().read(key);
-        } catch (_) {
-          bytes = null;
-        }
-      }
-      bytes ??= await repository.downloadAttachment(fileId);
-      if (bytes == null || bytes.isEmpty) throw Exception('图片内容为空');
-      try {
-        await LocalAssetCache().write(key, bytes);
-      } catch (_) {
-        // 保存到用户选择的位置不依赖本地缓存目录可写。
-      }
-      final path = await FilePicker.saveFile(
-          dialogTitle: '保存图片', fileName: fileName, bytes: bytes);
-      if (context.mounted && path != null) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('图片已保存')));
-      }
-    } catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('保存图片失败：$error')));
-      }
-    }
-  }
 
   String _attachmentCacheKey(String fileId) {
     final scope = cacheScope;
@@ -2680,8 +2584,18 @@ class _MessageBubble extends StatelessWidget {
                   cacheScope: cacheScope,
                   fileId: message.rawBody['file_id'] as String,
                   initialData: preloadedImages[message.rawBody['file_id']],
-                  onTap: (data) =>
-                      _showImageViewer(context, data?.uri, bytes: data?.bytes),
+                  onTap: (data) => unawaited(showConversationImageGallery(
+                    context,
+                    repository: repository,
+                    conversationId: conversationId,
+                    messages: galleryMessages,
+                    initialMessageId: message.id,
+                    hasOlder: galleryHasOlder,
+                    cacheScope: cacheScope,
+                    initialBytes: data?.bytes,
+                    initialUri: data?.uri,
+                    onForward: onForwardMessage,
+                  )),
                 )
               else
                 FutureBuilder<Uri?>(

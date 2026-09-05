@@ -127,6 +127,13 @@ void main() {
 
     expect(contact.displayName, '成员');
     expect(projectUser.displayName, '成员');
+    expect(
+        const CurrentUser(
+                id: 'user-raw-id',
+                name: 'user-raw-id',
+                email: 'user@example.com')
+            .displayName,
+        'user@example.com');
     expect(conversation.displayTitle, 'Alice');
   });
 
