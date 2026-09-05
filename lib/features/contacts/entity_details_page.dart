@@ -79,8 +79,7 @@ class _EntityDetailsPageState extends State<EntityDetailsPage> {
           ? await widget.repository.createAppConversation(contact.id)
           : contact.type == 'group'
               ? contact.joined
-                  ? ChatConversation(
-                      id: contact.id, title: contact.displayName, type: 'group')
+                  ? await widget.repository.restoreConversation(contact.id)
                   : await widget.repository.joinGroupConversation(contact.id)
               : await widget.repository.createDirectConversation(contact.id);
       if (!mounted) return;
