@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../data/auth_service.dart';
 import '../../data/avatar_processor.dart';
 import '../../data/chat_preferences.dart';
+import '../../data/chat_appearance_preferences.dart';
 import '../../data/local_notification_service.dart';
 import '../../data/realtime_store.dart';
 import '../../data/repository.dart';
@@ -41,6 +42,8 @@ class SettingsPage extends StatefulWidget {
       this.onDeactivateAccount,
       this.onThemeChanged,
       this.onSendMessageShortcutChanged,
+      this.chatAppearance = const ChatAppearance(),
+      this.onChatAppearanceChanged,
       this.themeMode = ThemeMode.system,
       this.sendMessageShortcut = MessageSendShortcut.enter,
       super.key});
@@ -54,6 +57,8 @@ class SettingsPage extends StatefulWidget {
   final ValueChanged<StoredAccount>? onAccountSwitch;
   final ValueChanged<ThemeMode>? onThemeChanged;
   final ValueChanged<MessageSendShortcut>? onSendMessageShortcutChanged;
+  final ChatAppearance chatAppearance;
+  final ValueChanged<ChatAppearance>? onChatAppearanceChanged;
   final ThemeMode themeMode;
   final MessageSendShortcut sendMessageShortcut;
   @override
@@ -126,6 +131,16 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() => _sendMessageShortcut = value);
     widget.onSendMessageShortcutChanged?.call(value);
     await const ChatPreferences().writeSendShortcut(value);
+  }
+
+  Future<void> _editChatAppearance() async {
+    final result = await showDialog<ChatAppearance>(
+      context: context,
+      builder: (_) => _ChatAppearanceDialog(initial: widget.chatAppearance),
+    );
+    if (result != null && mounted) {
+      widget.onChatAppearanceChanged?.call(result);
+    }
   }
 
   Future<void> _checkForUpdate() async {
@@ -367,6 +382,8 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       final user = await _userFuture;
       if (!mounted || user == null) return;
+      final confirmed = await _confirmAccountDeactivation(user.email);
+      if (confirmed != true || !mounted) return;
       await Navigator.push<void>(
         context,
         MaterialPageRoute(
@@ -383,6 +400,36 @@ class _SettingsPageState extends State<SettingsPage> {
             .showSnackBar(SnackBar(content: Text('账户信息加载失败：$error')));
       }
     }
+  }
+
+  Future<void> _confirmLogout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('确认退出登录？'),
+        content: const Text('退出后将清除本机登录凭据和离线缓存，需要重新登录才能继续使用。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('退出登录'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await widget.onLogout?.call();
+    }
+  }
+
+  Future<bool?> _confirmAccountDeactivation(String email) async {
+    return showDialog<bool>(
+      context: context,
+      builder: (_) => _AccountDeactivationConfirmDialog(email: email),
+    );
   }
 
   @override
@@ -459,7 +506,8 @@ class _SettingsPageState extends State<SettingsPage> {
                         value: ThemeMode.system, child: Text('跟随系统')),
                     DropdownMenuItem(value: ThemeMode.light, child: Text('浅色')),
                     DropdownMenuItem(value: ThemeMode.dark, child: Text('深色')),
-                  ])),
+                  ]),
+              onTap: _editChatAppearance),
           ListTile(
               leading: const Icon(Icons.keyboard_outlined),
               title: const Text('发送快捷键'),
@@ -516,7 +564,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   child: ListTile(
                       leading: const Icon(Icons.logout),
                       title: const Text('退出登录'),
-                      onTap: widget.onLogout))),
+                      onTap: _confirmLogout))),
         if (widget.onDeactivateAccount != null)
           Padding(
               padding: const EdgeInsets.only(top: 12),
@@ -531,4 +579,111 @@ class _SettingsPageState extends State<SettingsPage> {
                       trailing: const Icon(Icons.chevron_right),
                       onTap: _openAccountDeactivation)))
       ]);
+}
+
+class _AccountDeactivationConfirmDialog extends StatefulWidget {
+  const _AccountDeactivationConfirmDialog({required this.email});
+
+  final String email;
+
+  @override
+  State<_AccountDeactivationConfirmDialog> createState() =>
+      _AccountDeactivationConfirmDialogState();
+}
+
+class _AccountDeactivationConfirmDialogState
+    extends State<_AccountDeactivationConfirmDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('确认注销账号？'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('注销后将删除当前账号的本地登录信息，并使所有设备上的会话失效，此操作无法恢复。'),
+          const SizedBox(height: 12),
+          Text(
+              '验证码将发送至：${widget.email.trim().isEmpty ? '当前账号邮箱' : widget.email.trim()}'),
+          const SizedBox(height: 12),
+          TextField(
+            autofocus: true,
+            controller: _controller,
+            decoration: const InputDecoration(
+                labelText: '输入“注销”继续', border: OutlineInputBorder()),
+          ),
+        ]),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消')),
+          ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _controller,
+              builder: (context, value, _) => FilledButton(
+                  onPressed: value.text.trim() == '注销'
+                      ? () => Navigator.pop(context, true)
+                      : null,
+                  child: const Text('继续注销'))),
+        ],
+      );
+}
+
+class _ChatAppearanceDialog extends StatefulWidget {
+  const _ChatAppearanceDialog({required this.initial});
+
+  final ChatAppearance initial;
+
+  @override
+  State<_ChatAppearanceDialog> createState() => _ChatAppearanceDialogState();
+}
+
+class _ChatAppearanceDialogState extends State<_ChatAppearanceDialog> {
+  late ChatSkin _skin = widget.initial.skin;
+  late double _fontSize = widget.initial.fontSize;
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('聊天外观'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          DropdownButtonFormField<ChatSkin>(
+            initialValue: _skin,
+            decoration: const InputDecoration(labelText: '聊天皮肤'),
+            items: ChatSkin.values
+                .map((value) =>
+                    DropdownMenuItem(value: value, child: Text(value.label)))
+                .toList(),
+            onChanged: (value) {
+              if (value != null) setState(() => _skin = value);
+            },
+          ),
+          const SizedBox(height: 16),
+          Row(children: [
+            const Text('消息字体'),
+            Expanded(
+                child: Slider(
+                    min: 12,
+                    max: 24,
+                    divisions: 12,
+                    value: _fontSize,
+                    label: _fontSize.toStringAsFixed(0),
+                    onChanged: (value) => setState(() => _fontSize = value))),
+            Text(_fontSize.toStringAsFixed(0)),
+          ]),
+          const Align(
+              alignment: Alignment.centerLeft,
+              child: Text('字体大小仅保存在本机，不会影响其他设备。')),
+        ]),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context), child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(
+                  context, ChatAppearance(skin: _skin, fontSize: _fontSize)),
+              child: const Text('保存')),
+        ],
+      );
 }

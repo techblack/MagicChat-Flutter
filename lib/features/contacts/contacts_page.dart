@@ -48,6 +48,7 @@ class _ContactsPageState extends State<ContactsPage> {
   String? _activeIndexLabel;
   Timer? _searchDebounce;
   Timer? _indexLabelTimer;
+  final _selectedContactIds = <String>{};
 
   @override
   void initState() {
@@ -195,6 +196,7 @@ class _ContactsPageState extends State<ContactsPage> {
                 ),
               ),
             ),
+            if (_selectedContactIds.isNotEmpty) _buildSelectionBar(),
             Expanded(child: _buildDirectory(snapshot)),
           ]);
         },
@@ -216,6 +218,24 @@ class _ContactsPageState extends State<ContactsPage> {
     final keyword = _searchController.text.trim();
     if (keyword.isNotEmpty) return _buildSearchResults(contacts);
     return _buildHomeDirectory(directory, contacts);
+  }
+
+  Widget _buildSelectionBar() {
+    return Material(
+      color: Theme.of(context).colorScheme.primaryContainer,
+      child: ListTile(
+        leading: IconButton(
+            tooltip: '取消选择',
+            onPressed: () => setState(_selectedContactIds.clear),
+            icon: const Icon(Icons.close)),
+        title: Text('已选择 ${_selectedContactIds.length} 位联系人'),
+        trailing: FilledButton.icon(
+          onPressed: () => _createGroupFromSelection(),
+          icon: const Icon(Icons.group_add_outlined),
+          label: const Text('组建群聊'),
+        ),
+      ),
+    );
   }
 
   Widget _buildSearchResults(List<Contact> contacts) {
@@ -353,13 +373,55 @@ class _ContactsPageState extends State<ContactsPage> {
     return value;
   }
 
-  Widget _contactTile(Contact contact) => ContactDirectoryTile(
+  Widget _contactTile(Contact contact) {
+    final selectable = contact.type == 'user';
+    final selected = _selectedContactIds.contains(contact.id);
+    return ContactDirectoryTile(
         repository: widget.repository,
         contact: contact,
         serverUrl: widget.serverUrl,
         cacheScope: widget.cacheScope,
-        onTap: () => _openContactDetails(contact),
-      );
+        selected: selected,
+        onLongPress: selectable ? () => _toggleContact(contact) : null,
+        onTap: () {
+          if (_selectedContactIds.isNotEmpty && selectable) {
+            _toggleContact(contact);
+          } else {
+            _openContactDetails(contact);
+          }
+        });
+  }
+
+  void _toggleContact(Contact contact) {
+    if (contact.type != 'user') return;
+    setState(() {
+      if (!_selectedContactIds.remove(contact.id)) {
+        _selectedContactIds.add(contact.id);
+      }
+    });
+  }
+
+  Future<void> _createGroupFromSelection() async {
+    final memberIds = _selectedContactIds.toList(growable: false);
+    if (memberIds.isEmpty) return;
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => const _GroupNameDialog(),
+    );
+    if (name == null || name.trim().isEmpty || !mounted) return;
+    try {
+      final conversation = await widget.repository
+          .createGroupConversation(name.trim(), memberIds: memberIds);
+      if (!mounted) return;
+      setState(_selectedContactIds.clear);
+      widget.onOpenConversation?.call(conversation.id);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('创建群聊失败：$error')));
+      }
+    }
+  }
 
   void _scrollToSection(
       String label, List<ContactDirectorySection> sections, int categoryCount) {
@@ -441,4 +503,43 @@ class _ContactsPageState extends State<ContactsPage> {
                 .toList()));
     if (mounted) _load();
   }
+}
+
+class _GroupNameDialog extends StatefulWidget {
+  const _GroupNameDialog();
+
+  @override
+  State<_GroupNameDialog> createState() => _GroupNameDialogState();
+}
+
+class _GroupNameDialogState extends State<_GroupNameDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('组建群聊'),
+        content: TextField(
+          controller: _controller,
+          autofocus: true,
+          maxLength: 80,
+          decoration: const InputDecoration(labelText: '群聊名称'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context), child: const Text('取消')),
+          ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _controller,
+              builder: (context, value, _) => FilledButton(
+                  onPressed: value.text.trim().isEmpty
+                      ? null
+                      : () => Navigator.pop(context, value.text.trim()),
+                  child: const Text('创建'))),
+        ],
+      );
 }

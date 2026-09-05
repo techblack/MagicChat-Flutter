@@ -188,6 +188,35 @@ void main() {
     expect(find.text('刷新联系人'), findsOneWidget);
   });
 
+  testWidgets('长按联系人可多选并快速组建群聊', (tester) async {
+    final repository = _SelectionRepository();
+    String? opened;
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: ContactsPage(
+                repository: repository,
+                onOpenConversation: (id) => opened = id))));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.widgetWithText(ListTile, 'Alice'));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(ListTile, 'Bob'));
+    await tester.pump();
+    expect(find.text('已选择 2 位联系人'), findsOneWidget);
+    await tester.tap(find.text('组建群聊'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byWidgetPredicate((widget) =>
+            widget is TextField && widget.decoration?.labelText == '群聊名称'),
+        '临时群聊');
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, '创建'));
+    await tester.pumpAndSettle();
+
+    expect(repository.memberIds, containsAll(<String>['alice', 'bob']));
+    expect(opened, 'group-created');
+  });
+
   testWidgets('联系人搜索输入后防抖查询并支持清除', (tester) async {
     final repository = _SearchContactsRepository();
     await tester.pumpWidget(MaterialApp(
@@ -281,6 +310,26 @@ class _DirectoryRepository extends DemoRepository {
             type: 'group',
             visibility: 'public'),
       ], mode: 'friends');
+}
+
+class _SelectionRepository extends DemoRepository {
+  List<String> memberIds = const [];
+
+  @override
+  Future<ContactDirectory> contactDirectory({String keyword = ''}) async =>
+      const ContactDirectory(contacts: [
+        Contact(id: 'alice', name: 'Alice'),
+        Contact(id: 'bob', name: 'Bob'),
+      ], mode: 'organization');
+
+  @override
+  Future<ChatConversation> createGroupConversation(String name,
+      {List<String> memberIds = const [],
+      List<String> appIds = const []}) async {
+    this.memberIds = memberIds;
+    return const ChatConversation(
+        id: 'group-created', title: '临时群聊', type: 'group');
+  }
 }
 
 class _AlphabetRepository extends DemoRepository {

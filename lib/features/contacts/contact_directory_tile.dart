@@ -10,6 +10,8 @@ class ContactDirectoryTile extends StatelessWidget {
     required this.repository,
     required this.contact,
     required this.onTap,
+    this.onLongPress,
+    this.selected = false,
     this.serverUrl,
     this.cacheScope,
     super.key,
@@ -18,6 +20,8 @@ class ContactDirectoryTile extends StatelessWidget {
   final MagicChatRepository repository;
   final Contact contact;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+  final bool selected;
   final String? serverUrl;
   final MessageCacheScope? cacheScope;
 
@@ -29,6 +33,8 @@ class ContactDirectoryTile extends StatelessWidget {
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        selected: selected,
+        selectedTileColor: colors.primaryContainer,
         leading: CachedAvatar(
           repository: repository,
           cacheScope: cacheScope,
@@ -62,6 +68,7 @@ class ContactDirectoryTile extends StatelessWidget {
                         contact.online ? Colors.green : colors.outlineVariant,
                     shape: BoxShape.circle)),
         onTap: onTap,
+        onLongPress: onLongPress,
       ),
     );
   }

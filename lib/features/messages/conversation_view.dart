@@ -19,7 +19,7 @@ String? formatMessageTime(String value, {DateTime? now}) {
 
 enum _OptimisticMessageKind { text, image, file, voice }
 
-enum _OptimisticMessageStatus { sending, failed }
+enum _OptimisticMessageStatus { sending, sent, failed }
 
 class _OptimisticSendDescriptor {
   const _OptimisticSendDescriptor({
@@ -106,6 +106,8 @@ class ConversationView extends StatefulWidget {
       this.cacheScope,
       this.messageCacheStore,
       this.sendMessageShortcut = MessageSendShortcut.enter,
+      this.chatAppearance = const ChatAppearance(),
+      this.conversationAppearance,
       this.enableFileDrop = true,
       required this.conversationId,
       this.focusMessageId,
@@ -120,6 +122,8 @@ class ConversationView extends StatefulWidget {
   final MessageCacheScope? cacheScope;
   final MessageCacheStore? messageCacheStore;
   final MessageSendShortcut sendMessageShortcut;
+  final ChatAppearance chatAppearance;
+  final ChatConversationAppearance? conversationAppearance;
   final bool enableFileDrop;
   final String? conversationId;
   final String? focusMessageId;
@@ -197,6 +201,7 @@ class _ConversationViewState extends State<ConversationView>
   Offset? _lastMessageTapPosition;
   Offset? _messagePointerDownPosition;
   bool _messagePointerMoved = false;
+  bool _messagePointerActive = false;
   Timer? _typingHeartbeat;
   bool _typingStatusInFlight = false;
 
@@ -525,7 +530,7 @@ class _ConversationViewState extends State<ConversationView>
     final scope = widget.cacheScope;
     if (scope == null) return const [];
     final records = await _messageCacheStore.read(scope, id,
-        conversationType: _messageCacheConversationType);
+        conversationType: _messageCacheConversationType, limit: 100);
     return records.map(_messageFromCache).whereType<ChatMessage>().toList();
   }
 
@@ -1099,7 +1104,9 @@ class _ConversationViewState extends State<ConversationView>
       _positioningConversationId = null;
       _initialPositionPending = false;
       _positionedConversationId = conversationId;
-      if (!_userScrolledDuringInitialPosition && _scrollController.hasClients) {
+      if (!_userScrolledDuringInitialPosition &&
+          !_messagePointerActive &&
+          _scrollController.hasClients) {
         _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
       }
       _requestLatestRead(conversationId, messages);
@@ -1118,7 +1125,8 @@ class _ConversationViewState extends State<ConversationView>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
           widget.conversationId != conversationId ||
-          generation != _positionGeneration) return;
+          generation != _positionGeneration ||
+          _messagePointerActive) return;
       final unchanged = expectedOffset == null ||
           (_scrollController.hasClients &&
               (_scrollController.position.pixels - expectedOffset).abs() < 4);
@@ -1355,13 +1363,19 @@ class _ConversationViewState extends State<ConversationView>
       _optimisticMessages[descriptor.clientMessageId] = item;
       _replyTo = null;
     });
+    _scrollToLatest(conversationId);
+    unawaited(_performOptimisticSend(conversationId, descriptor));
+  }
+
+  /// 发送中的乐观消息和服务端回执都必须落在会话底部，避免用户发送后
+  /// 仍停留在历史位置。定位放到下一帧，确保新消息已经完成列表布局。
+  void _scrollToLatest(String conversationId) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
           widget.conversationId != conversationId ||
           !_scrollController.hasClients) return;
       _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
     });
-    unawaited(_performOptimisticSend(conversationId, descriptor));
   }
 
   Future<void> _performOptimisticSend(
@@ -1411,6 +1425,14 @@ class _ConversationViewState extends State<ConversationView>
           break;
       }
       sent = true;
+      if (mounted &&
+          widget.conversationId == conversationId &&
+          !_optimisticMessageIsConfirmed(clientMessageId)) {
+        final delivered = _optimisticMessages[clientMessageId];
+        if (delivered != null) {
+          setState(() => delivered.status = _OptimisticMessageStatus.sent);
+        }
+      }
     } catch (_) {
       if (mounted &&
           widget.conversationId == conversationId &&
@@ -1428,6 +1450,8 @@ class _ConversationViewState extends State<ConversationView>
       await _refreshMessages(conversationId);
     } catch (_) {
       // 消息已经发送成功，刷新失败时继续等待实时事件按客户端消息 ID 确认。
+    } finally {
+      _scrollToLatest(conversationId);
     }
   }
 
@@ -1590,6 +1614,7 @@ class _ConversationViewState extends State<ConversationView>
   }
 
   void _onMessagePointerDown(PointerDownEvent event) {
+    _messagePointerActive = true;
     _messagePointerDownPosition = event.position;
     _messagePointerMoved = false;
   }
@@ -1603,6 +1628,7 @@ class _ConversationViewState extends State<ConversationView>
   }
 
   void _onMessagePointerUp(PointerUpEvent event, ChatMessage message) {
+    _messagePointerActive = false;
     if (_messagePointerMoved || _selectedMessageIds.isNotEmpty) {
       _lastTappedMessageId = null;
       _lastMessageTapTime = null;
@@ -1629,11 +1655,38 @@ class _ConversationViewState extends State<ConversationView>
     _lastMessageTapPosition = event.position;
   }
 
+  void _onMessagePointerCancel(PointerCancelEvent event) {
+    _messagePointerActive = false;
+    _messagePointerDownPosition = null;
+    _messagePointerMoved = false;
+  }
+
+  BoxDecoration _conversationBackground(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final background =
+        widget.conversationAppearance?.background ?? ChatBackground.plain;
+    return switch (background) {
+      ChatBackground.plain => BoxDecoration(color: colors.surface),
+      ChatBackground.mist => BoxDecoration(
+          gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [colors.surface, colors.primary.withValues(alpha: .08)])),
+      ChatBackground.midnight => BoxDecoration(
+          color: Color.alphaBlend(
+              Colors.indigo.withValues(alpha: .12), colors.surface)),
+      ChatBackground.paper => BoxDecoration(
+          color: Color.alphaBlend(
+              Colors.amber.withValues(alpha: .08), colors.surface)),
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final conversationId = widget.conversationId;
     if (conversationId == null) return const _ConversationEmptyState();
     final canSend = _conversationCanSend(conversationId);
+    final conversationDecoration = _conversationBackground(context);
     final activeConversation =
         _conversation ?? widget.realtimeStore?.conversations[conversationId];
     final announcement = activeConversation?.type == 'group'
@@ -1679,241 +1732,256 @@ class _ConversationViewState extends State<ConversationView>
             ]),
           ),
         Expanded(
-          child: Stack(
-            children: [
-              FutureBuilder<List<ChatMessage>>(
-                future: _messagesFuture,
-                builder: (context, snapshot) {
-                  if (snapshot.hasError) {
-                    return _ConversationLoadError(
-                        onRetry: () => setState(() {
-                              _messagesFuture = _loadMessages();
-                            }));
-                  }
-                  if (!snapshot.hasData) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  final historyIds = <String>{
-                    for (final message in _olderMessages) message.id,
-                    for (final message in snapshot.data!) message.id,
-                  };
-                  final realtimeMessages = widget.realtimeStore?.messages.values
-                      .where((message) =>
-                          message.id.isNotEmpty &&
-                          message.conversationId == conversationId &&
-                          (!_historyMode || historyIds.contains(message.id)))
-                      .toList();
-                  final messages =
-                      realtimeMessages == null || realtimeMessages.isEmpty
-                          ? snapshot.data!
-                          : [...snapshot.data!, ...realtimeMessages];
-                  final confirmedById = <String, ChatMessage>{};
-                  for (final message in [..._olderMessages, ...messages]) {
-                    confirmedById[message.id] = message;
-                  }
-                  final confirmedMessages = confirmedById.values.toList();
-                  final confirmedClientIds = confirmedMessages
-                      .map((message) => message.clientMessageId)
-                      .whereType<String>()
-                      .toSet();
-                  final optimisticByMessageId = <String, _OptimisticMessage>{
-                    for (final item in _optimisticMessages.values)
-                      if (!confirmedClientIds
-                          .contains(item.descriptor.clientMessageId))
-                        item.message.id: item,
-                  };
-                  final allMessages = [
-                    ...confirmedMessages,
-                    ...optimisticByMessageId.values.map((item) => item.message),
-                  ]..sort((left, right) {
-                      final leftSeq = left.sequence;
-                      final rightSeq = right.sequence;
-                      if (leftSeq == null && rightSeq == null) return 0;
-                      if (leftSeq == null) return 1;
-                      if (rightSeq == null) return -1;
-                      return leftSeq.compareTo(rightSeq);
-                    });
-                  _visibleMessages = confirmedMessages;
-                  _scheduleLatestPosition(conversationId, allMessages);
-                  _scheduleFocusMessage(conversationId, allMessages);
-                  if (allMessages.isEmpty) {
-                    return const _ConversationEmptyState();
-                  }
-                  return NotificationListener<UserScrollNotification>(
-                    onNotification: (notification) {
-                      if (_initialPositionPending &&
-                          notification.direction != ScrollDirection.idle) {
-                        _userScrolledDuringInitialPosition = true;
-                      }
-                      return false;
-                    },
-                    child: ListView(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.fromLTRB(8, 16, 8, 12),
-                      children: allMessages.map((message) {
-                        final optimistic = optimisticByMessageId[message.id];
-                        if (optimistic != null) {
+          child: DecoratedBox(
+            decoration: conversationDecoration,
+            child: Stack(
+              children: [
+                FutureBuilder<List<ChatMessage>>(
+                  future: _messagesFuture,
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      return _ConversationLoadError(
+                          onRetry: () => setState(() {
+                                _messagesFuture = _loadMessages();
+                              }));
+                    }
+                    if (!snapshot.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final historyIds = <String>{
+                      for (final message in _olderMessages) message.id,
+                      for (final message in snapshot.data!) message.id,
+                    };
+                    final realtimeMessages = widget
+                        .realtimeStore?.messages.values
+                        .where((message) =>
+                            message.id.isNotEmpty &&
+                            message.conversationId == conversationId &&
+                            (!_historyMode || historyIds.contains(message.id)))
+                        .toList();
+                    final messages =
+                        realtimeMessages == null || realtimeMessages.isEmpty
+                            ? snapshot.data!
+                            : [...snapshot.data!, ...realtimeMessages];
+                    final confirmedById = <String, ChatMessage>{};
+                    for (final message in [..._olderMessages, ...messages]) {
+                      confirmedById[message.id] = message;
+                    }
+                    final confirmedMessages = confirmedById.values.toList();
+                    final confirmedClientIds = confirmedMessages
+                        .map((message) => message.clientMessageId)
+                        .whereType<String>()
+                        .toSet();
+                    final optimisticByMessageId = <String, _OptimisticMessage>{
+                      for (final item in _optimisticMessages.values)
+                        if (!confirmedClientIds
+                            .contains(item.descriptor.clientMessageId))
+                          item.message.id: item,
+                    };
+                    final allMessages = [
+                      ...confirmedMessages,
+                      ...optimisticByMessageId.values
+                          .map((item) => item.message),
+                    ]..sort((left, right) {
+                        final leftSeq = left.sequence;
+                        final rightSeq = right.sequence;
+                        if (leftSeq == null && rightSeq == null) return 0;
+                        if (leftSeq == null) return 1;
+                        if (rightSeq == null) return -1;
+                        return leftSeq.compareTo(rightSeq);
+                      });
+                    _visibleMessages = confirmedMessages;
+                    _scheduleLatestPosition(conversationId, allMessages);
+                    _scheduleFocusMessage(conversationId, allMessages);
+                    if (allMessages.isEmpty) {
+                      return const _ConversationEmptyState();
+                    }
+                    return NotificationListener<UserScrollNotification>(
+                      onNotification: (notification) {
+                        if (_initialPositionPending &&
+                            notification.direction != ScrollDirection.idle) {
+                          _userScrolledDuringInitialPosition = true;
+                        }
+                        return false;
+                      },
+                      child: ListView.builder(
+                        controller: _scrollController,
+                        cacheExtent: 480,
+                        addAutomaticKeepAlives: false,
+                        addRepaintBoundaries: true,
+                        padding: const EdgeInsets.fromLTRB(8, 16, 8, 12),
+                        itemCount: allMessages.length,
+                        itemBuilder: (context, index) {
+                          final message = allMessages[index];
+                          final optimistic = optimisticByMessageId[message.id];
+                          if (optimistic != null) {
+                            return Align(
+                              key: _messageKey(message.id),
+                              alignment: Alignment.centerRight,
+                              child: _OptimisticMessageBubble(
+                                item: optimistic,
+                                contactsFuture: _contactsFuture,
+                                chatAppearance: widget.chatAppearance,
+                                conversationAppearance:
+                                    widget.conversationAppearance,
+                                onRetry: () => _retryOptimisticMessage(
+                                    optimistic.descriptor.clientMessageId),
+                              ),
+                            );
+                          }
                           return Align(
                             key: _messageKey(message.id),
-                            alignment: Alignment.centerRight,
-                            child: _OptimisticMessageBubble(
-                              item: optimistic,
-                              contactsFuture: _contactsFuture,
-                              onRetry: () => _retryOptimisticMessage(
-                                  optimistic.descriptor.clientMessageId),
+                            alignment: message.contentType == 'system_event'
+                                ? Alignment.center
+                                : message.mine
+                                    ? Alignment.centerRight
+                                    : Alignment.centerLeft,
+                            child: GestureDetector(
+                              onTap: _selectedMessageIds.isEmpty ||
+                                      !_canForwardOrSelect(message)
+                                  ? null
+                                  : () => setState(() {
+                                        if (!_selectedMessageIds
+                                            .remove(message.id)) {
+                                          if (_selectedMessageIds.length >=
+                                              _maxSelectedMessages) return;
+                                          _selectedMessageIds.add(message.id);
+                                        }
+                                      }),
+                              onLongPress: () {
+                                if (_selectedMessageIds.isNotEmpty) {
+                                  if (!_canForwardOrSelect(message)) return;
+                                  if (_selectedMessageIds.length >=
+                                      _maxSelectedMessages) return;
+                                  setState(() =>
+                                      _selectedMessageIds.add(message.id));
+                                } else if (_hasMessageActions(message)) {
+                                  _showMessageActions(conversationId, message);
+                                }
+                              },
+                              child: Listener(
+                                onPointerDown: _onMessagePointerDown,
+                                onPointerMove: _onMessagePointerMove,
+                                onPointerUp: (event) =>
+                                    _onMessagePointerUp(event, message),
+                                onPointerCancel: _onMessagePointerCancel,
+                                child: Dismissible(
+                                  key: ValueKey('message-swipe-${message.id}'),
+                                  direction: _canReplyToMessage(
+                                          conversationId, message)
+                                      ? DismissDirection.endToStart
+                                      : DismissDirection.none,
+                                  resizeDuration: null,
+                                  dismissThresholds: const {
+                                    DismissDirection.endToStart: .25,
+                                  },
+                                  confirmDismiss: (_) async {
+                                    _replyToMessage(conversationId, message);
+                                    return false;
+                                  },
+                                  background: const SizedBox.shrink(),
+                                  secondaryBackground: Container(
+                                    alignment: Alignment.centerRight,
+                                    padding: const EdgeInsets.only(right: 18),
+                                    child: const Icon(Icons.reply),
+                                  ),
+                                  child: Container(
+                                      padding: _highlightedMessageId == message.id
+                                          ? const EdgeInsets.all(2)
+                                          : EdgeInsets.zero,
+                                      decoration: _highlightedMessageId == message.id
+                                          ? BoxDecoration(
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .primaryContainer
+                                                  .withValues(alpha: .65),
+                                              borderRadius:
+                                                  BorderRadius.circular(18))
+                                          : null,
+                                      child: _MessageBubble(
+                                          message: message,
+                                          replyTarget: confirmedById[message.replyTo?.id] ??
+                                              _replyTargetsById[
+                                                  message.replyTo?.id],
+                                          repository: widget.repository,
+                                          conversationId: conversationId,
+                                          galleryMessages: confirmedMessages,
+                                          galleryHasOlder: _hasMoreOlder,
+                                          canReact:
+                                              _topicIsOpen(conversationId),
+                                          canRespond: canSend,
+                                          onOpenTopic:
+                                              widget.onOpenConversation,
+                                          onOpenInternalLink:
+                                              widget.onOpenInternalLink,
+                                          onForwardMessage: (id) =>
+                                              _showForwardDialog(conversationId, [id]),
+                                          contactsFuture: _contactsFuture,
+                                          onReeditMessage: _reeditMessage,
+                                          cacheScope: widget.cacheScope,
+                                          chatAppearance: widget.chatAppearance,
+                                          conversationAppearance: widget.conversationAppearance,
+                                          preloadedImages: _preloadedImages,
+                                          preloadedAttachmentUrls: _preloadedAttachmentUrls)),
+                                ),
+                              ),
                             ),
                           );
-                        }
-                        return Align(
-                          key: _messageKey(message.id),
-                          alignment: message.contentType == 'system_event'
-                              ? Alignment.center
-                              : message.mine
-                                  ? Alignment.centerRight
-                                  : Alignment.centerLeft,
-                          child: GestureDetector(
-                            onTap: _selectedMessageIds.isEmpty ||
-                                    !_canForwardOrSelect(message)
-                                ? null
-                                : () => setState(() {
-                                      if (!_selectedMessageIds
-                                          .remove(message.id)) {
-                                        if (_selectedMessageIds.length >=
-                                            _maxSelectedMessages) return;
-                                        _selectedMessageIds.add(message.id);
-                                      }
-                                    }),
-                            onLongPress: () {
-                              if (_selectedMessageIds.isNotEmpty) {
-                                if (!_canForwardOrSelect(message)) return;
-                                if (_selectedMessageIds.length >=
-                                    _maxSelectedMessages) return;
-                                setState(
-                                    () => _selectedMessageIds.add(message.id));
-                              } else if (_hasMessageActions(message)) {
-                                _showMessageActions(conversationId, message);
-                              }
-                            },
-                            child: Listener(
-                              onPointerDown: _onMessagePointerDown,
-                              onPointerMove: _onMessagePointerMove,
-                              onPointerUp: (event) =>
-                                  _onMessagePointerUp(event, message),
-                              child: Dismissible(
-                                key: ValueKey('message-swipe-${message.id}'),
-                                direction:
-                                    _canReplyToMessage(conversationId, message)
-                                        ? DismissDirection.endToStart
-                                        : DismissDirection.none,
-                                resizeDuration: null,
-                                dismissThresholds: const {
-                                  DismissDirection.endToStart: .25,
-                                },
-                                confirmDismiss: (_) async {
-                                  _replyToMessage(conversationId, message);
-                                  return false;
-                                },
-                                background: const SizedBox.shrink(),
-                                secondaryBackground: Container(
-                                  alignment: Alignment.centerRight,
-                                  padding: const EdgeInsets.only(right: 18),
-                                  child: const Icon(Icons.reply),
+                        },
+                      ),
+                    );
+                  },
+                ),
+                Positioned(
+                  top: 8,
+                  left: 0,
+                  right: 0,
+                  child: IgnorePointer(
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 160),
+                      child: _loadingOlder
+                          ? Semantics(
+                              key: const ValueKey('older-messages-loading'),
+                              label: '正在加载更早消息',
+                              child: Material(
+                                elevation: 1,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerHigh,
+                                shape: const CircleBorder(),
+                                child: const Padding(
+                                  padding: EdgeInsets.all(8),
+                                  child: SizedBox.square(
+                                    dimension: 18,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2),
+                                  ),
                                 ),
-                                child: Container(
-                                    padding: _highlightedMessageId == message.id
-                                        ? const EdgeInsets.all(2)
-                                        : EdgeInsets.zero,
-                                    decoration: _highlightedMessageId == message.id
-                                        ? BoxDecoration(
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .primaryContainer
-                                                .withValues(alpha: .65),
-                                            borderRadius:
-                                                BorderRadius.circular(18))
-                                        : null,
-                                    child: _MessageBubble(
-                                        message: message,
-                                        replyTarget:
-                                            confirmedById[message.replyTo?.id] ??
-                                                _replyTargetsById[
-                                                    message.replyTo?.id],
-                                        repository: widget.repository,
-                                        conversationId: conversationId,
-                                        galleryMessages: confirmedMessages,
-                                        galleryHasOlder: _hasMoreOlder,
-                                        canReact: _topicIsOpen(conversationId),
-                                        canRespond: canSend,
-                                        onOpenTopic: widget.onOpenConversation,
-                                        onOpenInternalLink:
-                                            widget.onOpenInternalLink,
-                                        onForwardMessage: (id) =>
-                                            _showForwardDialog(
-                                                conversationId, [id]),
-                                        contactsFuture: _contactsFuture,
-                                        onReeditMessage: _reeditMessage,
-                                        cacheScope: widget.cacheScope,
-                                        preloadedImages: _preloadedImages,
-                                        preloadedAttachmentUrls:
-                                            _preloadedAttachmentUrls)),
                               ),
-                            ),
-                          ),
-                        );
-                      }).toList(),
+                            )
+                          : const SizedBox.shrink(
+                              key: ValueKey('older-messages-idle')),
                     ),
-                  );
-                },
-              ),
-              Positioned(
-                top: 8,
-                left: 0,
-                right: 0,
-                child: IgnorePointer(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 160),
-                    child: _loadingOlder
-                        ? Semantics(
-                            key: const ValueKey('older-messages-loading'),
-                            label: '正在加载更早消息',
-                            child: Material(
-                              elevation: 1,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .surfaceContainerHigh,
-                              shape: const CircleBorder(),
-                              child: const Padding(
-                                padding: EdgeInsets.all(8),
-                                child: SizedBox.square(
-                                  dimension: 18,
-                                  child:
-                                      CircularProgressIndicator(strokeWidth: 2),
-                                ),
-                              ),
-                            ),
-                          )
-                        : const SizedBox.shrink(
-                            key: ValueKey('older-messages-idle')),
                   ),
                 ),
-              ),
-              if (_historyMode || _pendingNewMessageCount > 0)
-                Positioned(
-                    right: 16,
-                    bottom: 12,
-                    child: Semantics(
-                      button: true,
-                      label: '回到最新消息',
-                      child: FilledButton.icon(
-                          onPressed: () => _jumpToLatest(conversationId),
-                          icon: const Icon(Icons.arrow_downward, size: 18),
-                          label: Text(_historyMode
-                              ? _pendingNewMessageCount > 0
-                                  ? '返回最新 · $_pendingNewMessageCount 条新消息'
-                                  : '返回最新消息'
-                              : '新消息 $_pendingNewMessageCount')),
-                    )),
-            ],
+                if (_historyMode || _pendingNewMessageCount > 0)
+                  Positioned(
+                      right: 16,
+                      bottom: 12,
+                      child: Semantics(
+                        button: true,
+                        label: '回到最新消息',
+                        child: FilledButton.icon(
+                            onPressed: () => _jumpToLatest(conversationId),
+                            icon: const Icon(Icons.arrow_downward, size: 18),
+                            label: Text(_historyMode
+                                ? _pendingNewMessageCount > 0
+                                    ? '返回最新 · $_pendingNewMessageCount 条新消息'
+                                    : '返回最新消息'
+                                : '新消息 $_pendingNewMessageCount')),
+                      )),
+              ],
+            ),
           ),
         ),
         SafeArea(
@@ -2211,6 +2279,25 @@ class _ConversationViewState extends State<ConversationView>
             message.mine &&
             message.contentType != 'revoked')
         .toList();
+    if (selected.isEmpty || !mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('撤回所选消息？'),
+        content: Text('将撤回 ${selected.length} 条消息，撤回后无法恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('撤回'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
     for (final message in selected) {
       await widget.repository.revokeMessage(conversationId, message.id);
     }
@@ -2799,42 +2886,68 @@ class _OptimisticMessageBubble extends StatelessWidget {
     required this.item,
     required this.contactsFuture,
     required this.onRetry,
+    this.chatAppearance = const ChatAppearance(),
+    this.conversationAppearance,
   });
 
   final _OptimisticMessage item;
   final Future<List<Contact>>? contactsFuture;
   final VoidCallback onRetry;
+  final ChatAppearance chatAppearance;
+  final ChatConversationAppearance? conversationAppearance;
 
   @override
   Widget build(BuildContext context) {
     final descriptor = item.descriptor;
     final colors = Theme.of(context).colorScheme;
+    final bubbleSkin = conversationAppearance?.bubble ?? ChatBubbleSkin.solid;
+    final bubbleBackground = switch (bubbleSkin) {
+      ChatBubbleSkin.solid => colors.primary,
+      ChatBubbleSkin.outline => Colors.transparent,
+      ChatBubbleSkin.soft => colors.primaryContainer,
+    };
+    final bubbleForeground = switch (bubbleSkin) {
+      ChatBubbleSkin.solid => colors.onPrimary,
+      ChatBubbleSkin.outline => colors.primary,
+      ChatBubbleSkin.soft => colors.onPrimaryContainer,
+    };
+    // 发送状态图标和外侧留白也占用横向空间，气泡上限需扣除这些固定宽度，
+    // 否则在窄屏或测试窗口中会出现 Row 溢出。
     final maxWidth =
-        (MediaQuery.sizeOf(context).width * .72).clamp(220.0, 520.0);
+        ((MediaQuery.sizeOf(context).width * .72).clamp(220.0, 520.0) - 36)
+            .clamp(160.0, 520.0);
     return Padding(
       padding: const EdgeInsets.only(left: 44, right: 12, bottom: 6),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         SizedBox.square(
           dimension: 32,
           child: Center(
-            child: item.status == _OptimisticMessageStatus.sending
-                ? Semantics(
-                    label: '消息发送中',
-                    child: const SizedBox.square(
-                      key: ValueKey('optimistic-message-sending'),
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  )
-                : IconButton(
-                    key: const ValueKey('optimistic-message-retry'),
-                    tooltip: '重新发送消息',
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    onPressed: onRetry,
-                    color: colors.error,
-                    icon: const Icon(Icons.error, size: 21),
+            child: switch (item.status) {
+              _OptimisticMessageStatus.sending => Semantics(
+                  label: '消息发送中',
+                  child: const SizedBox.square(
+                    key: ValueKey('optimistic-message-sending'),
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
                   ),
+                ),
+              _OptimisticMessageStatus.sent => Semantics(
+                  label: '消息已发送',
+                  child: Icon(Icons.check_circle_outline,
+                      key: const ValueKey('optimistic-message-sent'),
+                      size: 18,
+                      color: colors.primary),
+                ),
+              _OptimisticMessageStatus.failed => IconButton(
+                  key: const ValueKey('optimistic-message-retry'),
+                  tooltip: '重新发送消息',
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  onPressed: onRetry,
+                  color: colors.error,
+                  icon: const Icon(Icons.error, size: 21),
+                ),
+            },
           ),
         ),
         const SizedBox(width: 2),
@@ -2843,7 +2956,10 @@ class _OptimisticMessageBubble extends StatelessWidget {
           constraints: BoxConstraints(maxWidth: maxWidth),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
           decoration: BoxDecoration(
-            color: colors.primary,
+            color: bubbleBackground,
+            border: bubbleSkin == ChatBubbleSkin.outline
+                ? Border.all(color: colors.primary, width: 1.2)
+                : null,
             borderRadius: const BorderRadius.only(
               topLeft: Radius.circular(18),
               topRight: Radius.circular(18),
@@ -2855,26 +2971,30 @@ class _OptimisticMessageBubble extends StatelessWidget {
             future: contactsFuture,
             builder: (context, snapshot) {
               final contacts = snapshot.data ?? const <Contact>[];
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (descriptor.replyTo != null)
-                    _replyPreview(context, descriptor.replyTo!, contacts),
-                  _content(context, descriptor, contacts),
-                  if (formatMessageTime(item.message.createdAt)
-                      case final time?)
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Text(time,
-                          style: Theme.of(context)
-                              .textTheme
-                              .labelSmall
-                              ?.copyWith(
-                                  color:
-                                      colors.onPrimary.withValues(alpha: .8))),
-                    ),
-                ],
-              );
+              return DefaultTextStyle.merge(
+                  style: TextStyle(
+                      color: bubbleForeground,
+                      fontSize: chatAppearance.fontSize),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (descriptor.replyTo != null)
+                        _replyPreview(context, descriptor.replyTo!, contacts),
+                      _content(context, descriptor, contacts),
+                      if (formatMessageTime(item.message.createdAt)
+                          case final time?)
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: Text(time,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelSmall
+                                  ?.copyWith(
+                                      color: bubbleForeground.withValues(
+                                          alpha: .8))),
+                        ),
+                    ],
+                  ));
             },
           ),
         ),
@@ -2884,7 +3004,7 @@ class _OptimisticMessageBubble extends StatelessWidget {
 
   Widget _content(BuildContext context, _OptimisticSendDescriptor descriptor,
       List<Contact> contacts) {
-    final color = Theme.of(context).colorScheme.onPrimary;
+    final color = _foreground(context);
     switch (descriptor.kind) {
       case _OptimisticMessageKind.text:
         return Text(
@@ -2927,6 +3047,15 @@ class _OptimisticMessageBubble extends StatelessWidget {
           ],
         );
     }
+  }
+
+  Color _foreground(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return switch (conversationAppearance?.bubble ?? ChatBubbleSkin.solid) {
+      ChatBubbleSkin.solid => colors.onPrimary,
+      ChatBubbleSkin.outline => colors.primary,
+      ChatBubbleSkin.soft => colors.onPrimaryContainer,
+    };
   }
 
   Widget _attachmentLabel(
@@ -3114,6 +3243,8 @@ class _MessageBubble extends StatelessWidget {
       this.contactsFuture,
       this.onReeditMessage,
       this.cacheScope,
+      this.chatAppearance = const ChatAppearance(),
+      this.conversationAppearance,
       this.preloadedImages = const {},
       this.preloadedAttachmentUrls = const {}});
   final ChatMessage message;
@@ -3130,6 +3261,8 @@ class _MessageBubble extends StatelessWidget {
   final Future<List<Contact>>? contactsFuture;
   final ValueChanged<ChatMessage>? onReeditMessage;
   final MessageCacheScope? cacheScope;
+  final ChatAppearance chatAppearance;
+  final ChatConversationAppearance? conversationAppearance;
   final Map<String, _CachedImageData> preloadedImages;
   final Map<String, Uri> preloadedAttachmentUrls;
 
@@ -3138,6 +3271,33 @@ class _MessageBubble extends StatelessWidget {
     final owner = scope == null ? '' : '${scope.serverUrl}|${scope.userId}|';
     return 'attachment|$owner$fileId';
   }
+
+  ChatBubbleSkin get _bubbleSkin =>
+      conversationAppearance?.bubble ?? ChatBubbleSkin.solid;
+
+  Color _bubbleBackground(bool mine, ColorScheme colors) {
+    if (_bubbleSkin == ChatBubbleSkin.outline) return Colors.transparent;
+    if (_bubbleSkin == ChatBubbleSkin.soft) {
+      return mine ? colors.primaryContainer : colors.surfaceContainerLow;
+    }
+    return mine ? colors.primary : colors.surfaceContainerHighest;
+  }
+
+  Color _bubbleForeground(bool mine, ColorScheme colors) {
+    if (_bubbleSkin == ChatBubbleSkin.outline) {
+      return mine ? colors.primary : colors.onSurface;
+    }
+    if (_bubbleSkin == ChatBubbleSkin.soft) {
+      return mine ? colors.onPrimaryContainer : colors.onSurface;
+    }
+    return mine ? colors.onPrimary : colors.onSurface;
+  }
+
+  BoxBorder? _bubbleBorder(bool mine, ColorScheme colors) =>
+      _bubbleSkin == ChatBubbleSkin.outline
+          ? Border.all(
+              color: mine ? colors.primary : colors.outlineVariant, width: 1.2)
+          : null;
 
   Future<void> _cacheAttachment(String fileId, Uri uri) async {
     final cache = LocalAssetCache();
@@ -3174,13 +3334,13 @@ class _MessageBubble extends StatelessWidget {
                   id: contact.id,
                   name: contact.displayName,
                 )));
+        final foreground = _bubbleForeground(mine, colors);
         return CollapsibleMessageContent(
           key: ValueKey('collapsible-message-${message.id}'),
           variant: CollapsibleMessageVariant.markdown,
           contentIdentity: content,
-          backgroundColor:
-              mine ? colors.primary : colors.surfaceContainerHighest,
-          foregroundColor: mine ? colors.onPrimary : colors.primary,
+          backgroundColor: _bubbleBackground(mine, colors),
+          foregroundColor: foreground,
           builder: (context) => MarkdownBody(
             data: content,
             styleSheet:
@@ -3188,10 +3348,9 @@ class _MessageBubble extends StatelessWidget {
               p: Theme.of(context)
                   .textTheme
                   .bodyMedium
-                  ?.copyWith(color: mine ? colors.onPrimary : null),
+                  ?.copyWith(color: foreground),
               a: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: mine ? colors.onPrimary : colors.primary,
-                  decoration: TextDecoration.underline),
+                  color: foreground, decoration: TextDecoration.underline),
             ),
             onTapLink: (text, href, title) {
               final uri = parseMarkdownLink(href);
@@ -3216,18 +3375,16 @@ class _MessageBubble extends StatelessWidget {
                   id: contact.id,
                   name: contact.displayName,
                 )));
-        final text = Text(content,
-            style: TextStyle(color: mine ? colors.onPrimary : null));
+        final foreground = _bubbleForeground(mine, colors);
+        final text = Text(content, style: TextStyle(color: foreground));
         if (message.contentType != 'text') return text;
         return CollapsibleMessageContent(
           key: ValueKey('collapsible-message-${message.id}'),
           variant: CollapsibleMessageVariant.text,
           contentIdentity: content,
-          backgroundColor:
-              mine ? colors.primary : colors.surfaceContainerHighest,
-          foregroundColor: mine ? colors.onPrimary : colors.primary,
-          builder: (_) => Text(content,
-              style: TextStyle(color: mine ? colors.onPrimary : null)),
+          backgroundColor: _bubbleBackground(mine, colors),
+          foregroundColor: foreground,
+          builder: (_) => Text(content, style: TextStyle(color: foreground)),
         );
       },
     );
@@ -3285,6 +3442,8 @@ class _MessageBubble extends StatelessWidget {
     final linkUrl = bodyUrl is String ? bodyUrl.trim() : '';
     final maxBubbleWidth =
         (MediaQuery.sizeOf(context).width * .78).clamp(220.0, 560.0);
+    final bubbleBackground = _bubbleBackground(mine, colors);
+    final bubbleForeground = _bubbleForeground(mine, colors);
     return Container(
       key: ValueKey('message-bubble-${message.id}'),
       margin: EdgeInsets.only(
@@ -3292,7 +3451,8 @@ class _MessageBubble extends StatelessWidget {
       constraints: BoxConstraints(maxWidth: maxBubbleWidth),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
       decoration: BoxDecoration(
-        color: mine ? colors.primary : colors.surfaceContainerHighest,
+        color: bubbleBackground,
+        border: _bubbleBorder(mine, colors),
         borderRadius: BorderRadius.only(
           topLeft: const Radius.circular(18),
           topRight: const Radius.circular(18),
@@ -3300,352 +3460,361 @@ class _MessageBubble extends StatelessWidget {
           bottomRight: Radius.circular(mine ? 4 : 18),
         ),
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        if (!revoked && message.replyTo != null)
-          _replyPreview(context, message.replyTo!, mine, colors),
-        if (!mine)
-          SizedBox(
-              height: 28,
-              child: FutureBuilder<List<Contact>>(
-                  future: contactsFuture,
-                  builder: (context, snapshot) {
-                    final contact = _findContact(snapshot.data);
-                    final contactName = snapshot.hasData
-                        ? _contactName(contact) ?? _nonIdAuthor
-                        : '';
-                    final avatarContact = contact ??
-                        (message.authorId == null
-                            ? null
-                            : Contact(
-                                id: message.authorId!,
-                                name: _nonIdAuthor,
-                              ));
-                    final canOpenProfile =
-                        snapshot.hasData && avatarContact != null;
-                    return Row(mainAxisSize: MainAxisSize.min, children: [
-                      Semantics(
-                        button: canOpenProfile,
-                        label: canOpenProfile
-                            ? '${avatarContact.displayName}的头像'
-                            : null,
-                        child: InkWell(
-                          key: ValueKey('message-avatar-${message.id}'),
-                          customBorder: const CircleBorder(),
-                          onTap: !canOpenProfile
-                              ? null
-                              : () => _showContactPanel(context, avatarContact),
-                          child: _avatar(context, contact ?? avatarContact,
-                              snapshot.hasData ? _nonIdAuthor : ''),
-                        ),
-                      ),
-                      if (contactName.isNotEmpty) ...[
-                        const SizedBox(width: 6),
-                        Text(contactName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelMedium
-                                ?.copyWith(
-                                    color: colors.primary,
-                                    fontWeight: FontWeight.w600)),
-                      ],
-                    ]);
-                  })),
-        if (!hasVoicePlayer && message.contentType != 'image')
-          Row(mainAxisSize: MainAxisSize.min, children: [
-            if (prefix != null) Icon(prefix, size: 18),
-            if (prefix != null) const SizedBox(width: 6),
-            Flexible(
-                child: revoked
-                    ? Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                            Text(message.text,
+      child: DefaultTextStyle.merge(
+          style: TextStyle(fontSize: chatAppearance.fontSize),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            if (!revoked && message.replyTo != null)
+              _replyPreview(context, message.replyTo!, mine, colors),
+            if (!mine)
+              SizedBox(
+                  height: 28,
+                  child: FutureBuilder<List<Contact>>(
+                      future: contactsFuture,
+                      builder: (context, snapshot) {
+                        final contact = _findContact(snapshot.data);
+                        final contactName = snapshot.hasData
+                            ? _contactName(contact) ?? _nonIdAuthor
+                            : '';
+                        final avatarContact = contact ??
+                            (message.authorId == null
+                                ? null
+                                : Contact(
+                                    id: message.authorId!,
+                                    name: _nonIdAuthor,
+                                  ));
+                        final canOpenProfile =
+                            snapshot.hasData && avatarContact != null;
+                        return Row(mainAxisSize: MainAxisSize.min, children: [
+                          Semantics(
+                            button: canOpenProfile,
+                            label: canOpenProfile
+                                ? '${avatarContact.displayName}的头像'
+                                : null,
+                            child: InkWell(
+                              key: ValueKey('message-avatar-${message.id}'),
+                              customBorder: const CircleBorder(),
+                              onTap: !canOpenProfile
+                                  ? null
+                                  : () =>
+                                      _showContactPanel(context, avatarContact),
+                              child: _avatar(context, contact ?? avatarContact,
+                                  snapshot.hasData ? _nonIdAuthor : ''),
+                            ),
+                          ),
+                          if (contactName.isNotEmpty) ...[
+                            const SizedBox(width: 6),
+                            Text(contactName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelMedium
+                                    ?.copyWith(
+                                        color: colors.primary,
+                                        fontWeight: FontWeight.w600)),
+                          ],
+                        ]);
+                      })),
+            if (!hasVoicePlayer && message.contentType != 'image')
+              Row(mainAxisSize: MainAxisSize.min, children: [
+                if (prefix != null) Icon(prefix, size: 18),
+                if (prefix != null) const SizedBox(width: 6),
+                Flexible(
+                    child: revoked
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                                Text(message.text,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                            color: colors.onSurfaceVariant,
+                                            fontStyle: FontStyle.italic)),
+                                if (message.mine &&
+                                    message.editableText != null)
+                                  TextButton.icon(
+                                      onPressed: onReeditMessage == null
+                                          ? null
+                                          : () => onReeditMessage!(message),
+                                      icon: const Icon(Icons.edit_outlined,
+                                          size: 16),
+                                      label: const Text('重新编辑'),
+                                      style: TextButton.styleFrom(
+                                          visualDensity: VisualDensity.compact,
+                                          padding: EdgeInsets.zero)),
+                              ])
+                        : message.contentType == 'unsupported'
+                            ? Text('暂不支持查看该消息',
                                 style: Theme.of(context)
                                     .textTheme
                                     .bodyMedium
-                                    ?.copyWith(
-                                        color: colors.onSurfaceVariant,
-                                        fontStyle: FontStyle.italic)),
-                            if (message.mine && message.editableText != null)
-                              TextButton.icon(
-                                  onPressed: onReeditMessage == null
-                                      ? null
-                                      : () => onReeditMessage!(message),
-                                  icon:
-                                      const Icon(Icons.edit_outlined, size: 16),
-                                  label: const Text('重新编辑'),
-                                  style: TextButton.styleFrom(
-                                      visualDensity: VisualDensity.compact,
-                                      padding: EdgeInsets.zero)),
-                          ])
-                    : message.contentType == 'unsupported'
-                        ? Text('暂不支持查看该消息',
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyMedium
-                                ?.copyWith(color: colors.onSurfaceVariant))
-                        : message.contentType == 'markdown'
-                            ? _markdownContent(context, mine, colors)
-                            : message.contentType == 'link' ||
-                                    message.contentType == 'card'
-                                ? MessageLinkCard(
-                                    title: linkTitle.isNotEmpty
-                                        ? linkTitle
-                                        : message.contentType == 'link' &&
-                                                linkUrl.isNotEmpty
-                                            ? linkUrl
-                                            : message.contentType == 'card'
-                                                ? '卡片'
-                                                : '链接',
-                                    description: linkDescription,
-                                    url: linkUrl,
-                                    icon: message.contentType == 'card'
-                                        ? Icons.open_in_new
-                                        : Icons.link_outlined,
-                                    textColor: mine
-                                        ? colors.onPrimary
-                                        : colors.onSurface,
-                                    accentColor: mine
-                                        ? colors.onPrimary
-                                        : colors.primary,
-                                    backgroundColor: mine
-                                        ? colors.onPrimary.withValues(alpha: .1)
-                                        : colors.surfaceContainerLow,
-                                    allowInternalPath:
-                                        message.contentType == 'card',
-                                    semanticLabel:
-                                        '${message.contentType == 'card' ? '卡片' : '链接'}：${linkTitle.isNotEmpty ? linkTitle : linkUrl}',
-                                    onOpen: (uri) {
-                                      unawaited(launchUrl(uri,
-                                          mode:
-                                              LaunchMode.externalApplication));
-                                    },
-                                    onOpenInternal: onOpenInternalLink,
-                                  )
-                                : message.contentType == 'forward_bundle'
-                                    ? _ForwardBundlePreview(
-                                        body: message.rawBody,
-                                        summary: message.text,
-                                        contactsFuture: contactsFuture,
-                                        textColor:
-                                            mine ? colors.onPrimary : null)
-                                    : _textContent(context, mine, colors)),
-          ]),
-        if (hasVoicePlayer)
-          VoiceMessagePlayer(
-            fileId: message.rawBody['file_id'] as String,
-            durationMs: parseVoiceDuration(message.rawBody['duration_ms']),
-            transcript: message.rawBody['transcript'] is String
-                ? message.rawBody['transcript'] as String
-                : '',
-            foregroundColor: mine ? colors.onPrimary : colors.onSurface,
-            resolveUrl: repository.attachmentUrl,
-          ),
-        if (!revoked &&
-            (message.contentType == 'image' || message.contentType == 'file') &&
-            message.rawBody['file_id'] is String)
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (message.contentType == 'image')
-                _CachedConversationImage(
-                  repository: repository,
-                  cacheScope: cacheScope,
-                  fileId: message.rawBody['file_id'] as String,
-                  initialData: preloadedImages[message.rawBody['file_id']],
-                  onTap: (data) => unawaited(showConversationImageGallery(
-                    context,
-                    repository: repository,
-                    conversationId: conversationId,
-                    messages: galleryMessages,
-                    initialMessageId: message.id,
-                    hasOlder: galleryHasOlder,
-                    cacheScope: cacheScope,
-                    initialBytes: data?.bytes,
-                    initialUri: data?.uri,
-                    onForward: onForwardMessage,
-                  )),
-                )
-              else
-                FutureBuilder<Uri?>(
-                  future: preloadedAttachmentUrls[
-                              message.rawBody['file_id'] as String] ==
-                          null
-                      ? repository
-                          .attachmentUrl(message.rawBody['file_id'] as String)
-                      : null,
-                  initialData: preloadedAttachmentUrls[
-                      message.rawBody['file_id'] as String],
-                  builder: (context, snapshot) {
-                    if (snapshot.hasError) {
-                      return const SizedBox(
-                          height: 80,
-                          child: Align(
-                              alignment: Alignment.topLeft,
-                              child: Padding(
-                                  padding: EdgeInsets.only(top: 8),
-                                  child: Text('附件暂时无法加载'))));
-                    }
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const SizedBox(
-                          height: 80,
-                          child: Align(
-                              alignment: Alignment.topLeft,
-                              child: Padding(
-                                  padding: EdgeInsets.only(top: 8),
-                                  child: SizedBox(
-                                      height: 40,
-                                      child: CircularProgressIndicator(
-                                          strokeWidth: 2)))));
-                    }
-                    if (!snapshot.hasData) {
-                      return const SizedBox(height: 80);
-                    }
-                    final uri = snapshot.data;
-                    if (uri == null) {
-                      return const SizedBox(height: 80);
-                    }
-                    final name = message.rawBody['name'];
-                    final size = message.rawBody['size_bytes'];
-                    // URL 解析是异步的；预留完整附件操作区高度，避免
-                    // 首屏加载后消息列表从上到下重新排版。
-                    return SizedBox(
-                      height: 80,
-                      child: Align(
-                        alignment: Alignment.topLeft,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (name is String && name.trim().isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 6),
-                                child: Text(name.trim(),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis),
-                              ),
-                            TextButton.icon(
-                                onPressed: () async {
-                                  try {
-                                    await _cacheAttachment(
-                                        message.rawBody['file_id'] as String,
-                                        uri);
-                                    if (!context.mounted) return;
-                                    await launchUrl(uri,
-                                        mode: LaunchMode.externalApplication);
-                                  } catch (error) {
-                                    if (context.mounted) {
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(SnackBar(
-                                              content: Text('附件加载失败：$error')));
-                                    }
-                                  }
-                                },
-                                icon: const Icon(Icons.download_outlined),
-                                label: Text(size is num
-                                    ? '打开附件 · ${_formatAttachmentSize(size)}'
-                                    : '打开附件')),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              if (message.contentType == 'image' &&
-                  message.rawBody['caption'] is String &&
-                  (message.rawBody['caption'] as String).trim().isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: message.rawBody['caption_type'] == 'markdown'
-                      ? MarkdownBody(
-                          data: (message.rawBody['caption'] as String).trim(),
-                          styleSheet:
-                              MarkdownStyleSheet.fromTheme(Theme.of(context)),
-                          onTapLink: (text, href, title) {
-                            final uri = parseMarkdownLink(href);
-                            if (uri != null) {
-                              unawaited(launchUrl(uri,
-                                  mode: LaunchMode.externalApplication));
-                            }
-                          })
-                      : FutureBuilder<List<Contact>>(
-                          future: contactsFuture,
-                          builder: (context, snapshot) => Text(
-                              formatMentionText(
-                                  (message.rawBody['caption'] as String).trim(),
-                                  (snapshot.data ?? const <Contact>[]).map(
-                                      (contact) => (
-                                            id: contact.id,
-                                            name: contact.displayName
-                                          ))),
-                              style: TextStyle(
-                                  color: mine ? colors.onPrimary : null))),
-                ),
-            ],
-          ),
-        if (!revoked && message.contentType == 'choice')
-          _ChoiceOptions(
-              options: _choiceOptions(options),
-              selection: message.rawBody['selection'] == 'multiple'
-                  ? 'multiple'
-                  : 'single',
-              choice: message.choice,
-              canRespond: canRespond,
-              onSubmit: (optionIds) => repository.submitChoice(
-                  conversationId, message.id, optionIds)),
-        if (!revoked && message.contentType == 'chart')
-          ChartPreview(body: message.rawBody),
-        if (!revoked &&
-            (message.contentType == 'object' || message.contentType == 'chart'))
-          ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              title: Text(message.contentType == 'chart' ? '查看图表数据' : '查看对象详情'),
-              children: [
-                Align(
-                    alignment: Alignment.centerLeft,
-                    child: SelectableText(
-                        const JsonEncoder.withIndent('  ')
-                            .convert(message.rawBody),
-                        style: Theme.of(context).textTheme.bodySmall))
+                                    ?.copyWith(color: colors.onSurfaceVariant))
+                            : message.contentType == 'markdown'
+                                ? _markdownContent(context, mine, colors)
+                                : message.contentType == 'link' ||
+                                        message.contentType == 'card'
+                                    ? MessageLinkCard(
+                                        title: linkTitle.isNotEmpty
+                                            ? linkTitle
+                                            : message.contentType == 'link' &&
+                                                    linkUrl.isNotEmpty
+                                                ? linkUrl
+                                                : message.contentType == 'card'
+                                                    ? '卡片'
+                                                    : '链接',
+                                        description: linkDescription,
+                                        url: linkUrl,
+                                        icon: message.contentType == 'card'
+                                            ? Icons.open_in_new
+                                            : Icons.link_outlined,
+                                        textColor: bubbleForeground,
+                                        accentColor: bubbleForeground,
+                                        backgroundColor: mine
+                                            ? bubbleForeground.withValues(
+                                                alpha: .1)
+                                            : colors.surfaceContainerLow,
+                                        allowInternalPath:
+                                            message.contentType == 'card',
+                                        semanticLabel:
+                                            '${message.contentType == 'card' ? '卡片' : '链接'}：${linkTitle.isNotEmpty ? linkTitle : linkUrl}',
+                                        onOpen: (uri) {
+                                          unawaited(launchUrl(uri,
+                                              mode: LaunchMode
+                                                  .externalApplication));
+                                        },
+                                        onOpenInternal: onOpenInternalLink,
+                                      )
+                                    : message.contentType == 'forward_bundle'
+                                        ? _ForwardBundlePreview(
+                                            body: message.rawBody,
+                                            summary: message.text,
+                                            contactsFuture: contactsFuture,
+                                            textColor: bubbleForeground)
+                                        : _textContent(context, mine, colors)),
               ]),
-        if (!revoked && message.topic != null)
-          TopicReplyPreview(
-              topic: message.topic!,
-              contactsFuture: contactsFuture,
-              onOpen: onOpenTopic),
-        if (!revoked && message.reactions.isNotEmpty)
-          Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Wrap(
-                  spacing: 4,
-                  runSpacing: 4,
-                  children: message.reactions
-                      .map((reaction) => GestureDetector(
-                          onLongPress: () =>
-                              _showReactionUsers(context, reaction),
-                          child: ActionChip(
-                              label: Text('${reaction.text} ${reaction.count}'),
-                              visualDensity: VisualDensity.compact,
-                              backgroundColor: reaction.reactedByMe
-                                  ? colors.primaryContainer
-                                  : null,
-                              onPressed: canReact
-                                  ? () => repository.setReaction(
-                                      conversationId, message.id,
-                                      text: reaction.text,
-                                      reacted: !reaction.reactedByMe)
-                                  : null)))
-                      .toList())),
-        if (messageTime != null)
-          Align(
-              alignment: Alignment.centerRight,
-              child: Text(messageTime,
-                  key: ValueKey('message-time-${message.id}'),
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: (mine ? colors.onPrimary : colors.onSurfaceVariant)
-                          .withValues(alpha: .8))))
-      ]),
+            if (hasVoicePlayer)
+              VoiceMessagePlayer(
+                fileId: message.rawBody['file_id'] as String,
+                durationMs: parseVoiceDuration(message.rawBody['duration_ms']),
+                transcript: message.rawBody['transcript'] is String
+                    ? message.rawBody['transcript'] as String
+                    : '',
+                foregroundColor: bubbleForeground,
+                resolveUrl: repository.attachmentUrl,
+              ),
+            if (!revoked &&
+                (message.contentType == 'image' ||
+                    message.contentType == 'file') &&
+                message.rawBody['file_id'] is String)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (message.contentType == 'image')
+                    _CachedConversationImage(
+                      repository: repository,
+                      cacheScope: cacheScope,
+                      fileId: message.rawBody['file_id'] as String,
+                      initialData: preloadedImages[message.rawBody['file_id']],
+                      onTap: (data) => unawaited(showConversationImageGallery(
+                        context,
+                        repository: repository,
+                        conversationId: conversationId,
+                        messages: galleryMessages,
+                        initialMessageId: message.id,
+                        hasOlder: galleryHasOlder,
+                        cacheScope: cacheScope,
+                        initialBytes: data?.bytes,
+                        initialUri: data?.uri,
+                        onForward: onForwardMessage,
+                      )),
+                    )
+                  else
+                    FutureBuilder<Uri?>(
+                      future: preloadedAttachmentUrls[
+                                  message.rawBody['file_id'] as String] ==
+                              null
+                          ? repository.attachmentUrl(
+                              message.rawBody['file_id'] as String)
+                          : null,
+                      initialData: preloadedAttachmentUrls[
+                          message.rawBody['file_id'] as String],
+                      builder: (context, snapshot) {
+                        if (snapshot.hasError) {
+                          return const SizedBox(
+                              height: 80,
+                              child: Align(
+                                  alignment: Alignment.topLeft,
+                                  child: Padding(
+                                      padding: EdgeInsets.only(top: 8),
+                                      child: Text('附件暂时无法加载'))));
+                        }
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const SizedBox(
+                              height: 80,
+                              child: Align(
+                                  alignment: Alignment.topLeft,
+                                  child: Padding(
+                                      padding: EdgeInsets.only(top: 8),
+                                      child: SizedBox(
+                                          height: 40,
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2)))));
+                        }
+                        if (!snapshot.hasData) {
+                          return const SizedBox(height: 80);
+                        }
+                        final uri = snapshot.data;
+                        if (uri == null) {
+                          return const SizedBox(height: 80);
+                        }
+                        final name = message.rawBody['name'];
+                        final size = message.rawBody['size_bytes'];
+                        // URL 解析是异步的；预留完整附件操作区高度，避免
+                        // 首屏加载后消息列表从上到下重新排版。
+                        return SizedBox(
+                          height: 80,
+                          child: Align(
+                            alignment: Alignment.topLeft,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (name is String && name.trim().isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 6),
+                                    child: Text(name.trim(),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis),
+                                  ),
+                                TextButton.icon(
+                                    onPressed: () async {
+                                      try {
+                                        await _cacheAttachment(
+                                            message.rawBody['file_id']
+                                                as String,
+                                            uri);
+                                        if (!context.mounted) return;
+                                        await launchUrl(uri,
+                                            mode:
+                                                LaunchMode.externalApplication);
+                                      } catch (error) {
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(SnackBar(
+                                                  content:
+                                                      Text('附件加载失败：$error')));
+                                        }
+                                      }
+                                    },
+                                    icon: const Icon(Icons.download_outlined),
+                                    label: Text(size is num
+                                        ? '打开附件 · ${_formatAttachmentSize(size)}'
+                                        : '打开附件')),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  if (message.contentType == 'image' &&
+                      message.rawBody['caption'] is String &&
+                      (message.rawBody['caption'] as String).trim().isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: message.rawBody['caption_type'] == 'markdown'
+                          ? MarkdownBody(
+                              data:
+                                  (message.rawBody['caption'] as String).trim(),
+                              styleSheet: MarkdownStyleSheet.fromTheme(
+                                  Theme.of(context)),
+                              onTapLink: (text, href, title) {
+                                final uri = parseMarkdownLink(href);
+                                if (uri != null) {
+                                  unawaited(launchUrl(uri,
+                                      mode: LaunchMode.externalApplication));
+                                }
+                              })
+                          : FutureBuilder<List<Contact>>(
+                              future: contactsFuture,
+                              builder: (context, snapshot) => Text(
+                                  formatMentionText(
+                                      (message.rawBody['caption'] as String)
+                                          .trim(),
+                                      (snapshot.data ?? const <Contact>[]).map(
+                                          (contact) => (
+                                                id: contact.id,
+                                                name: contact.displayName
+                                              ))),
+                                  style: TextStyle(color: bubbleForeground))),
+                    ),
+                ],
+              ),
+            if (!revoked && message.contentType == 'choice')
+              _ChoiceOptions(
+                  options: _choiceOptions(options),
+                  selection: message.rawBody['selection'] == 'multiple'
+                      ? 'multiple'
+                      : 'single',
+                  choice: message.choice,
+                  canRespond: canRespond,
+                  onSubmit: (optionIds) => repository.submitChoice(
+                      conversationId, message.id, optionIds)),
+            if (!revoked && message.contentType == 'chart')
+              ChartPreview(body: message.rawBody),
+            if (!revoked &&
+                (message.contentType == 'object' ||
+                    message.contentType == 'chart'))
+              ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  title: Text(
+                      message.contentType == 'chart' ? '查看图表数据' : '查看对象详情'),
+                  children: [
+                    Align(
+                        alignment: Alignment.centerLeft,
+                        child: SelectableText(
+                            const JsonEncoder.withIndent('  ')
+                                .convert(message.rawBody),
+                            style: Theme.of(context).textTheme.bodySmall))
+                  ]),
+            if (!revoked && message.topic != null)
+              TopicReplyPreview(
+                  topic: message.topic!,
+                  contactsFuture: contactsFuture,
+                  onOpen: onOpenTopic),
+            if (!revoked && message.reactions.isNotEmpty)
+              Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Wrap(
+                      spacing: 4,
+                      runSpacing: 4,
+                      children: message.reactions
+                          .map((reaction) => GestureDetector(
+                              onLongPress: () =>
+                                  _showReactionUsers(context, reaction),
+                              child: ActionChip(
+                                  label: Text(
+                                      '${reaction.text} ${reaction.count}'),
+                                  visualDensity: VisualDensity.compact,
+                                  backgroundColor: reaction.reactedByMe
+                                      ? colors.primaryContainer
+                                      : null,
+                                  onPressed: canReact
+                                      ? () => repository.setReaction(
+                                          conversationId, message.id,
+                                          text: reaction.text,
+                                          reacted: !reaction.reactedByMe)
+                                      : null)))
+                          .toList())),
+            if (messageTime != null)
+              Align(
+                  alignment: Alignment.centerRight,
+                  child: Text(messageTime,
+                      key: ValueKey('message-time-${message.id}'),
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: bubbleForeground.withValues(alpha: .8))))
+          ])),
     );
   }
 
@@ -3686,21 +3855,22 @@ class _MessageBubble extends StatelessWidget {
       final referenceText = formatMessageReferenceText(
           target?.text ?? reply.text, labels,
           messageId: reply.id);
+      final foreground = _bubbleForeground(mine, colors);
       return Container(
         margin: const EdgeInsets.only(bottom: 6),
         padding: const EdgeInsets.fromLTRB(8, 5, 8, 5),
         decoration: BoxDecoration(
-          color: mine
-              ? colors.onPrimary.withValues(alpha: .16)
-              : colors.primary.withValues(alpha: .08),
-          border: Border(left: BorderSide(color: colors.primary, width: 3)),
+          color: foreground.withValues(alpha: .16),
+          border: Border(left: BorderSide(color: foreground, width: 3)),
           borderRadius: BorderRadius.circular(6),
         ),
         child: Text('回复 $author：$referenceText',
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: mine ? colors.onPrimary : colors.onSurfaceVariant)),
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: foreground)),
       );
     }
 

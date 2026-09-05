@@ -31,6 +31,7 @@ class CachedAvatar extends StatefulWidget {
 }
 
 class _CachedAvatarState extends State<CachedAvatar> {
+  static final _inFlight = <String, Future<Uint8List?>>{};
   final _cache = LocalAssetCache();
   Uint8List? _bytes;
 
@@ -43,6 +44,7 @@ class _CachedAvatarState extends State<CachedAvatar> {
   @override
   void initState() {
     super.initState();
+    _bytes = _cache.peek(_cacheKey);
     _startLoading();
   }
 
@@ -51,38 +53,46 @@ class _CachedAvatarState extends State<CachedAvatar> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.avatarUri != widget.avatarUri ||
         oldWidget.cacheScope != widget.cacheScope) {
-      _bytes = null;
+      _bytes = _cache.peek(_cacheKey);
       _startLoading();
     }
   }
 
   void _startLoading() {
-    if (widget.avatarUri == null) return;
+    if (widget.avatarUri == null || _bytes != null) return;
     unawaited(_load());
   }
 
   Future<void> _load() async {
-    Uint8List? cached;
+    final uri = widget.avatarUri;
+    if (uri == null) return;
+    final key = _cacheKey;
+    final future = _inFlight[key] ??= _loadBytes(key, uri);
     try {
-      cached = await _cache.read(_cacheKey);
-    } catch (_) {
-      cached = null;
+      final bytes = await future;
+      if (bytes != null && mounted && key == _cacheKey) {
+        setState(() => _bytes = bytes);
+      }
+    } finally {
+      if (identical(_inFlight[key], future)) _inFlight.remove(key);
     }
-    if (cached != null) {
-      if (mounted) setState(() => _bytes = cached);
-      return;
-    }
+  }
+
+  Future<Uint8List?> _loadBytes(String key, Uri uri) async {
     try {
-      final bytes = await widget.repository.downloadResource(widget.avatarUri!);
-      if (bytes == null || bytes.isEmpty) return;
+      final cached = await _cache.read(key);
+      if (cached != null) return cached;
+      final bytes = await widget.repository.downloadResource(uri);
+      if (bytes == null || bytes.isEmpty) return null;
       try {
-        await _cache.write(_cacheKey, bytes);
+        await _cache.write(key, bytes);
       } catch (_) {
         // 资源仍可直接显示，缓存目录不可写不阻断会话。
       }
-      if (mounted) setState(() => _bytes = bytes);
+      return bytes;
     } catch (_) {
       // 首屏仍使用 NetworkImage 作为在线回退，缓存失败不影响头像显示。
+      return null;
     }
   }
 

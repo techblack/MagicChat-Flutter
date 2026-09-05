@@ -2108,7 +2108,9 @@ class HttpMagicChatRepository implements MagicChatRepository {
     if (userIds is List) {
       final ids =
           userIds.whereType<String>().where((id) => id.isNotEmpty).toList();
-      result.addAll(await resolveUsers(ids.take(100).toList()));
+      // resolveUsers 会按服务端单次请求上限自动分块；不能在通讯录层
+      // 先截断，否则超过 100 人的组织会永远少显示后续联系人。
+      result.addAll(await resolveUsers(ids));
     }
     final mode = data['directory_mode'];
     if (mode != 'organization' && mode != 'friends') {

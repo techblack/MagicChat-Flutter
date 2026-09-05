@@ -19,6 +19,15 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
 }
 
+static gboolean window_delete_cb(GtkWidget* widget, GdkEvent* event,
+                                 gpointer user_data) {
+  (void)event;
+  (void)user_data;
+  // 关闭窗口时保留进程和实时连接，改为最小化到任务栏。
+  gtk_window_iconify(GTK_WINDOW(widget));
+  return TRUE;
+}
+
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
@@ -53,6 +62,17 @@ static void my_application_activate(GApplication* application) {
   }
 
   gtk_window_set_default_size(window, 1280, 720);
+  g_signal_connect(window, "delete-event", G_CALLBACK(window_delete_cb),
+                   self);
+  // Bundled SVG supplies a stable taskbar/dock icon for Linux distributions
+  // that do not install an icon theme entry for the application ID.
+  g_autofree gchar* executable = g_file_read_link("/proc/self/exe", nullptr);
+  if (executable != nullptr) {
+    g_autofree gchar* runner_dir = g_path_get_dirname(executable);
+    g_autofree gchar* icon_path =
+        g_build_filename(runner_dir, "data", "magicchat.svg", nullptr);
+    gtk_window_set_icon_from_file(window, icon_path, nullptr);
+  }
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(

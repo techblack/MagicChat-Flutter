@@ -6,6 +6,47 @@ import 'package:http/testing.dart';
 import 'package:magicchat_client/data/repository.dart';
 
 void main() {
+  test('通讯录超过 100 个用户时按分块解析完整联系人列表', () async {
+    final userIds = List.generate(205, (index) => 'user-$index');
+    final requests = <http.Request>[];
+    final repository = HttpMagicChatRepository(
+      serverUrl: 'https://chat.example.com',
+      sessionToken: 'test-token',
+      client: MockClient((request) async {
+        requests.add(request);
+        if (request.url.path == '/api/client/contacts') {
+          return http.Response(
+              jsonEncode({
+                'data': {
+                  'apps': [],
+                  'groups': [],
+                  'user_ids': userIds,
+                  'directory_mode': 'organization',
+                }
+              }),
+              200);
+        }
+        final ids =
+            (jsonDecode(request.body)['user_ids'] as List).cast<String>();
+        return http.Response(
+            jsonEncode({
+              'data': {
+                'users': [
+                  for (final id in ids) {'id': id, 'name': '成员 $id'}
+                ]
+              }
+            }),
+            200);
+      }),
+    );
+
+    final directory = await repository.contactDirectory();
+
+    expect(directory.contacts, hasLength(205));
+    expect(directory.contacts.last.id, 'user-204');
+    expect(requests.where((request) => request.method == 'POST'), hasLength(3));
+  });
+
   test('调用删除好友 API', () async {
     final requests = <http.BaseRequest>[];
     final repository = HttpMagicChatRepository(

@@ -47,6 +47,8 @@ class _MagicChatAppState extends State<MagicChatApp> {
   RealtimeSession? _realtime;
   final _realtimeStore = RealtimeStore();
   ThemeMode _themeMode = ThemeMode.system;
+  ChatAppearance _chatAppearance = const ChatAppearance();
+  final _conversationAppearances = <String, ChatConversationAppearance>{};
   String? _serverUrl;
   String? _loginError;
   bool _loading = true;
@@ -68,6 +70,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
         serverState.selectedServer.url;
     final token = await const SessionStore().readToken();
     final theme = prefs.getString('magicchat.theme');
+    final chatAppearance = await const ChatAppearancePreferences().readGlobal();
     if (!mounted) return;
     setState(() {
       _serverUrl = server;
@@ -85,6 +88,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
         'dark' => ThemeMode.dark,
         _ => ThemeMode.system,
       };
+      _chatAppearance = chatAppearance;
     });
     if (token != null) {
       unawaited(_registerPush(server, token));
@@ -242,6 +246,20 @@ class _MagicChatAppState extends State<MagicChatApp> {
     if (mounted) setState(() => _themeMode = mode);
   }
 
+  Future<void> _setChatAppearance(ChatAppearance appearance) async {
+    await const ChatAppearancePreferences().writeGlobal(appearance);
+    if (mounted) setState(() => _chatAppearance = appearance);
+  }
+
+  Future<void> _setConversationAppearance(
+      String conversationId, ChatConversationAppearance appearance) async {
+    await const ChatAppearancePreferences()
+        .writeConversation(conversationId, appearance);
+    if (mounted) {
+      setState(() => _conversationAppearances[conversationId] = appearance);
+    }
+  }
+
   Future<void> _changeServer(String server) async {
     final normalized = server.trim().replaceFirst(RegExp(r'/+$'), '');
     if (normalized.isEmpty) return;
@@ -371,7 +389,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
             colorScheme: ColorScheme.fromSeed(
-                seedColor: const Color(0xff3a76f0),
+                seedColor: _chatAppearance.skin.seedColor,
                 brightness: Brightness.light),
             scaffoldBackgroundColor: const Color(0xfff7f8fa),
             appBarTheme: const AppBarTheme(
@@ -402,7 +420,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
             useMaterial3: true),
         darkTheme: ThemeData(
             colorScheme: ColorScheme.fromSeed(
-                seedColor: const Color(0xff3a76f0),
+                seedColor: _chatAppearance.skin.seedColor,
                 brightness: Brightness.dark),
             scaffoldBackgroundColor: const Color(0xff17191c),
             appBarTheme: const AppBarTheme(
@@ -438,6 +456,10 @@ class _MagicChatAppState extends State<MagicChatApp> {
                     onLogout: _logout,
                     onDeactivateAccount: _deactivateAccount,
                     onThemeChanged: _setTheme,
+                    chatAppearance: _chatAppearance,
+                    conversationAppearances: _conversationAppearances,
+                    onChatAppearanceChanged: _setChatAppearance,
+                    onConversationAppearanceChanged: _setConversationAppearance,
                     themeMode: _themeMode),
       );
 }
@@ -1031,6 +1053,10 @@ class AppShell extends StatefulWidget {
       this.onLogout,
       this.onDeactivateAccount,
       this.onThemeChanged,
+      this.chatAppearance = const ChatAppearance(),
+      this.conversationAppearances = const {},
+      this.onChatAppearanceChanged,
+      this.onConversationAppearanceChanged,
       this.themeMode = ThemeMode.system,
       super.key});
   final MagicChatRepository repository;
@@ -1042,6 +1068,12 @@ class AppShell extends StatefulWidget {
   final Future<void> Function()? onLogout;
   final Future<void> Function(String code)? onDeactivateAccount;
   final ValueChanged<ThemeMode>? onThemeChanged;
+  final ChatAppearance chatAppearance;
+  final Map<String, ChatConversationAppearance> conversationAppearances;
+  final ValueChanged<ChatAppearance>? onChatAppearanceChanged;
+  final Future<void> Function(
+          String conversationId, ChatConversationAppearance appearance)?
+      onConversationAppearanceChanged;
   final ThemeMode themeMode;
   @override
   State<AppShell> createState() => _AppShellState();
@@ -1070,6 +1102,21 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   final _appBadge = const AppBadgeService();
   final _messageCacheStore = MessageCacheStore();
   final _handledNotificationRoutes = <String>{};
+  final _loadedConversationAppearances = <String, ChatConversationAppearance>{};
+
+  Future<void> _loadConversationAppearance(String conversationId) async {
+    if (conversationId.isEmpty ||
+        widget.conversationAppearances.containsKey(conversationId) ||
+        _loadedConversationAppearances.containsKey(conversationId)) return;
+    final appearance = await const ChatAppearancePreferences()
+        .readConversation(conversationId);
+    if (mounted &&
+        !widget.conversationAppearances.containsKey(conversationId) &&
+        !_loadedConversationAppearances.containsKey(conversationId)) {
+      setState(
+          () => _loadedConversationAppearances[conversationId] = appearance);
+    }
+  }
 
   @override
   void initState() {
@@ -1322,6 +1369,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
               realtimeStore: widget.realtimeStore,
               cacheScope: _messageCacheScope,
               sendMessageShortcut: _sendMessageShortcut,
+              chatAppearance: widget.chatAppearance,
+              conversationAppearance:
+                  widget.conversationAppearances[_selectedConversation] ??
+                      _loadedConversationAppearances[_selectedConversation],
+              onConversationAppearanceChanged:
+                  widget.onConversationAppearanceChanged,
               enableFileDrop: _index == 0,
               selectedId: _selectedConversation,
               focusMessageId: _focusMessageId,
@@ -1388,6 +1441,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           onSendMessageShortcutChanged: (shortcut) {
             setState(() => _sendMessageShortcut = shortcut);
           },
+          chatAppearance: widget.chatAppearance,
+          onChatAppearanceChanged: widget.onChatAppearanceChanged,
           themeMode: widget.themeMode,
           sendMessageShortcut: _sendMessageShortcut),
     ];
@@ -1487,6 +1542,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       _selectedConversation = id.isEmpty ? null : id;
       if (id.isNotEmpty) _index = 0;
     });
+    if (id.isNotEmpty) unawaited(_loadConversationAppearance(id));
   }
 
   void _openConversation(String id) {
@@ -1502,6 +1558,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       _selectedConversation = id;
       _index = 0;
     });
+    unawaited(_loadConversationAppearance(id));
   }
 
   void _openMessageFromSearch(
