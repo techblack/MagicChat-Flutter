@@ -225,8 +225,8 @@ class _ConversationViewState extends State<ConversationView>
 
   /// 返回当前消息实际所属的会话类型。
   ///
-  /// 话题消息本身的类型是 `topic`，需要沿用其父会话类型来决定头像
-  /// 点击行为（群聊进入私聊，私聊显示资料面板）。
+  /// 话题消息本身的类型是 `topic`，需要沿用其父会话类型判断是否支持
+  /// 一对一输入状态。
   String? get _conversationKind {
     final conversation = _conversation ??
         (widget.conversationId == null
@@ -237,8 +237,6 @@ class _ConversationViewState extends State<ConversationView>
     return conversation.topic?.parentConversationType ??
         _topicDetail?.conversation.topic?.parentConversationType;
   }
-
-  bool get _isGroupConversation => _conversationKind == 'group';
 
   bool get _supportsTypingStatus =>
       _conversationKind == 'direct' || _conversationKind == 'app';
@@ -1426,19 +1424,6 @@ class _ConversationViewState extends State<ConversationView>
     if (mounted) setState(() => _recording = false);
   }
 
-  Future<void> _openMemberConversation(Contact contact) async {
-    try {
-      final conversation =
-          await widget.repository.createDirectConversation(contact.id);
-      if (mounted) widget.onOpenConversation?.call(conversation.id);
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('无法打开私聊：$error')));
-      }
-    }
-  }
-
   bool _canReplyToMessage(String conversationId, ChatMessage message) =>
       _topicIsOpen(conversationId) &&
       !_isTopicConversation &&
@@ -1767,16 +1752,15 @@ class _ConversationViewState extends State<ConversationView>
                                     padding: _highlightedMessageId == message.id
                                         ? const EdgeInsets.all(2)
                                         : EdgeInsets.zero,
-                                    decoration:
-                                        _highlightedMessageId == message.id
-                                            ? BoxDecoration(
-                                                color: Theme.of(context)
-                                                    .colorScheme
-                                                    .primaryContainer
-                                                    .withValues(alpha: .65),
-                                                borderRadius:
-                                                    BorderRadius.circular(18))
-                                            : null,
+                                    decoration: _highlightedMessageId == message.id
+                                        ? BoxDecoration(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .primaryContainer
+                                                .withValues(alpha: .65),
+                                            borderRadius:
+                                                BorderRadius.circular(18))
+                                        : null,
                                     child: _MessageBubble(
                                         message: message,
                                         replyTarget:
@@ -1796,12 +1780,11 @@ class _ConversationViewState extends State<ConversationView>
                                             _showForwardDialog(
                                                 conversationId, [id]),
                                         contactsFuture: _contactsFuture,
-                                        isGroupConversation: _isGroupConversation,
-                                        onOpenMemberConversation: _openMemberConversation,
                                         onReeditMessage: _reeditMessage,
                                         cacheScope: widget.cacheScope,
                                         preloadedImages: _preloadedImages,
-                                        preloadedAttachmentUrls: _preloadedAttachmentUrls)),
+                                        preloadedAttachmentUrls:
+                                            _preloadedAttachmentUrls)),
                               ),
                             ),
                           ),
@@ -2823,8 +2806,6 @@ class _MessageBubble extends StatelessWidget {
       this.onOpenInternalLink,
       this.onForwardMessage,
       this.contactsFuture,
-      this.isGroupConversation = false,
-      this.onOpenMemberConversation,
       this.onReeditMessage,
       this.cacheScope,
       this.preloadedImages = const {},
@@ -2841,8 +2822,6 @@ class _MessageBubble extends StatelessWidget {
   final ValueChanged<String>? onOpenInternalLink;
   final Future<void> Function(String messageId)? onForwardMessage;
   final Future<List<Contact>>? contactsFuture;
-  final bool isGroupConversation;
-  final Future<void> Function(Contact contact)? onOpenMemberConversation;
   final ValueChanged<ChatMessage>? onReeditMessage;
   final MessageCacheScope? cacheScope;
   final Map<String, _CachedImageData> preloadedImages;
@@ -3035,9 +3014,8 @@ class _MessageBubble extends StatelessWidget {
                                 id: message.authorId!,
                                 name: _nonIdAuthor,
                               ));
-                    final canOpenProfile = snapshot.hasData &&
-                        avatarContact != null &&
-                        (avatarContact.type == 'user' || contact == null);
+                    final canOpenProfile =
+                        snapshot.hasData && avatarContact != null;
                     return Row(mainAxisSize: MainAxisSize.min, children: [
                       Semantics(
                         button: canOpenProfile,
@@ -3453,74 +3431,17 @@ class _MessageBubble extends StatelessWidget {
   }
 
   Future<void> _showContactPanel(BuildContext context, Contact contact) async {
-    final name = _contactName(contact) ?? (contact.type == 'app' ? '应用' : '成员');
-    final fields = <({String label, String value})>[
-      if (contact.name.trim().isNotEmpty &&
-          contact.name.trim() != contact.id.trim() &&
-          contact.name.trim() != name)
-        (label: '姓名', value: contact.name.trim()),
-      if (contact.nickname.trim().isNotEmpty &&
-          contact.nickname.trim() != contact.id.trim() &&
-          contact.nickname.trim() != name)
-        (label: '昵称', value: contact.nickname.trim()),
-      if (contact.email.trim().isNotEmpty)
-        (label: '邮箱', value: contact.email.trim()),
-      if (contact.phone.trim().isNotEmpty)
-        (label: '手机', value: contact.phone.trim()),
-    ];
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _avatar(context, contact, name),
-              const SizedBox(height: 10),
-              Text(name,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.titleLarge),
-              if (fields.isNotEmpty) ...[
-                const SizedBox(height: 16),
-                ...fields.map((field) => Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Row(children: [
-                        SizedBox(
-                            width: 48,
-                            child: Text(field.label,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
-                                    ?.copyWith(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .onSurfaceVariant))),
-                        const SizedBox(width: 12),
-                        Expanded(child: Text(field.value)),
-                      ]),
-                    )),
-              ],
-              const SizedBox(height: 12),
-              Text(contact.online ? '在线' : '离线',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: contact.online
-                          ? Colors.green.shade700
-                          : Theme.of(context).colorScheme.onSurfaceVariant)),
-              if (isGroupConversation && onOpenMemberConversation != null) ...[
-                const SizedBox(height: 12),
-                FilledButton.icon(
-                  onPressed: () async {
-                    Navigator.pop(sheetContext);
-                    await onOpenMemberConversation!(contact);
-                  },
-                  icon: const Icon(Icons.chat_bubble_outline),
-                  label: const Text('发消息'),
-                ),
-              ],
-            ],
-          ),
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EntityDetailsPage(
+          repository: repository,
+          contact: contact,
+          serverUrl: repository is HttpMagicChatRepository
+              ? (repository as HttpMagicChatRepository).baseUri.toString()
+              : null,
+          cacheScope: cacheScope,
+          onOpenConversation: onOpenTopic,
         ),
       ),
     );

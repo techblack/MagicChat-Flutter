@@ -37,7 +37,18 @@ class ContactCacheStore {
                 phone: '${item['phone'] ?? ''}',
                 avatar: '${item['avatar'] ?? ''}',
                 online: item['online'] == true,
-                type: item['type'] == 'app' ? 'app' : 'user',
+                type: item['type'] == 'app' || item['type'] == 'group'
+                    ? item['type'] as String
+                    : 'user',
+                role: '${item['role'] ?? 'member'}',
+                joined: item['joined'] == true,
+                memberCount: (item['member_count'] as num?)?.toInt() ?? 0,
+                visibility:
+                    item['visibility'] == 'public' ? 'public' : 'private',
+                description: '${item['description'] ?? ''}',
+                creatorUserId: item['creator_user_id'] is String
+                    ? item['creator_user_id'] as String
+                    : null,
               ))
           .where((contact) => contact.id.trim().isNotEmpty)
           .toList(growable: false);
@@ -79,6 +90,12 @@ class ContactCacheStore {
                   'avatar': contact.avatar,
                   'online': contact.online,
                   'type': contact.type,
+                  'role': contact.role,
+                  'joined': contact.joined,
+                  'member_count': contact.memberCount,
+                  'visibility': contact.visibility,
+                  'description': contact.description,
+                  'creator_user_id': contact.creatorUserId,
                 })
             .toList(growable: false)));
   }
@@ -94,7 +111,9 @@ class ContactCacheStore {
       role: next.role,
       joined: next.joined,
       memberCount: next.memberCount,
-      visibility: next.visibility);
+      visibility: next.visibility,
+      description: next.description.trim().isNotEmpty ? next.description : null,
+      creatorUserId: next.creatorUserId);
 
   Future<void> remember(
       MessageCacheScope? scope, Iterable<Contact> contacts) async {

@@ -1090,7 +1090,9 @@ class Contact {
       this.avatar = '',
       this.joined = false,
       this.memberCount = 0,
-      this.visibility = 'private'});
+      this.visibility = 'private',
+      this.description = '',
+      this.creatorUserId});
   final String id;
   final String name;
   final bool online;
@@ -1103,6 +1105,8 @@ class Contact {
   final bool joined;
   final int memberCount;
   final String visibility;
+  final String description;
+  final String? creatorUserId;
 
   String get displayName {
     final preferred = nickname.trim();
@@ -1128,6 +1132,8 @@ class Contact {
     bool? joined,
     int? memberCount,
     String? visibility,
+    String? description,
+    String? creatorUserId,
   }) =>
       Contact(
           id: id,
@@ -1141,7 +1147,9 @@ class Contact {
           avatar: avatar ?? this.avatar,
           joined: joined ?? this.joined,
           memberCount: memberCount ?? this.memberCount,
-          visibility: visibility ?? this.visibility);
+          visibility: visibility ?? this.visibility,
+          description: description ?? this.description,
+          creatorUserId: creatorUserId ?? this.creatorUserId);
 }
 
 class ContactDirectory {

@@ -1943,7 +1943,13 @@ class HttpMagicChatRepository implements MagicChatRepository {
           type: '${value['type'] ?? (apps.contains(value) ? 'app' : 'group')}',
           joined: value['joined'] == true,
           memberCount: (value['member_count'] as num?)?.toInt() ?? 0,
-          visibility: value['visibility'] == 'public' ? 'public' : 'private'));
+          visibility: value['visibility'] == 'public' ? 'public' : 'private',
+          description: value['description'] is String
+              ? value['description'] as String
+              : '',
+          creatorUserId: value['creator_user_id'] is String
+              ? value['creator_user_id'] as String
+              : null));
     }
     final userIds = data['user_ids'];
     if (userIds is List) {

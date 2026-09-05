@@ -30,6 +30,7 @@ import 'data/voice_recorder.dart';
 import 'data/avatar_processor.dart';
 import 'data/chat_preferences.dart';
 import 'features/contacts/contacts_page.dart';
+import 'features/contacts/entity_details_page.dart';
 import 'features/messages/collapsible_message_content.dart';
 import 'features/messages/conversation_announcement.dart';
 import 'features/messages/history_attachments_dialog.dart';

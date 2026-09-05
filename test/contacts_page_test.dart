@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/contacts/contacts_page.dart';
+import 'package:magicchat_client/features/contacts/entity_details_page.dart';
 
 void main() {
   testWidgets('好友模式可精确查找并发送申请', (tester) async {
@@ -70,8 +71,57 @@ void main() {
     expect(find.text('3 人 · 公开群组'), findsOneWidget);
     await tester.tap(find.text('公开群组'));
     await tester.pumpAndSettle();
+    expect(find.byType(EntityDetailsPage), findsOneWidget);
+    expect(repository.joinedGroupId, isNull);
+    await tester.tap(find.text('加入群聊'));
+    await tester.pumpAndSettle();
     expect(repository.joinedGroupId, 'group-public');
     expect(opened, 'group-public');
+  });
+
+  testWidgets('点击联系人先展示完整资料，再从资料页发起私聊', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    String? opened;
+    final repository = _UserDetailsRepository();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: ContactsPage(
+                repository: repository,
+                onOpenConversation: (id) => opened = id))));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(ListTile, 'Alice'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(EntityDetailsPage), findsOneWidget);
+    expect(find.text('联系人详情'), findsOneWidget);
+    expect(find.text('alice@example.com'), findsOneWidget);
+    expect(find.text('+8613800000000'), findsOneWidget);
+    expect(find.text('user-alice'), findsNothing);
+    expect(repository.directUserId, isNull);
+
+    await tester.tap(find.text('发消息'));
+    await tester.pumpAndSettle();
+    expect(repository.directUserId, 'user-alice');
+    expect(opened, 'direct-alice');
+  });
+
+  testWidgets('应用资料展示描述、开发者和在线状态', (tester) async {
+    final repository = _AppDetailsRepository();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: ContactsPage(repository: repository))));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(ListTile, '智能助手'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('应用详情'), findsOneWidget);
+    expect(find.text('帮助整理会话'), findsOneWidget);
+    expect(find.text('开发者'), findsOneWidget);
+    expect(find.text('开发者小王'), findsOneWidget);
+    expect(find.text('在线'), findsOneWidget);
+    expect(find.text('app-assistant'), findsNothing);
   });
 
   testWidgets('联系人列表支持下拉刷新', (tester) async {
@@ -191,6 +241,53 @@ class _GroupRepository extends DemoRepository {
     joinedGroupId = conversationId;
     return ChatConversation(id: conversationId, title: '公开群组', type: 'group');
   }
+}
+
+class _UserDetailsRepository extends DemoRepository {
+  String? directUserId;
+
+  @override
+  Future<ContactDirectory> contactDirectory({String keyword = ''}) async =>
+      const ContactDirectory(
+          contacts: [Contact(id: 'user-alice', name: 'Alice')],
+          mode: 'organization');
+
+  @override
+  Future<List<Contact>> resolveUsers(List<String> userIds) async => const [
+        Contact(
+          id: 'user-alice',
+          name: 'Alice',
+          nickname: '小爱',
+          email: 'alice@example.com',
+          phone: '+8613800000000',
+        ),
+      ];
+
+  @override
+  Future<ChatConversation> createDirectConversation(String userId) async {
+    directUserId = userId;
+    return const ChatConversation(id: 'direct-alice', title: 'Alice');
+  }
+}
+
+class _AppDetailsRepository extends DemoRepository {
+  @override
+  Future<ContactDirectory> contactDirectory({String keyword = ''}) async =>
+      const ContactDirectory(contacts: [
+        Contact(
+          id: 'app-assistant',
+          name: '智能助手',
+          type: 'app',
+          online: true,
+          description: '帮助整理会话',
+          creatorUserId: 'user-creator',
+        ),
+      ], mode: 'organization');
+
+  @override
+  Future<List<Contact>> resolveUsers(List<String> userIds) async => const [
+        Contact(id: 'user-creator', name: '开发者小王'),
+      ];
 }
 
 class _RefreshContactsRepository extends DemoRepository {

@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:magicchat_client/data/repository.dart';
-import 'package:magicchat_client/domain/models.dart';
 
 void main() {
   test('调用删除好友 API', () async {
@@ -88,7 +87,16 @@ void main() {
       client: MockClient((request) async => http.Response(
           jsonEncode({
             'data': {
-              'apps': [],
+              'apps': [
+                {
+                  'id': 'app-assistant',
+                  'name': 'Assistant',
+                  'type': 'app',
+                  'description': 'Conversation helper',
+                  'creator_user_id': 'user-creator',
+                  'online': true,
+                }
+              ],
               'groups': [
                 {
                   'id': 'group-public',
@@ -110,10 +118,15 @@ void main() {
 
     expect(directory.mode, 'friends');
     expect(directory.supportsFriendManagement, isTrue);
-    expect(directory.contacts.single, isA<Contact>());
-    expect(directory.contacts.single.joined, isFalse);
-    expect(directory.contacts.single.memberCount, 3);
-    expect(directory.contacts.single.visibility, 'public');
+    final group =
+        directory.contacts.where((item) => item.type == 'group').single;
+    final app = directory.contacts.where((item) => item.type == 'app').single;
+    expect(group.joined, isFalse);
+    expect(group.memberCount, 3);
+    expect(group.visibility, 'public');
+    expect(app.description, 'Conversation helper');
+    expect(app.creatorUserId, 'user-creator');
+    expect(app.online, isTrue);
   });
 
   test('通讯录搜索会将关键词编码到查询参数', () async {
