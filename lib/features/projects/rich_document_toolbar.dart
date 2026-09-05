@@ -15,6 +15,7 @@ class RichDocumentToolbar extends StatelessWidget {
     this.onUndo,
     this.onRedo,
     this.onInsertTable,
+    this.onInsertImage,
     super.key,
   });
 
@@ -25,6 +26,7 @@ class RichDocumentToolbar extends StatelessWidget {
   final VoidCallback? onUndo;
   final VoidCallback? onRedo;
   final VoidCallback? onInsertTable;
+  final VoidCallback? onInsertImage;
 
   @override
   Widget build(BuildContext context) => Semantics(
@@ -68,6 +70,11 @@ class RichDocumentToolbar extends StatelessWidget {
                       tooltip: '插入表格',
                       onPressed: enabled ? onInsertTable : null,
                       icon: const Icon(Icons.table_chart_outlined, size: 20)),
+                  IconButton(
+                      tooltip: '插入图片',
+                      onPressed: enabled ? onInsertImage : null,
+                      icon: const Icon(Icons.add_photo_alternate_outlined,
+                          size: 20)),
                 ],
               ),
             ),

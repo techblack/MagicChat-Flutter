@@ -16,6 +16,8 @@ class RichDocumentView extends StatelessWidget {
     this.onSelectText,
     this.onTextChanged,
     this.onEditText,
+    this.imageUrlResolver,
+    this.onEditImage,
     super.key,
   });
 
@@ -24,6 +26,8 @@ class RichDocumentView extends StatelessWidget {
   final ValueChanged<yjs.YXmlText?>? onSelectText;
   final void Function(yjs.YXmlText node, String value)? onTextChanged;
   final ValueChanged<yjs.YXmlText>? onEditText;
+  final Future<Uri?> Function(String fileId)? imageUrlResolver;
+  final ValueChanged<yjs.YXmlElement>? onEditImage;
 
   @override
   Widget build(BuildContext context) {
@@ -300,21 +304,67 @@ class RichDocumentView extends StatelessWidget {
 
   Widget _image(BuildContext context, yjs.YXmlElement node) {
     final external = node.getAttribute('externalUrl');
-    final url = external is String ? parseExternalWebUri(external) : null;
+    final externalUrl =
+        external is String ? parseExternalWebUri(external) : null;
+    final url = externalUrl?.scheme == 'https' ? externalUrl : null;
+    final rawFileId = node.getAttribute('fileId');
+    final fileId = rawFileId is String && rawFileId.trim().isNotEmpty
+        ? rawFileId.trim()
+        : null;
     final alt = node.getAttribute('alt') is String
         ? (node.getAttribute('alt') as String).trim()
         : '';
     final label = alt.isNotEmpty ? alt : '图片';
-    final width = (node.getAttribute('width') as num?)?.toDouble();
-    final image = url == null
+    final rawWidth = node.getAttribute('width');
+    final width =
+        rawWidth is num ? ((rawWidth / 5).round() * 5).clamp(20, 100) : 100;
+    final alignment = switch (node.getAttribute('alignment')) {
+      'left' => Alignment.centerLeft,
+      'right' => Alignment.centerRight,
+      _ => Alignment.center,
+    };
+    Widget source(Uri? value) => value == null
         ? _imagePlaceholder(context, label)
-        : Image.network(url.toString(),
-            width: width?.clamp(48, 640).toDouble(),
+        : Image.network(value.toString(),
             fit: BoxFit.contain,
             errorBuilder: (_, __, ___) => _imagePlaceholder(context, label));
+    final image = url != null
+        ? source(url)
+        : fileId != null && imageUrlResolver != null
+            ? FutureBuilder<Uri?>(
+                future: imageUrlResolver!(fileId),
+                builder: (context, snapshot) =>
+                    snapshot.connectionState == ConnectionState.waiting &&
+                            !snapshot.hasData
+                        ? const Center(child: CircularProgressIndicator())
+                        : source(snapshot.data))
+            : source(null);
+    final content = LayoutBuilder(
+      builder: (context, constraints) => Align(
+        alignment: alignment,
+        child: SizedBox(
+          key: ValueKey(
+              'rich-document-image-frame-${fileId ?? external ?? 'empty'}'),
+          width: constraints.maxWidth * width / 100,
+          child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 72), child: image),
+        ),
+      ),
+    );
     return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Semantics(label: label, image: true, child: image));
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Semantics(
+        label: onEditImage == null ? label : '设置图片：$label',
+        image: true,
+        button: onEditImage != null,
+        child: InkWell(
+          key: ValueKey('rich-document-image-${fileId ?? external ?? 'empty'}'),
+          onTap: onEditImage == null ? null : () => onEditImage!(node),
+          borderRadius: BorderRadius.circular(10),
+          child: content,
+        ),
+      ),
+    );
   }
 
   Widget _imagePlaceholder(BuildContext context, String label) => Container(

@@ -294,7 +294,8 @@ class _FriendManagementDialogState extends State<FriendManagementDialog> {
           child: const Text('取消申请'));
     }
     return _FriendTile(
-        user: user ?? Contact(id: request.userId, name: request.userId),
+        // 好友资料暂时不可用时也不要把内部用户 ID 直接展示给用户。
+        user: user ?? Contact(id: request.userId, name: '成员'),
         subtitle: entry.incoming ? '请求添加你为好友' : '你发出了好友申请',
         trailing: trailing);
   }

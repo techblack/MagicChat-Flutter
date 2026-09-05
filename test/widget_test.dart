@@ -378,6 +378,9 @@ void main() {
     final topBar = find.byKey(const ValueKey('conversation-wide-top-bar'));
     expect(topBar, findsOneWidget);
     expect(tester.getSize(topBar).width, 1000);
+    final header = find.byKey(const ValueKey('conversation-header-background'));
+    expect(header, findsOneWidget);
+    expect(tester.getSize(header).width, 1000);
   });
 
   testWidgets('阅读历史时提示新消息并可回到最新', (tester) async {

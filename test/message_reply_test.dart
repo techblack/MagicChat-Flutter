@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:magicchat_client/data/repository.dart';
+import 'package:magicchat_client/domain/models.dart';
 
 void main() {
   test('文本消息按服务端契约携带 reply_to_message_id', () async {
@@ -102,6 +103,24 @@ void main() {
     expect(message.replyTo?.id, 'message-1');
     expect(message.replyTo?.text, '[消息]');
     expect(message.author, '成员');
+  });
+
+  test('引用摘要为消息 ID 时优先读取嵌套正文和联系人资料', () {
+    final reply = MessageReply.fromJson({
+      'id': 'message-1',
+      'summary': 'message-1',
+      'sender': {'id': 'user-1', 'nickname': '小爱'},
+      'seq': 1,
+      'message': {
+        'body': {'type': 'text', 'content': '原消息正文'},
+      },
+    });
+
+    expect(reply.id, 'message-1');
+    expect(reply.author, '小爱');
+    expect(reply.authorId, 'user-1');
+    expect(reply.sequence, 1);
+    expect(reply.text, '原消息正文');
   });
 
   test('历史撤回消息使用撤回占位，不读取缺失正文', () async {

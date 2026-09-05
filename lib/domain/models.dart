@@ -746,6 +746,73 @@ class MessageReply {
   final String text;
   final String? authorId;
   final int? sequence;
+
+  /// 兼容历史接口的多种引用结构。
+  ///
+  /// 新接口通常返回 `sender`、`summary` 和 `seq`，旧接口有时只返回
+  /// `reply_to_message_id`，也有实现把完整消息放在 `message` 子对象中。
+  /// 统一在模型层提取可读摘要，避免各个展示入口把原始 ID 当正文显示。
+  factory MessageReply.fromJson(Map<String, dynamic> value) {
+    Map<String, dynamic>? asMap(Object? raw) =>
+        raw is Map ? Map<String, dynamic>.from(raw) : null;
+    final payload = asMap(value['message']) ?? value;
+    final rawId = value['id'] ?? value['message_id'] ?? payload['id'];
+    final id = rawId is String ? rawId.trim() : '';
+    if (id.isEmpty) {
+      throw const FormatException('引用消息响应格式不正确');
+    }
+
+    final sender = asMap(value['sender']) ?? asMap(payload['sender']);
+    final senderId = value['author_id'] is String
+        ? value['author_id'] as String
+        : sender?['id'] is String
+            ? sender!['id'] as String
+            : null;
+    final directAuthor = value['author'] ?? value['display_name'];
+    final nickname = sender?['nickname'];
+    final senderName = sender?['name'];
+    final author = directAuthor is String &&
+            directAuthor.trim().isNotEmpty &&
+            directAuthor.trim() != id
+        ? directAuthor.trim()
+        : nickname is String && nickname.trim().isNotEmpty
+            ? nickname.trim()
+            : senderName is String && senderName.trim().isNotEmpty
+                ? senderName.trim()
+                : '用户';
+
+    final body = asMap(value['body']) ?? asMap(payload['body']);
+    final candidates = <Object?>[
+      value['summary'],
+      value['text'],
+      value['content'],
+      body?['content'],
+      payload['summary'],
+      payload['text'],
+      payload['content'],
+    ];
+    final text = candidates
+        .whereType<String>()
+        .map((item) => item.trim())
+        .firstWhere(
+            (item) => item.isNotEmpty && item.toLowerCase() != id.toLowerCase(),
+            orElse: () => '');
+    final rawSequence = value['seq'] ?? value['sequence'] ?? payload['seq'];
+    final sequence = rawSequence is num &&
+            rawSequence.isFinite &&
+            rawSequence == rawSequence.truncateToDouble()
+        ? rawSequence.toInt()
+        : null;
+    return MessageReply(
+      id: id,
+      author: author == id ? '成员' : author,
+      authorId: senderId,
+      sequence: sequence,
+      text: text.isEmpty || text.toLowerCase() == id.toLowerCase()
+          ? '[消息]'
+          : text,
+    );
+  }
 }
 
 /// 消息对应的话题摘要，附加在父会话中的来源消息上。
@@ -855,6 +922,13 @@ class AttachmentUpload {
   final String name;
   final String mimeType;
   final Uint8List? bytes;
+}
+
+class UploadedTemporaryFile {
+  const UploadedTemporaryFile({required this.id, required this.sizeBytes});
+
+  final String id;
+  final int sizeBytes;
 }
 
 class ConversationAttachment {

@@ -12,6 +12,7 @@ import '../messages/send_card_dialog.dart';
 import 'markdown_editor_toolbar.dart';
 import 'rich_document_view.dart';
 import 'rich_document_toolbar.dart';
+import 'rich_document_image_dialog.dart';
 import 'rich_table_size_picker.dart';
 
 class DocumentEditorPage extends StatefulWidget {
@@ -38,6 +39,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
   bool _saving = false;
   bool _reconnecting = false;
   yjs.YXmlText? _selectedRichText;
+  final Map<String, Future<Uri?>> _documentImageUrls = {};
 
   @override
   void initState() {
@@ -323,6 +325,47 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     if (firstCell != null) setState(() => _selectedRichText = firstCell);
   }
 
+  Future<void> _insertRichImage() async {
+    final session = widget.collaboration;
+    if (session == null ||
+        session.status != DocumentCollaborationStatus.synced) {
+      return;
+    }
+    final image = session.insertDocumentImage(near: _selectedRichText);
+    if (image == null) return;
+    setState(() => _selectedRichText = null);
+    await _editRichImage(image);
+  }
+
+  Future<void> _editRichImage(yjs.YXmlElement image) async {
+    final session = widget.collaboration;
+    if (session == null ||
+        session.status != DocumentCollaborationStatus.synced) {
+      return;
+    }
+    final result = await showDialog<RichDocumentImageDialogResult>(
+      context: context,
+      builder: (_) => RichDocumentImageDialog(
+          repository: widget.repository,
+          initialValue: session.documentImageAttributes(image)),
+    );
+    if (!mounted || result == null) return;
+    if (result.deleted) {
+      session.deleteDocumentImage(image);
+      setState(() => _selectedRichText = null);
+      return;
+    }
+    final attributes = result.attributes;
+    if (attributes != null && session.updateDocumentImage(image, attributes)) {
+      final fileId = attributes.fileId;
+      if (fileId != null) _documentImageUrls.remove(fileId);
+      setState(() {});
+    }
+  }
+
+  Future<Uri?> _resolveDocumentImage(String fileId) => _documentImageUrls
+      .putIfAbsent(fileId, () => widget.repository.attachmentUrl(fileId));
+
   @override
   Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(
@@ -401,6 +444,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                     onUndo: _undoRichDocument,
                     onRedo: _redoRichDocument,
                     onInsertTable: _insertRichTable,
+                    onInsertImage: _insertRichImage,
                     onInsert: (type) =>
                         unawaited(_appendBlock(initialType: type))),
                 if (_selectedRichText case final selected?
@@ -436,6 +480,11 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                         onTextChanged: widget.collaboration!.status ==
                                 DocumentCollaborationStatus.synced
                             ? _updateRichText
+                            : null,
+                        imageUrlResolver: _resolveDocumentImage,
+                        onEditImage: widget.collaboration!.status ==
+                                DocumentCollaborationStatus.synced
+                            ? (image) => unawaited(_editRichImage(image))
                             : null,
                         onEditText: _editTextNode)),
               ])
