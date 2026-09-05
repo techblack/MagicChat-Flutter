@@ -8,7 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  testWidgets('群聊点击成员头像先显示资料卡，可从卡片发起私聊', (tester) async {
+  testWidgets('群聊点击成员头像打开资料页，可从资料页发起私聊', (tester) async {
     final repository = _AvatarRepository(type: 'group');
     await tester.pumpWidget(MaterialApp(
         home: Scaffold(
@@ -19,6 +19,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('message-avatar-message-1')));
     await tester.pumpAndSettle();
 
+    expect(find.text('联系人详情'), findsOneWidget);
     expect(find.text('alice@example.com'), findsOneWidget);
     expect(find.text('小爱'), findsWidgets);
     expect(repository.directUserId, isNull);
@@ -28,7 +29,7 @@ void main() {
     expect(repository.directUserId, 'user-1');
   });
 
-  testWidgets('私聊点击成员头像显示资料面板', (tester) async {
+  testWidgets('私聊点击成员头像显示完整资料页', (tester) async {
     await tester.pumpWidget(MaterialApp(
         home: Scaffold(
             body: ConversationView(

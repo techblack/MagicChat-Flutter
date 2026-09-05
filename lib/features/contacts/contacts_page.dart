@@ -9,6 +9,7 @@ import '../../data/message_cache_store.dart';
 import '../../domain/models.dart';
 import '../shared/cached_avatar.dart';
 import 'applications_page.dart';
+import 'entity_details_page.dart';
 import 'friend_management_dialog.dart';
 
 Uri? _contactAvatarUri(String? serverUrl, String value) {
@@ -111,7 +112,7 @@ class _ContactsPageState extends State<ContactsPage> {
     _openedInitialContactId = id;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        unawaited(_openConversation(target).whenComplete(() {
+        unawaited(_openContactDetails(target).whenComplete(() {
           widget.onInitialContactOpened?.call();
         }));
       }
@@ -274,30 +275,25 @@ class _ContactsPageState extends State<ContactsPage> {
                             ? Colors.green
                             : Theme.of(context).colorScheme.outlineVariant,
                         shape: BoxShape.circle)),
-            onTap: () => _openConversation(contact),
+            onTap: () => _openContactDetails(contact),
           );
         },
       ),
     );
   }
 
-  Future<void> _openConversation(Contact contact) async {
-    try {
-      final conversation = contact.type == 'app'
-          ? await widget.repository.createAppConversation(contact.id)
-          : contact.type == 'user'
-              ? await widget.repository.createDirectConversation(contact.id)
-              : contact.joined
-                  ? ChatConversation(id: contact.id, title: contact.displayName)
-                  : await widget.repository.joinGroupConversation(contact.id);
-      if (mounted) widget.onOpenConversation?.call(conversation.id);
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('无法打开会话：$error')));
-      }
-    }
-  }
+  Future<void> _openContactDetails(Contact contact) => Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => EntityDetailsPage(
+            repository: widget.repository,
+            contact: contact,
+            serverUrl: widget.serverUrl,
+            cacheScope: widget.cacheScope,
+            onOpenConversation: widget.onOpenConversation,
+          ),
+        ),
+      );
 
   Future<void> _showFriendManagement(ContactDirectory directory) async {
     await showDialog<void>(
