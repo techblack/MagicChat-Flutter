@@ -1315,6 +1315,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           : MessagesPage(
               repository: _repository,
               serverUrl: widget.serverUrl,
+              realtimeSession: widget.realtime,
               realtimeStore: widget.realtimeStore,
               cacheScope: _messageCacheScope,
               sendMessageShortcut: _sendMessageShortcut,

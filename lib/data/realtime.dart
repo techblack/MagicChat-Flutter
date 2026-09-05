@@ -32,9 +32,17 @@ class MagicChatRealtime {
     });
   }
 
+  Future<void> send(Map<String, dynamic> envelope) async {
+    final channel = _channel;
+    if (channel == null) throw StateError('实时连接尚未建立');
+    await channel.ready;
+    channel.sink.add(jsonEncode(envelope));
+  }
+
   Future<void> close() async {
-    await _channel?.sink.close();
+    final channel = _channel;
     _channel = null;
+    await channel?.sink.close();
   }
 
   static Uri _buildUri(String serverUrl) {
@@ -59,11 +67,14 @@ class RealtimeSession {
   final MagicChatRealtime realtime;
   final List<int> delays;
   final _events = StreamController<Map<String, dynamic>>.broadcast();
+  final _pendingRequests = <String, _PendingRealtimeRequest>{};
   StreamSubscription<Map<String, dynamic>>? _subscription;
   Timer? _retry;
   RealtimeStatus status = RealtimeStatus.disconnected;
+  bool ready = false;
   int _cursor = 0;
   int _attempt = 0;
+  int _requestSequence = 0;
   bool _closed = false;
 
   Stream<Map<String, dynamic>> get events => _events.stream;
@@ -77,6 +88,7 @@ class RealtimeSession {
 
   Future<void> _open() async {
     if (_closed) return;
+    ready = false;
     status =
         _attempt == 0 ? RealtimeStatus.connecting : RealtimeStatus.reconnecting;
     await _subscription?.cancel();
@@ -93,13 +105,70 @@ class RealtimeSession {
   }
 
   void _onEvent(Map<String, dynamic> event) {
+    final replyTo = event['reply_to'];
+    if ((event['kind'] == 'response' || replyTo is String) &&
+        replyTo is String) {
+      final pending = _pendingRequests.remove(replyTo);
+      if (pending == null) return;
+      pending.timer.cancel();
+      if (event['ok'] == true) {
+        pending.completer.complete(event['payload']);
+      } else {
+        final error = event['error'];
+        final message = error is Map<String, dynamic> &&
+                error['message'] is String &&
+                (error['message'] as String).trim().isNotEmpty
+            ? (error['message'] as String).trim()
+            : '实时请求失败';
+        pending.completer.completeError(RealtimeRequestException(message));
+      }
+      return;
+    }
     final cursor = event['cursor'];
     if (cursor is num && cursor.toInt() > _cursor) _cursor = cursor.toInt();
+    if (event['event'] == 'system.ready') ready = true;
     _events.add(event);
+  }
+
+  Future<dynamic> sendRequest(String method, Map<String, dynamic> payload,
+      {Duration timeout = const Duration(seconds: 10)}) async {
+    if (_closed || !ready || status != RealtimeStatus.connected) {
+      throw StateError('实时连接尚未就绪');
+    }
+    final requestId =
+        'flutter-${DateTime.now().microsecondsSinceEpoch}-${_requestSequence++}';
+    final completer = Completer<dynamic>();
+    final timer = Timer(timeout, () {
+      final pending = _pendingRequests.remove(requestId);
+      if (pending != null && !pending.completer.isCompleted) {
+        pending.completer.completeError(TimeoutException('实时请求超时', timeout));
+      }
+    });
+    _pendingRequests[requestId] = _PendingRealtimeRequest(completer, timer);
+    try {
+      await realtime.send({
+        'v': 1,
+        'kind': 'request',
+        'id': requestId,
+        'method': method,
+        'payload': payload,
+      });
+    } catch (error, stackTrace) {
+      final pending = _pendingRequests.remove(requestId);
+      pending?.timer.cancel();
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+    return completer.future;
   }
 
   void _scheduleRetry() {
     if (_closed || _retry?.isActive == true) return;
+    ready = false;
+    _rejectPending(StateError('实时连接已断开'));
+    _events.add(const {
+      'event': 'system.connection_lost',
+      'payload': <String, dynamic>{},
+    });
     status = RealtimeStatus.reconnecting;
     final delay = delays.isEmpty
         ? 1000
@@ -110,10 +179,38 @@ class RealtimeSession {
 
   Future<void> close() async {
     _closed = true;
+    ready = false;
     _retry?.cancel();
+    _rejectPending(StateError('实时连接已关闭'));
     await _subscription?.cancel();
     await realtime.close();
     status = RealtimeStatus.disconnected;
     await _events.close();
   }
+
+  void _rejectPending(Object error) {
+    for (final pending in _pendingRequests.values) {
+      pending.timer.cancel();
+      if (!pending.completer.isCompleted) {
+        pending.completer.completeError(error);
+      }
+    }
+    _pendingRequests.clear();
+  }
+}
+
+class RealtimeRequestException implements Exception {
+  const RealtimeRequestException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+class _PendingRealtimeRequest {
+  const _PendingRealtimeRequest(this.completer, this.timer);
+
+  final Completer<dynamic> completer;
+  final Timer timer;
 }

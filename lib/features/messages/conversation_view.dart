@@ -20,6 +20,7 @@ String? formatMessageTime(String value, {DateTime? now}) {
 class ConversationView extends StatefulWidget {
   const ConversationView(
       {required this.repository,
+      this.realtimeSession,
       this.realtimeStore,
       this.cacheScope,
       this.messageCacheStore,
@@ -32,6 +33,7 @@ class ConversationView extends StatefulWidget {
       this.onMessageFocused,
       super.key});
   final MagicChatRepository repository;
+  final RealtimeSession? realtimeSession;
   final RealtimeStore? realtimeStore;
   final MessageCacheScope? cacheScope;
   final MessageCacheStore? messageCacheStore;
@@ -46,7 +48,8 @@ class ConversationView extends StatefulWidget {
   State<ConversationView> createState() => _ConversationViewState();
 }
 
-class _ConversationViewState extends State<ConversationView> {
+class _ConversationViewState extends State<ConversationView>
+    with WidgetsBindingObserver {
   static const _maxSelectedMessages = 50;
   static const _maxForwardTargets = 20;
   static const _messageTapSlop = 18.0;
@@ -110,6 +113,8 @@ class _ConversationViewState extends State<ConversationView> {
   Offset? _lastMessageTapPosition;
   Offset? _messagePointerDownPosition;
   bool _messagePointerMoved = false;
+  Timer? _typingHeartbeat;
+  bool _typingStatusInFlight = false;
 
   bool get _topicArchived =>
       _conversation?.topic?.archived == true ||
@@ -152,6 +157,9 @@ class _ConversationViewState extends State<ConversationView> {
 
   bool get _isGroupConversation => _conversationKind == 'group';
 
+  bool get _supportsTypingStatus =>
+      _conversationKind == 'direct' || _conversationKind == 'app';
+
   bool _canForwardOrSelect(ChatMessage message) =>
       _forwardableMessageTypes.contains(message.contentType);
 
@@ -163,6 +171,7 @@ class _ConversationViewState extends State<ConversationView> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     final id = widget.conversationId;
     if (id != null) _conversation = widget.realtimeStore?.conversations[id];
     _historyMode = widget.focusMessageId != null;
@@ -171,6 +180,7 @@ class _ConversationViewState extends State<ConversationView> {
     _seenRealtimeMessageIds.addAll(_realtimeConversationMessages());
     _scrollController.addListener(_onScroll);
     _controller.addListener(_persistDraft);
+    _composerFocusNode.addListener(_onComposerFocusChanged);
     widget.realtimeStore?.addListener(_onRealtimeChanged);
     _readRetryTimer = Timer.periodic(const Duration(seconds: 20), (_) {
       final id = widget.conversationId;
@@ -328,6 +338,7 @@ class _ConversationViewState extends State<ConversationView> {
       _conversation = conversation;
       _canSend = conversation.canSend;
     });
+    if (_composerFocusNode.hasFocus) _startTypingHeartbeat();
   }
 
   Future<void> _loadTopicDetail(String id) async {
@@ -675,7 +686,71 @@ class _ConversationViewState extends State<ConversationView> {
       }
       if (!canSend) _replyTo = null;
     });
+    if (!canSend) _stopTypingHeartbeat();
     if (cancelRecording) unawaited(_cancelRecording());
+  }
+
+  void _onComposerFocusChanged() {
+    if (_composerFocusNode.hasFocus) {
+      _startTypingHeartbeat();
+    } else {
+      _stopTypingHeartbeat();
+    }
+  }
+
+  void _startTypingHeartbeat() {
+    _typingHeartbeat?.cancel();
+    _typingHeartbeat = null;
+    final conversationId = widget.conversationId;
+    if (!_composerFocusNode.hasFocus ||
+        conversationId == null ||
+        widget.realtimeSession == null ||
+        !_supportsTypingStatus ||
+        !_conversationCanSend(conversationId)) {
+      return;
+    }
+    unawaited(_sendTypingStatus());
+    _typingHeartbeat = Timer.periodic(
+        const Duration(seconds: 3), (_) => unawaited(_sendTypingStatus()));
+  }
+
+  void _stopTypingHeartbeat() {
+    _typingHeartbeat?.cancel();
+    _typingHeartbeat = null;
+  }
+
+  Future<void> _sendTypingStatus() async {
+    final conversationId = widget.conversationId;
+    final realtime = widget.realtimeSession;
+    if (_typingStatusInFlight ||
+        conversationId == null ||
+        realtime == null ||
+        !realtime.ready ||
+        !_composerFocusNode.hasFocus ||
+        !_supportsTypingStatus ||
+        !_conversationCanSend(conversationId)) {
+      return;
+    }
+    _typingStatusInFlight = true;
+    try {
+      await realtime.sendRequest('conversation.status', {
+        'conversation_id': conversationId,
+        'status': '正在输入',
+      });
+    } catch (_) {
+      // 状态心跳失败不影响消息输入，下一个周期会自动重试。
+    } finally {
+      _typingStatusInFlight = false;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startTypingHeartbeat();
+    } else {
+      _stopTypingHeartbeat();
+    }
   }
 
   void _requestLatestRead(String conversationId, [List<ChatMessage>? source]) {
@@ -914,6 +989,8 @@ class _ConversationViewState extends State<ConversationView> {
       widget.realtimeStore?.addListener(_onRealtimeChanged);
     }
     if (oldWidget.conversationId != widget.conversationId) {
+      _stopTypingHeartbeat();
+      _composerFocusNode.unfocus();
       _highlightTimer?.cancel();
       if (_recording) unawaited(_cancelRecording());
       _olderMessages.clear();
@@ -945,6 +1022,11 @@ class _ConversationViewState extends State<ConversationView> {
       _contactsFuture = _loadConversationContacts();
       _controller.clear();
       unawaited(_restoreDraft());
+    }
+    if (oldWidget.realtimeSession != widget.realtimeSession &&
+        oldWidget.conversationId == widget.conversationId &&
+        _composerFocusNode.hasFocus) {
+      _startTypingHeartbeat();
     }
     if (oldWidget.cacheScope != widget.cacheScope) {
       _olderMessages.clear();
@@ -988,11 +1070,14 @@ class _ConversationViewState extends State<ConversationView> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     widget.realtimeStore?.removeListener(_onRealtimeChanged);
+    _stopTypingHeartbeat();
     _readRetryTimer?.cancel();
     _highlightTimer?.cancel();
     _persistDraft();
     _controller.removeListener(_persistDraft);
+    _composerFocusNode.removeListener(_onComposerFocusChanged);
     _controller.dispose();
     _composerFocusNode.dispose();
     _scrollController.dispose();

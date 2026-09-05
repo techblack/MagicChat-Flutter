@@ -1,12 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import '../domain/message_content.dart';
 import '../domain/models.dart';
 
 /// 将 WebSocket envelope 投影为可观察状态；以消息 ID/cursor 去重，允许重复和乱序事件。
 class RealtimeStore extends ChangeNotifier {
+  RealtimeStore({this.conversationStatusTtl = const Duration(seconds: 5)});
+
+  final Duration conversationStatusTtl;
   final conversations = <String, ChatConversation>{};
   final messages = <String, ChatMessage>{};
   final contacts = <String, Contact>{};
+  final conversationStatuses = <String, RealtimeConversationStatus>{};
+  final _conversationStatusTimers = <String, Timer>{};
   String? currentUserId;
   String? lastEvent;
   int cursor = 0;
@@ -16,6 +23,11 @@ class RealtimeStore extends ChangeNotifier {
   }
 
   void reset() {
+    for (final timer in _conversationStatusTimers.values) {
+      timer.cancel();
+    }
+    _conversationStatusTimers.clear();
+    conversationStatuses.clear();
     conversations.clear();
     messages.clear();
     contacts.clear();
@@ -31,6 +43,7 @@ class RealtimeStore extends ChangeNotifier {
   }
 
   void removeConversation(String conversationId) {
+    _clearConversationStatus(conversationId, notify: false);
     conversations.remove(conversationId);
     messages
         .removeWhere((_, message) => message.conversationId == conversationId);
@@ -98,6 +111,7 @@ class RealtimeStore extends ChangeNotifier {
     lastEvent = event;
     switch (event) {
       case 'message.created':
+        _clearConversationStatusForMessage(payload);
         _upsertMessage(payload, countUnread: true);
       case 'message.updated':
         _upsertMessage(payload, countUnread: false);
@@ -114,6 +128,10 @@ class RealtimeStore extends ChangeNotifier {
       case 'conversation.member_mentioned':
       case 'conversation.member_choice_received':
         _patchConversationReminder(payload, event);
+      case 'conversation.status':
+        _patchConversationStatus(payload);
+      case 'system.connection_lost':
+        _clearConversationStatuses();
       case 'topic.created':
       case 'topic.participated':
       case 'topic.archived':
@@ -122,6 +140,72 @@ class RealtimeStore extends ChangeNotifier {
         _patchPresence(payload);
     }
     notifyListeners();
+  }
+
+  void _patchConversationStatus(Map<String, dynamic> payload) {
+    final conversationId = payload['conversation_id'];
+    final rawStatus = payload['status'];
+    final sender = payload['sender'];
+    if (conversationId is! String ||
+        conversationId.isEmpty ||
+        rawStatus is! String ||
+        sender is! Map<String, dynamic>) {
+      return;
+    }
+    final senderId = sender['id'];
+    final senderType = sender['type'];
+    final status = rawStatus.trim();
+    if (senderId is! String ||
+        senderId.isEmpty ||
+        senderId == currentUserId ||
+        (senderType != 'user' && senderType != 'app') ||
+        status.isEmpty ||
+        status.runes.length > 32) {
+      return;
+    }
+    _conversationStatusTimers.remove(conversationId)?.cancel();
+    conversationStatuses[conversationId] = RealtimeConversationStatus(
+      text: status == 'typing' ? '正在输入' : status,
+      senderId: senderId,
+      senderType: senderType as String,
+    );
+    _conversationStatusTimers[conversationId] = Timer(
+        conversationStatusTtl, () => _clearConversationStatus(conversationId));
+  }
+
+  void _clearConversationStatusForMessage(Map<String, dynamic> payload) {
+    final nested = payload['message'];
+    final message = nested is Map<String, dynamic> ? nested : payload;
+    final conversationId = message['conversation_id'];
+    final sender = message['sender'];
+    if (conversationId is! String || sender is! Map<String, dynamic>) return;
+    final current = conversationStatuses[conversationId];
+    if (current == null ||
+        current.senderId != sender['id'] ||
+        current.senderType != sender['type']) {
+      return;
+    }
+    _clearConversationStatus(conversationId, notify: false);
+  }
+
+  void _clearConversationStatus(String conversationId, {bool notify = true}) {
+    _conversationStatusTimers.remove(conversationId)?.cancel();
+    final removed = conversationStatuses.remove(conversationId) != null;
+    if (removed && notify) notifyListeners();
+  }
+
+  void _clearConversationStatuses() {
+    for (final timer in _conversationStatusTimers.values) {
+      timer.cancel();
+    }
+    _conversationStatusTimers.clear();
+    conversationStatuses.clear();
+  }
+
+  @override
+  void dispose() {
+    _clearConversationStatuses();
+    super.dispose();
   }
 
   void _patchPresence(Map<String, dynamic> payload) {
@@ -502,4 +586,16 @@ class RealtimeStore extends ChangeNotifier {
             sourceMessageSeq: topic.sourceMessageSeq,
             sourceSender: topic.sourceSender));
   }
+}
+
+class RealtimeConversationStatus {
+  const RealtimeConversationStatus({
+    required this.text,
+    required this.senderId,
+    required this.senderType,
+  });
+
+  final String text;
+  final String senderId;
+  final String senderType;
 }
