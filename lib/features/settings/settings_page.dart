@@ -10,6 +10,7 @@ import '../../data/local_notification_service.dart';
 import '../../data/realtime_store.dart';
 import '../../data/repository.dart';
 import '../../data/session_store.dart';
+import '../../data/server_store.dart';
 import '../../data/storage_service.dart';
 import '../../data/update_service.dart';
 import '../../data/message_cache_store.dart';
@@ -17,6 +18,7 @@ import '../../domain/models.dart';
 import '../qr_scanner_page.dart';
 import '../shared/cached_avatar.dart';
 import 'account_deactivation_page.dart';
+import 'server_management_page.dart';
 import 'storage_management_page.dart';
 
 Uri? _resolveAssetUri(String? serverUrl, String value) {
@@ -48,7 +50,7 @@ class SettingsPage extends StatefulWidget {
   final RealtimeStore? realtimeStore;
   final String? serverUrl;
   final MessageCacheScope? cacheScope;
-  final ValueChanged<String>? onServerChanged;
+  final Future<void> Function(String server)? onServerChanged;
   final ValueChanged<StoredAccount>? onAccountSwitch;
   final ValueChanged<ThemeMode>? onThemeChanged;
   final ValueChanged<MessageSendShortcut>? onSendMessageShortcutChanged;
@@ -219,47 +221,25 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _editServer() async {
-    final controller = TextEditingController(text: widget.serverUrl ?? '');
-    final value = await showDialog<String>(
-        context: context,
-        builder: (context) => AlertDialog(
-              title: const Text('服务器配置'),
-              content: TextField(
-                  controller: controller,
-                  autofocus: true,
-                  keyboardType: TextInputType.url,
-                  decoration: const InputDecoration(
-                      labelText: '服务器地址',
-                      hintText: 'https://chat.example.com')),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('取消')),
-                FilledButton(
-                    onPressed: () =>
-                        Navigator.pop(context, controller.text.trim()),
-                    child: const Text('切换'))
-              ],
-            ));
-    controller.dispose();
-    if (value == null || value.isEmpty || !mounted || value == widget.serverUrl)
-      return;
-    final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-              title: const Text('切换服务器？'),
-              content: const Text('切换后需要重新登录，当前会话将被清除。'),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(context, false),
-                    child: const Text('取消')),
-                FilledButton(
-                    onPressed: () => Navigator.pop(context, true),
-                    child: const Text('确认切换'))
-              ],
-            ));
-    if (confirmed == true) widget.onServerChanged?.call(value);
+  Future<void> _openServerManagement() async {
+    const store = ServerStore();
+    final active = widget.serverUrl;
+    if (active != null) {
+      await store.rememberUrl(active, select: true, recent: true);
+    }
+    if (!mounted) return;
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ServerManagementPage(
+          store: store,
+          activeServerUrl: active,
+          onSelect: widget.onServerChanged == null
+              ? null
+              : (server) => widget.onServerChanged!(server.url),
+        ),
+      ),
+    );
   }
 
   Future<void> _chooseAccount() async {
@@ -458,9 +438,9 @@ class _SettingsPageState extends State<SettingsPage> {
           ListTile(
               leading: Icon(Icons.dns),
               title: Text('服务器'),
-              subtitle: Text('配置 MagicChat Server 地址'),
+              subtitle: Text(widget.serverUrl ?? '管理 MagicChat Server'),
               trailing: const Icon(Icons.chevron_right),
-              onTap: _editServer),
+              onTap: _openServerManagement),
         ])),
         const SizedBox(height: 12),
         Card(

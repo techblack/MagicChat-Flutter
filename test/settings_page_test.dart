@@ -6,6 +6,7 @@ import 'package:magicchat_client/data/chat_preferences.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/settings/settings_page.dart';
 import 'package:magicchat_client/features/settings/account_deactivation_page.dart';
+import 'package:magicchat_client/features/settings/server_management_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -143,6 +144,22 @@ void main() {
 
     expect(find.byType(AccountDeactivationPage), findsOneWidget);
     expect(find.text('demo@example.com'), findsOneWidget);
+  });
+
+  testWidgets('设置页可进入完整服务器管理页', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SettingsPage(
+                repository: DemoRepository(),
+                serverUrl: 'https://chat.example.com'))));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('服务器'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ServerManagementPage), findsOneWidget);
+    expect(find.text('即应官方服务器'), findsOneWidget);
+    expect(find.text('chat.example.com'), findsOneWidget);
   });
 }
 

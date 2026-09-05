@@ -6,6 +6,7 @@ import 'package:magicchat_client/main.dart';
 import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/data/auth_service.dart';
+import 'package:magicchat_client/data/server_store.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -93,6 +94,35 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(submittedServer, 'https://chat.example.com');
+  });
+
+  testWidgets('登录页可从服务器管理列表选择地址', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    const store = ServerStore();
+    await store.add('团队服务器', 'https://team.example.com/base');
+    final service = AuthService(
+        client: MockClient((_) async => http.Response(
+            '{"data":{"password_login_enabled":true,"email_code_login_enabled":false,"third_party_providers":[]}}',
+            200)));
+    await tester.pumpWidget(MaterialApp(
+      home: LoginPage(
+        initialServer: officialServerUrl,
+        authService: service,
+        serverStore: store,
+        onLogin: (_, __, ___) async {},
+        onCodeLogin: (_, __, ___) async {},
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('服务器管理'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('团队服务器'));
+    await tester.pumpAndSettle();
+
+    final serverField = find.widgetWithText(TextFormField, '服务器地址');
+    expect(tester.widget<TextFormField>(serverField).controller?.text,
+        'https://team.example.com/base');
   });
 
   testWidgets('登录页显示会话过期提示', (tester) async {
