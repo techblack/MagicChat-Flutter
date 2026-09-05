@@ -122,6 +122,27 @@ void main() {
     expect(opened, 'group-public');
   });
 
+  testWidgets('已加入但会话列表缺失时恢复群聊再打开', (tester) async {
+    String? opened;
+    final repository = _GroupRepository(initiallyJoined: true);
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: ContactsPage(
+                repository: repository,
+                onOpenConversation: (id) => opened = id))));
+    await tester.pumpAndSettle();
+    await tester
+        .tap(find.byKey(const ValueKey('contact-category-publicGroups')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ListTile, '公开群组'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('发消息'));
+    await tester.pumpAndSettle();
+
+    expect(repository.restoredGroupId, 'group-public');
+    expect(opened, 'group-public');
+  });
+
   testWidgets('点击联系人先展示完整资料，再从资料页发起私聊', (tester) async {
     await tester.binding.setSurfaceSize(const Size(360, 700));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -298,7 +319,7 @@ class _FriendRepository extends DemoRepository {
 class _DirectoryRepository extends DemoRepository {
   @override
   Future<ContactDirectory> contactDirectory({String keyword = ''}) async =>
-      const ContactDirectory(contacts: [
+      ContactDirectory(contacts: [
         Contact(id: 'alice', name: 'Alice'),
         Contact(
             id: 'owned-app', name: '我的机器人', type: 'app', creatorUserId: 'demo'),
@@ -343,16 +364,20 @@ class _AlphabetRepository extends DemoRepository {
 }
 
 class _GroupRepository extends DemoRepository {
+  _GroupRepository({this.initiallyJoined = false});
+
+  final bool initiallyJoined;
   String? joinedGroupId;
+  String? restoredGroupId;
 
   @override
   Future<ContactDirectory> contactDirectory({String keyword = ''}) async =>
-      const ContactDirectory(contacts: [
+      ContactDirectory(contacts: [
         Contact(
             id: 'group-public',
             name: '公开群组',
             type: 'group',
-            joined: false,
+            joined: initiallyJoined,
             memberCount: 3,
             visibility: 'public')
       ], mode: 'organization');
@@ -360,6 +385,12 @@ class _GroupRepository extends DemoRepository {
   @override
   Future<ChatConversation> joinGroupConversation(String conversationId) async {
     joinedGroupId = conversationId;
+    return ChatConversation(id: conversationId, title: '公开群组', type: 'group');
+  }
+
+  @override
+  Future<ChatConversation> restoreConversation(String conversationId) async {
+    restoredGroupId = conversationId;
     return ChatConversation(id: conversationId, title: '公开群组', type: 'group');
   }
 }
