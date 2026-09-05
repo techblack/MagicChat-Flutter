@@ -564,6 +564,7 @@ class _ConversationList extends StatefulWidget {
 
 class _ConversationListState extends State<_ConversationList> {
   Future<List<ChatConversation>>? _future;
+  List<ChatConversation> _loadedConversations = const [];
   String? _currentUserId;
   List<Contact> _displayContacts = const [];
   ConversationFilter _filter = ConversationFilter.all;
@@ -640,20 +641,23 @@ class _ConversationListState extends State<_ConversationList> {
   @override
   Widget build(BuildContext context) => FutureBuilder<List<ChatConversation>>(
       future: _future,
+      initialData: _loadedConversations.isEmpty ? null : _loadedConversations,
       builder: (context, snapshot) {
-        if (snapshot.hasError) {
+        if (snapshot.hasData) _loadedConversations = snapshot.data!;
+        final loaded = snapshot.data ?? _loadedConversations;
+        if (snapshot.hasError && loaded.isEmpty) {
           return Center(
               child: TextButton.icon(
                   onPressed: () => setState(_reload),
                   icon: const Icon(Icons.refresh),
                   label: const Text('会话加载失败，点击重试')));
         }
-        if (!snapshot.hasData) {
+        if (loaded.isEmpty && !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
         final live = widget.realtimeStore?.conversations ?? const {};
         final merged = <String, ChatConversation>{
-          for (final item in snapshot.data!) item.id: item,
+          for (final item in loaded) item.id: item,
         };
         for (final entry in live.entries) {
           if (merged.containsKey(entry.key)) merged[entry.key] = entry.value;
