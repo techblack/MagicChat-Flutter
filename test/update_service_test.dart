@@ -7,29 +7,29 @@ void main() {
   test('默认使用 release 更新源', () {
     expect(UpdateService.updateSource, 'release');
     expect(UpdateService.manifestUrl, UpdateService.releaseManifestUrl);
-    expect(UpdateService.currentVersion, '0.2.7');
-    expect(UpdateService.currentBuild, 10);
+    expect(UpdateService.currentVersion, '0.2.8');
+    expect(UpdateService.currentBuild, 11);
   });
 
   test('只接受 HTTPS 下载地址并识别新版本', () async {
     final client = MockClient((request) async => http.Response(
-        '{"android":{"version":"0.3.0","build":11,"url":"https://example.com/app.apk"}}',
+        '{"android":{"version":"0.3.0","build":12,"url":"https://example.com/app.apk"}}',
         200));
     final release = await UpdateService(client: client).check();
-    expect(release?.build, 11);
+    expect(release?.build, 12);
     expect(release?.url, startsWith('https://'));
   });
 
   test('按平台选择版本清单并保留对应下载地址', () async {
     final client = MockClient((request) async => http.Response(
         '{"android":{"version":"0.3.0","build":4,"url":"https://example.com/app.apk"},'
-        '"ios":{"version":"0.3.1","build":11,"url":"https://example.com/app.ipa"}}',
+        '"ios":{"version":"0.3.1","build":12,"url":"https://example.com/app.ipa"}}',
         200));
     final release =
         await UpdateService(client: client, platform: AppUpdatePlatform.ios)
             .check();
     expect(release?.version, '0.3.1');
-    expect(release?.build, 11);
+    expect(release?.build, 12);
     expect(release?.url, 'https://example.com/app.ipa');
   });
 
