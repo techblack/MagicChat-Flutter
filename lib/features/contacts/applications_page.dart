@@ -215,6 +215,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('我的应用')),
         floatingActionButton: FloatingActionButton.extended(
+          heroTag: 'applications-create-app',
           onPressed: _busy ? null : _create,
           icon: const Icon(Icons.add),
           label: const Text('创建应用'),

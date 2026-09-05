@@ -8,6 +8,7 @@ import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/data/auth_service.dart';
 import 'package:magicchat_client/data/server_store.dart';
 import 'package:magicchat_client/domain/models.dart';
+import 'package:magicchat_client/features/messages/conversation_details_page.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -226,6 +227,7 @@ void main() {
     expect(find.byType(NavigationBar), findsNothing);
     expect(find.byTooltip('返回会话列表'), findsOneWidget);
     expect(find.byTooltip('检索当前会话'), findsOneWidget);
+    expect(find.byTooltip('聊天详情'), findsOneWidget);
     final title = find.byKey(const ValueKey('conversation-header-title'));
     final header = find.byKey(const ValueKey('conversation-header-background'));
     final headerSafeArea =
@@ -237,6 +239,12 @@ void main() {
         find.descendant(of: headerSafeArea, matching: title), findsOneWidget);
     expect(tester.getSize(header).width, 500);
     expect(tester.getCenter(title).dx, 250);
+
+    await tester.tap(find.byTooltip('聊天详情'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ConversationDetailsPage), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byTooltip('返回会话列表'));
     await tester.pumpAndSettle();
