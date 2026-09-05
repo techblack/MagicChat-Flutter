@@ -31,6 +31,21 @@ void main() {
     expect(result.selection, const TextSelection.collapsed(offset: 11));
   });
 
+  test('文档标题或正文变化时识别未保存状态', () {
+    expect(
+        hasUnsavedDocumentChanges(
+            title: '标题', savedTitle: '标题', body: '正文', savedBody: '正文'),
+        isFalse);
+    expect(
+        hasUnsavedDocumentChanges(
+            title: '新标题', savedTitle: '标题', body: '正文', savedBody: '正文'),
+        isTrue);
+    expect(
+        hasUnsavedDocumentChanges(
+            title: '标题', savedTitle: '标题', body: '新正文', savedBody: '正文'),
+        isTrue);
+  });
+
   test('链接、图片和表格插入提供可继续编辑的模板', () {
     final linked = applyMarkdownToolbarAction(
         const TextEditingValue(
