@@ -12,7 +12,7 @@ MagicChat 的跨平台 Flutter 客户端。一套代码覆盖 Android、iOS、Wi
 - 联系人：好友目录、好友申请、在线状态、公开群组和应用管理
 - 项目：项目、任务、看板、月历、甘特图、评论、提醒、成员与群组授权
 - 文档：Markdown 协作编辑、Yjs 富文档、在线协作者状态和文档目录树
-- 客户端：多账户、主题切换、SQLite WAL 消息缓存、会话高级检索、全局搜索、二维码、推送授权和版本检查
+- 客户端：多账户、主题切换、SQLite WAL 消息缓存、会话高级检索、全局搜索、二维码、推送授权和跨平台版本检查
 - 实时同步：WebSocket 游标续传、断线重连、幂等事件投影，以及实时消息先落本地缓存再展示
 
 ## 快速开始
@@ -67,8 +67,9 @@ flutter build apk --release
 
 未设置 `JPUSH_APP_KEY` 时不会打包 JPush SDK，其他 Android 构建和测试不受影响。
 
-更新检查默认读取 release 源 `https://jiying.chat/releases/version.json`。构建测试或
-私有发布源时可通过 Dart 编译参数替换完整 manifest 地址：
+更新检查默认读取 release 源：Android/iOS 使用
+`https://jiying.chat/releases/version.json`，Windows/macOS/Linux 使用本项目的
+GitHub Release 产物。构建测试或私有发布源时可通过 Dart 编译参数替换完整 manifest 地址：
 
 ```bash
 flutter build apk --release \
