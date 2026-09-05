@@ -164,6 +164,31 @@ class DocumentCollaborationSession extends ChangeNotifier {
     };
   }
 
+  /// 返回段落或标题的对齐方式，未设置时按 Tiptap 默认左对齐。
+  String xmlTextAlignment(yjs.YXmlText node) {
+    final block = _textAlignmentBlock(node);
+    final value = block?.getAttribute('textAlign');
+    return value == 'center' || value == 'right' ? value as String : 'left';
+  }
+
+  /// 更新段落或标题对齐；左对齐会移除默认属性，保持文档结构精简。
+  bool setXmlTextAlignment(yjs.YXmlText node, String alignment) {
+    if (documentType != 'document' ||
+        status != DocumentCollaborationStatus.synced ||
+        !const {'left', 'center', 'right'}.contains(alignment)) {
+      return false;
+    }
+    final block = _textAlignmentBlock(node);
+    if (block == null || xmlTextAlignment(node) == alignment) return false;
+    if (alignment == 'left') {
+      block.removeAttribute('textAlign');
+    } else {
+      block.setAttribute('textAlign', alignment);
+    }
+    notifyListeners();
+    return true;
+  }
+
   /// 将顶层段落、标题或代码块转换为另一种文本块，保留正文和 marks。
   yjs.YXmlText? transformXmlTextBlock(
       yjs.YXmlText node, RichDocumentBlockType type) {
@@ -184,6 +209,10 @@ class DocumentCollaborationSession extends ChangeNotifier {
     if (index < 0) return null;
     final replacement = _createTextBlock(type, node.toString(),
         type == RichDocumentBlockType.codeBlock ? const {} : _marksFor(node));
+    final alignment = xmlTextAlignment(node);
+    if (type != RichDocumentBlockType.codeBlock && alignment != 'left') {
+      replacement.block.setAttribute('textAlign', alignment);
+    }
     _document.transact((_) {
       _body.delete(index);
       _body.insert(index, [replacement.block]);
@@ -327,6 +356,17 @@ class DocumentCollaborationSession extends ChangeNotifier {
     yjs.AbstractType<dynamic>? current = node.parent;
     while (current is yjs.YXmlElement) {
       if (identical(current.parent, _body)) return current;
+      current = current.parent;
+    }
+    return null;
+  }
+
+  yjs.YXmlElement? _textAlignmentBlock(yjs.YXmlText node) {
+    yjs.AbstractType<dynamic>? current = node.parent;
+    while (current is yjs.YXmlElement) {
+      if (current.name == 'paragraph' || current.name == 'heading') {
+        return current;
+      }
       current = current.parent;
     }
     return null;

@@ -88,10 +88,11 @@ class RichDocumentView extends StatelessWidget {
 
   Widget _paragraph(BuildContext context, yjs.YXmlElement node) {
     final textNodes = node.toArray().whereType<yjs.YXmlText>().toList();
+    final textAlign = _textAlign(node);
     final content =
         textNodes.length == 1 && (onEditText != null || onSelectText != null)
-            ? _editableText(context, textNodes.single)
-            : Text.rich(_inlineSpan(context, node));
+            ? _editableText(context, textNodes.single, textAlign: textAlign)
+            : Text.rich(_inlineSpan(context, node), textAlign: textAlign);
     return Padding(
         padding: const EdgeInsets.symmetric(vertical: 4), child: content);
   }
@@ -104,17 +105,21 @@ class RichDocumentView extends StatelessWidget {
       _ => Theme.of(context).textTheme.titleMedium,
     };
     final textNodes = node.toArray().whereType<yjs.YXmlText>().toList();
+    final textAlign = _textAlign(node);
     final content =
         textNodes.length == 1 && (onEditText != null || onSelectText != null)
-            ? _editableText(context, textNodes.single, style: style)
-            : Text.rich(_inlineSpan(context, node), style: style);
+            ? _editableText(context, textNodes.single,
+                style: style, textAlign: textAlign)
+            : Text.rich(_inlineSpan(context, node),
+                style: style, textAlign: textAlign);
     return Padding(
         padding: const EdgeInsets.only(top: 10, bottom: 5), child: content);
   }
 
   Widget _editableText(BuildContext context, yjs.YXmlText node,
-      {TextStyle? style}) {
+      {TextStyle? style, TextAlign textAlign = TextAlign.left}) {
     if (identical(selectedText, node) && onTextChanged != null) {
+      final markStyle = _markStyle(context, _marks(node));
       return Container(
         key: const ValueKey('rich-document-inline-editor'),
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -134,7 +139,8 @@ class RichDocumentView extends StatelessWidget {
           autofocus: true,
           minLines: 1,
           maxLines: null,
-          style: style,
+          style: style?.merge(markStyle) ?? markStyle,
+          textAlign: textAlign,
           onChanged: (value) => onTextChanged!(node, value),
           decoration: const InputDecoration(
               border: InputBorder.none, isDense: true, hintText: '输入正文'),
@@ -144,14 +150,20 @@ class RichDocumentView extends StatelessWidget {
     final value = node.toString();
     final content = Container(
       constraints: const BoxConstraints(minHeight: 28),
-      alignment: Alignment.centerLeft,
+      alignment: switch (textAlign) {
+        TextAlign.center => Alignment.center,
+        TextAlign.right => Alignment.centerRight,
+        _ => Alignment.centerLeft,
+      },
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: value.isEmpty
           ? Text('点击输入正文',
+              textAlign: textAlign,
               style: (style ?? Theme.of(context).textTheme.bodyMedium)
                   ?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant))
-          : Text.rich(_inlineSpan(context, node), style: style),
+          : Text.rich(_inlineSpan(context, node),
+              style: style, textAlign: textAlign),
     );
     if (onEditText == null && onSelectText == null) return content;
     final editor = InkWell(
@@ -399,6 +411,20 @@ class RichDocumentView extends StatelessWidget {
             ? [const Shadow(color: Colors.transparent)]
             : null);
   }
+
+  Map<String, Object?> _marks(yjs.YXmlText node) {
+    final delta = node.toDelta();
+    if (delta.isEmpty) return const {};
+    final attributes = delta.first['attributes'];
+    return attributes is Map ? Map<String, Object?>.from(attributes) : const {};
+  }
+
+  TextAlign _textAlign(yjs.YXmlElement node) =>
+      switch (node.getAttribute('textAlign')) {
+        'center' => TextAlign.center,
+        'right' => TextAlign.right,
+        _ => TextAlign.left,
+      };
 
   String _deltaText(Object? value) {
     if (value is String) return value;

@@ -178,15 +178,86 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
   }
 
   void _toggleRichTextMark(String mark) {
+    _updateSelectedRichMarks((marks) {
+      if (marks[mark] == true) {
+        marks.remove(mark);
+      } else {
+        marks[mark] = true;
+      }
+    });
+  }
+
+  void _setRichTextColor(String? color) {
+    _updateSelectedRichMarks((marks) {
+      final textStyle = marks['textStyle'] is Map
+          ? Map<String, Object?>.from(marks['textStyle'] as Map)
+          : <String, Object?>{};
+      if (color == null) {
+        textStyle.remove('color');
+      } else {
+        textStyle['color'] = color;
+      }
+      if (textStyle.isEmpty) {
+        marks.remove('textStyle');
+      } else {
+        marks['textStyle'] = textStyle;
+      }
+    });
+  }
+
+  void _setRichTextHighlight(String? color) {
+    _updateSelectedRichMarks((marks) {
+      if (color == null) {
+        marks.remove('highlight');
+      } else {
+        marks['highlight'] = {'color': color};
+      }
+    });
+  }
+
+  void _setRichTextAlignment(String alignment) {
+    final session = widget.collaboration;
+    final node = _selectedRichText;
+    if (session == null || node == null) return;
+    if (session.setXmlTextAlignment(node, alignment)) setState(() {});
+  }
+
+  Future<void> _editRichTextLink() async {
+    final session = widget.collaboration;
+    final node = _selectedRichText;
+    if (session == null || node == null) return;
+    final currentLink = session.xmlTextMarks(node)['link'];
+    final currentHref = currentLink is Map && currentLink['href'] is String
+        ? currentLink['href'] as String
+        : '';
+    final value = await showDialog<String>(
+      context: context,
+      builder: (_) => _RichLinkDialog(initialValue: currentHref),
+    );
+    if (!mounted || value == null) return;
+    final input = value.trim();
+    final href = input.isEmpty ? null : normalizeRichDocumentLink(input);
+    if (input.isNotEmpty && href == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('链接地址无效')));
+      return;
+    }
+    _updateSelectedRichMarks((marks) {
+      if (href == null) {
+        marks.remove('link');
+      } else {
+        marks['link'] = {'href': href};
+      }
+    });
+  }
+
+  void _updateSelectedRichMarks(
+      void Function(Map<String, Object?> marks) update) {
     final session = widget.collaboration;
     final node = _selectedRichText;
     if (session == null || node == null) return;
     final marks = Map<String, Object?>.from(session.xmlTextMarks(node));
-    if (marks[mark] == true) {
-      marks.remove(mark);
-    } else {
-      marks[mark] = true;
-    }
+    update(marks);
     session.replaceXmlText(node, node.toString(), marks: marks);
     setState(() {});
   }
@@ -305,7 +376,12 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                   RichDocumentInlineToolbar(
                     blockType: widget.collaboration!.xmlTextBlockType(selected),
                     marks: widget.collaboration!.xmlTextMarks(selected),
+                    alignment: widget.collaboration!.xmlTextAlignment(selected),
                     onToggleMark: _toggleRichTextMark,
+                    onTextColor: _setRichTextColor,
+                    onHighlight: _setRichTextHighlight,
+                    onAlignment: _setRichTextAlignment,
+                    onEditLink: _editRichTextLink,
                     onClearFormatting: _clearRichTextFormatting,
                     onTransform: _transformRichTextBlock,
                     onInsertBefore: () => _insertRichParagraph(after: false),
@@ -453,6 +529,71 @@ String createDocumentCardTitle(String value) {
 String documentCardPath(ProjectDocument document) {
   final type = document.documentType == 'markdown' ? 'markdown' : 'document';
   return '/documents/$type/${Uri.encodeComponent(document.id)}';
+}
+
+String? normalizeRichDocumentLink(String value) {
+  final input = value.trim();
+  if (input.isEmpty || RegExp(r'\s').hasMatch(input)) return null;
+  final explicit = Uri.tryParse(input);
+  if (explicit?.hasScheme == true) {
+    final scheme = explicit!.scheme.toLowerCase();
+    if ((scheme == 'http' || scheme == 'https') && explicit.host.isNotEmpty) {
+      return explicit.toString();
+    }
+    if ((scheme == 'mailto' || scheme == 'tel') &&
+        explicit.path.trim().isNotEmpty) {
+      return explicit.toString();
+    }
+    return null;
+  }
+  final https = Uri.tryParse('https://$input');
+  return https?.host.isNotEmpty == true ? https.toString() : null;
+}
+
+class _RichLinkDialog extends StatefulWidget {
+  const _RichLinkDialog({required this.initialValue});
+
+  final String initialValue;
+
+  @override
+  State<_RichLinkDialog> createState() => _RichLinkDialogState();
+}
+
+class _RichLinkDialogState extends State<_RichLinkDialog> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initialValue);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('编辑链接'),
+        content: TextField(
+          key: const ValueKey('rich-document-link-field'),
+          controller: _controller,
+          autofocus: true,
+          keyboardType: TextInputType.url,
+          decoration: const InputDecoration(
+              labelText: '链接地址',
+              hintText: 'https://example.com',
+              border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context), child: const Text('取消')),
+          if (widget.initialValue.isNotEmpty)
+            TextButton(
+                onPressed: () => Navigator.pop(context, ''),
+                child: const Text('移除链接')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, _controller.text),
+              child: const Text('应用')),
+        ],
+      );
 }
 
 class _TextBlockDialog extends StatefulWidget {

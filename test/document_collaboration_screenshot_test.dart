@@ -240,6 +240,32 @@ void main() {
     expect(
         editedText.toDelta().single['attributes'], containsPair('bold', true));
 
+    await _selectInlineMenu(tester, '字体颜色', '蓝色');
+    await _selectInlineMenu(tester, '文字背景色', '黄色');
+    await _selectInlineMenu(tester, '文本对齐', '居中对齐');
+    await tester.tap(find.byTooltip('链接'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.enterText(
+        find.byKey(const ValueKey('rich-document-link-field')),
+        'example.com/task');
+    await tester.tap(find.widgetWithText(FilledButton, '应用'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    final formattedMarks =
+        editedText.toDelta().single['attributes'] as Map<String, dynamic>;
+    expect(formattedMarks['textStyle'], {'color': '#2563eb'});
+    expect(formattedMarks['highlight'], {'color': '#ca8a04'});
+    expect(formattedMarks['link'], {'href': 'https://example.com/task'});
+    expect(session.xmlTextAlignment(editedText), 'center');
+    final formattedEditor = tester.widget<EditableText>(find.descendant(
+        of: find.byKey(const ValueKey('rich-document-inline-editor')),
+        matching: find.byType(EditableText)));
+    expect(formattedEditor.style.color, const Color(0xFF2563EB));
+    expect(formattedEditor.style.backgroundColor, const Color(0xFFCA8A04));
+    expect(formattedEditor.textAlign, TextAlign.center);
+
     await tester.tap(find.byTooltip('块类型'));
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
@@ -256,6 +282,17 @@ void main() {
     expect(find.text('输入正文'), findsOneWidget);
     serverDocument.destroy();
   });
+}
+
+Future<void> _selectInlineMenu(
+    WidgetTester tester, String tooltip, String label) async {
+  await tester.tap(find.byTooltip(tooltip));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 300));
+  await tester
+      .tap(find.widgetWithText(PopupMenuItem<String>, label).hitTestable());
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 300));
 }
 
 void _insertParagraphs(yjs.YXmlFragment body, String value) {
