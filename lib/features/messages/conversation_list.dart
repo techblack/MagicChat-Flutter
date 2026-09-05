@@ -40,6 +40,18 @@ int conversationUnreadCount(ChatConversation conversation) {
       : 0;
 }
 
+/// 批量已读需要覆盖普通消息、提及和选择题提醒中的最大序号。
+int conversationReadTargetSequence(ChatConversation conversation) {
+  var target = conversation.lastMessageSeq;
+  if (conversation.lastMentionedSeq > target) {
+    target = conversation.lastMentionedSeq;
+  }
+  if (conversation.lastChoiceSeq > target) {
+    target = conversation.lastChoiceSeq;
+  }
+  return target;
+}
+
 int totalConversationUnread(Iterable<ChatConversation> conversations) =>
     conversations.fold(
         0, (total, item) => total + conversationUnreadCount(item));

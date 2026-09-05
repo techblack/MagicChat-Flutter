@@ -80,6 +80,7 @@ class _RealtimeConversationRepository extends DemoRepository {
 
 class _MarkAllReadRepository extends DemoRepository {
   final readIds = <String>[];
+  final readSequences = <String, int>{};
 
   @override
   Future<List<ChatConversation>> conversations() async => const [
@@ -90,13 +91,18 @@ class _MarkAllReadRepository extends DemoRepository {
             lastMessageSeq: 8,
             lastReadSeq: 6),
         ChatConversation(
-            id: 'unread-b', title: '未读会话 B', lastMessageSeq: 4, lastReadSeq: 1),
+            id: 'unread-b',
+            title: '未读会话 B',
+            lastMessageSeq: 4,
+            lastReadSeq: 1,
+            lastChoiceSeq: 9),
       ];
 
   @override
   Future<ConversationReadResult> markConversationRead(
       String conversationId, int upToSeq) async {
     readIds.add(conversationId);
+    readSequences[conversationId] = upToSeq;
     return ConversationReadResult(
         conversationId: conversationId, lastReadSeq: upToSeq, unreadCount: 0);
   }
@@ -215,6 +221,8 @@ void main() {
         isTrue);
     expect(matchesConversationFilter(mentionUnread, ConversationFilter.unread),
         isTrue);
+    expect(conversationReadTargetSequence(choiceUnread), 5);
+    expect(conversationReadTargetSequence(mentionUnread), 7);
   });
 
   test('搜索标题、预览和公告，忽略大小写', () {
@@ -344,6 +352,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repository.readIds, containsAll(<String>['unread-a', 'unread-b']));
+    expect(repository.readSequences['unread-b'], 9);
     expect(find.text('已将 2 个会话标为已读'), findsOneWidget);
   });
 
