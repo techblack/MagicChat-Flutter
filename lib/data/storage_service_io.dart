@@ -1,54 +1,81 @@
 import 'dart:io';
-import 'package:path_provider/path_provider.dart';
-import 'message_cache_store.dart';
-import 'contact_cache_store.dart';
 
-class StorageInfo {
-  const StorageInfo({required this.path, required this.bytes});
-  final String path;
-  final int bytes;
-  String get formatted {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KiB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MiB';
-  }
-}
+import 'package:path_provider/path_provider.dart';
+
+import 'asset_cache_store.dart';
+import 'message_cache_store.dart';
+import 'storage_service_types.dart';
 
 class StorageService {
-  StorageService({MessageCacheStore? messageCacheStore})
-      : _messageCacheStore = messageCacheStore ?? MessageCacheStore();
+  StorageService(
+      {MessageCacheStore? messageCacheStore,
+      LocalAssetCache? assetCacheStore,
+      String? temporaryDirectoryPath,
+      String? applicationSupportDirectoryPath})
+      : _messageCacheStore = messageCacheStore ?? MessageCacheStore(),
+        _assetCacheStore = assetCacheStore ?? LocalAssetCache(),
+        _temporaryDirectoryPath = temporaryDirectoryPath,
+        _applicationSupportDirectoryPath = applicationSupportDirectoryPath;
 
   final MessageCacheStore _messageCacheStore;
-  final ContactCacheStore _contactCacheStore = ContactCacheStore();
+  final LocalAssetCache _assetCacheStore;
+  final String? _temporaryDirectoryPath;
+  final String? _applicationSupportDirectoryPath;
 
-  Future<Directory> _cacheDirectory() async => getTemporaryDirectory();
-  Future<Directory> _messageCacheDirectory() async => Directory(
-      '${(await getApplicationSupportDirectory()).path}/message-cache');
-  Future<StorageInfo> inspect() async {
-    final temporary = await _cacheDirectory();
-    final messages = await _messageCacheDirectory();
-    return StorageInfo(
-        path: '${temporary.path}\n${messages.path}',
-        bytes: _size(temporary) + _size(messages));
+  Future<Directory> _temporaryDirectory() async {
+    final path = _temporaryDirectoryPath;
+    return path == null ? await getTemporaryDirectory() : Directory(path);
   }
 
-  Future<void> clearCache() async {
-    await _messageCacheStore.clearAll();
-    await _contactCacheStore.clearAll();
-    final directory = await _cacheDirectory();
+  Future<Directory> _applicationSupportDirectory() async {
+    final path = _applicationSupportDirectoryPath;
+    return path == null
+        ? await getApplicationSupportDirectory()
+        : Directory(path);
+  }
+
+  Future<Directory> _assetDirectory() async => Directory(
+      '${(await _applicationSupportDirectory()).path}/${LocalAssetCache.directoryName}');
+
+  Future<Directory> _messageDirectory() async =>
+      Directory('${(await _applicationSupportDirectory()).path}/message-cache');
+
+  Future<StorageInfo> inspect() async {
+    final temporary = await _temporaryDirectory();
+    final assets = await _assetDirectory();
+    final messages = await _messageDirectory();
+    return StorageInfo(
+      mediaBytes: _size(temporary) + _size(assets),
+      messageBytes: _size(messages),
+    );
+  }
+
+  Future<void> clear(StoragePart part) async {
+    if (part == StoragePart.media || part == StoragePart.all) {
+      await _assetCacheStore.clearAll();
+      await _clearDirectory(await _assetDirectory());
+      await _clearDirectory(await _temporaryDirectory());
+    }
+    if (part == StoragePart.messages || part == StoragePart.all) {
+      await _messageCacheStore.clearAll();
+    }
+  }
+
+  Future<void> clearCache() => clear(StoragePart.all);
+
+  Future<void> _clearDirectory(Directory directory) async {
     if (!directory.existsSync()) return;
     for (final entity in directory.listSync()) {
-      try {
-        await entity.delete(recursive: true);
-      } catch (_) {}
+      await entity.delete(recursive: true);
     }
   }
 
   int _size(FileSystemEntity entity) {
     if (!entity.existsSync()) return 0;
     if (entity is File) return entity.lengthSync();
-    if (entity is Directory)
+    if (entity is Directory) {
       return entity.listSync().fold<int>(0, (sum, item) => sum + _size(item));
+    }
     return 0;
   }
 }

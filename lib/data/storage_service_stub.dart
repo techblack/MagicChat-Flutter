@@ -1,24 +1,49 @@
-import 'message_cache_store.dart';
-import 'contact_cache_store.dart';
+import 'dart:convert';
 
-class StorageInfo {
-  const StorageInfo({required this.path, required this.bytes});
-  final String path;
-  final int bytes;
-  String get formatted => '$bytes B';
-}
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'asset_cache_store.dart';
+import 'message_cache_store.dart';
+import 'storage_service_types.dart';
 
 class StorageService {
-  StorageService({MessageCacheStore? messageCacheStore})
-      : _messageCacheStore = messageCacheStore ?? MessageCacheStore();
+  StorageService(
+      {MessageCacheStore? messageCacheStore,
+      LocalAssetCache? assetCacheStore,
+      String? temporaryDirectoryPath,
+      String? applicationSupportDirectoryPath})
+      : _messageCacheStore = messageCacheStore ?? MessageCacheStore(),
+        _assetCacheStore = assetCacheStore ?? LocalAssetCache();
 
   final MessageCacheStore _messageCacheStore;
-  final ContactCacheStore _contactCacheStore = ContactCacheStore();
+  final LocalAssetCache _assetCacheStore;
 
-  Future<StorageInfo> inspect() async =>
-      const StorageInfo(path: '浏览器缓存', bytes: 0);
-  Future<void> clearCache() async {
-    await _messageCacheStore.clearAll();
-    await _contactCacheStore.clearAll();
+  Future<StorageInfo> inspect() async {
+    final preferences = await SharedPreferences.getInstance();
+    var mediaBytes = 0;
+    var messageBytes = 0;
+    for (final key in preferences.getKeys()) {
+      final value = preferences.getString(key);
+      if (value == null) continue;
+      final bytes = utf8.encode(key).length + utf8.encode(value).length;
+      if (key.startsWith(LocalAssetCache.keyPrefix)) {
+        mediaBytes += bytes;
+      } else if (key.startsWith(MessageCacheStore.keyPrefix) ||
+          key.startsWith(MessageCacheStore.legacyKeyPrefix)) {
+        messageBytes += bytes;
+      }
+    }
+    return StorageInfo(mediaBytes: mediaBytes, messageBytes: messageBytes);
   }
+
+  Future<void> clear(StoragePart part) async {
+    if (part == StoragePart.media || part == StoragePart.all) {
+      await _assetCacheStore.clearAll();
+    }
+    if (part == StoragePart.messages || part == StoragePart.all) {
+      await _messageCacheStore.clearAll();
+    }
+  }
+
+  Future<void> clearCache() => clear(StoragePart.all);
 }

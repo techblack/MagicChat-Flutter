@@ -16,6 +16,7 @@ import '../../data/message_cache_store.dart';
 import '../../domain/models.dart';
 import '../qr_scanner_page.dart';
 import '../shared/cached_avatar.dart';
+import 'storage_management_page.dart';
 
 Uri? _resolveAssetUri(String? serverUrl, String value) {
   final parsed = Uri.tryParse(value);
@@ -120,32 +121,6 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() => _sendMessageShortcut = value);
     widget.onSendMessageShortcutChanged?.call(value);
     await const ChatPreferences().writeSendShortcut(value);
-  }
-
-  Future<void> _showStorage() async {
-    final service = StorageService();
-    var info = await service.inspect();
-    if (!mounted) return;
-    await showDialog<void>(
-        context: context,
-        builder: (dialogContext) => StatefulBuilder(
-              builder: (dialogContext, setDialogState) => AlertDialog(
-                title: const Text('存储管理'),
-                content: Text('缓存占用：${info.formatted}\n位置：${info.path}'),
-                actions: [
-                  TextButton(
-                      onPressed: () async {
-                        await service.clearCache();
-                        info = await service.inspect();
-                        setDialogState(() {});
-                      },
-                      child: const Text('清理缓存')),
-                  FilledButton(
-                      onPressed: () => Navigator.pop(dialogContext),
-                      child: const Text('关闭')),
-                ],
-              ),
-            ));
   }
 
   Future<void> _checkForUpdate() async {
@@ -512,7 +487,11 @@ class _SettingsPageState extends State<SettingsPage> {
               title: const Text('存储空间'),
               subtitle: const Text('查看和清理本地缓存'),
               trailing: const Icon(Icons.chevron_right),
-              onTap: _showStorage),
+              onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) =>
+                          StorageManagementPage(service: StorageService())))),
           ListTile(
               leading: const Icon(Icons.system_update_outlined),
               title: const Text('检查更新'),
