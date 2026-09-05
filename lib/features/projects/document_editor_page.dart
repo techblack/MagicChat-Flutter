@@ -12,6 +12,7 @@ import '../messages/send_card_dialog.dart';
 import 'markdown_editor_toolbar.dart';
 import 'rich_document_view.dart';
 import 'rich_document_toolbar.dart';
+import 'rich_table_size_picker.dart';
 
 class DocumentEditorPage extends StatefulWidget {
   const DocumentEditorPage(
@@ -308,6 +309,20 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     setState(() => _selectedRichText = null);
   }
 
+  Future<void> _insertRichTable() async {
+    final session = widget.collaboration;
+    if (session == null ||
+        session.status != DocumentCollaborationStatus.synced) {
+      return;
+    }
+    final size = await showDialog<RichTableSize>(
+        context: context, builder: (_) => const RichTableSizePicker());
+    if (!mounted || size == null) return;
+    final firstCell = session.insertTable(
+        near: _selectedRichText, rows: size.rows, columns: size.columns);
+    if (firstCell != null) setState(() => _selectedRichText = firstCell);
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(
@@ -385,6 +400,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                     canRedo: widget.collaboration!.canRedo,
                     onUndo: _undoRichDocument,
                     onRedo: _redoRichDocument,
+                    onInsertTable: _insertRichTable,
                     onInsert: (type) =>
                         unawaited(_appendBlock(initialType: type))),
                 if (_selectedRichText case final selected?

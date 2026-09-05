@@ -287,6 +287,20 @@ void main() {
     await tester.tap(find.byTooltip('重做'));
     await tester.pump();
     expect(session.body.toArray(), hasLength(2));
+
+    await tester.tap(find.byTooltip('插入表格'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('rich-table-size-2-3')));
+    await tester.pump(const Duration(milliseconds: 300));
+    final table = session.body
+        .toArray()
+        .whereType<yjs.YXmlElement>()
+        .where((element) => element.name == 'table')
+        .single;
+    expect(table.toArray(), hasLength(2));
+    expect(find.byType(Table), findsOneWidget);
+    expect(find.byKey(const ValueKey('rich-document-inline-editor')),
+        findsOneWidget);
     serverDocument.destroy();
   });
 }

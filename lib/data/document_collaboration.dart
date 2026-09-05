@@ -300,6 +300,49 @@ class DocumentCollaborationSession extends ChangeNotifier {
     return replacement;
   }
 
+  /// 在当前块之后插入标准 Tiptap 表格，并返回首个表头单元格文本。
+  yjs.YXmlText? insertTable(
+      {yjs.YXmlText? near, required int rows, required int columns}) {
+    if (documentType != 'document' ||
+        status != DocumentCollaborationStatus.synced ||
+        rows < 1 ||
+        rows > 10 ||
+        columns < 1 ||
+        columns > 10) {
+      return null;
+    }
+    var index = _body.length;
+    if (near != null) {
+      final block = _topLevelBlock(near);
+      final blockIndex = block == null ? -1 : _body.toArray().indexOf(block);
+      if (blockIndex >= 0) index = blockIndex + 1;
+    }
+    final table = yjs.YXmlElement('table');
+    yjs.YXmlText? firstText;
+    final tableRows = <yjs.YXmlElement>[];
+    for (var rowIndex = 0; rowIndex < rows; rowIndex++) {
+      final row = yjs.YXmlElement('tableRow');
+      final cells = <yjs.YXmlElement>[];
+      for (var columnIndex = 0; columnIndex < columns; columnIndex++) {
+        final cell =
+            yjs.YXmlElement(rowIndex == 0 ? 'tableHeader' : 'tableCell');
+        final paragraph = yjs.YXmlElement('paragraph');
+        final text = yjs.YXmlText();
+        firstText ??= text;
+        paragraph.insert(0, [text]);
+        cell.insert(0, [paragraph]);
+        cells.add(cell);
+      }
+      row.insert(0, cells);
+      tableRows.add(row);
+    }
+    table.insert(0, tableRows);
+    _undoManager?.stopCapturing();
+    _document.transact((_) => _body.insert(index, [table]));
+    notifyListeners();
+    return firstText;
+  }
+
   /// 在富文档末尾追加一个标准 Tiptap XML block。
   ///
   /// 返回 `false` 表示当前不是已同步的富文档或正文为空；此时调用方可

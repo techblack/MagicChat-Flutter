@@ -320,6 +320,42 @@ void main() {
     expect(session.deleteXmlTextBlock(heading), isNull);
     expect(session.text, isNot(contains('编辑后的加粗正文')));
 
+    final firstCell = session.insertTable(near: before, rows: 2, columns: 3);
+    expect(firstCell, isNotNull);
+    final table = session.body
+        .toArray()
+        .whereType<yjs.YXmlElement>()
+        .where((element) => element.name == 'table')
+        .single;
+    final rows = table.toArray().whereType<yjs.YXmlElement>().toList();
+    expect(rows, hasLength(2));
+    expect(
+        rows.first
+            .toArray()
+            .whereType<yjs.YXmlElement>()
+            .map((cell) => cell.name),
+        ['tableHeader', 'tableHeader', 'tableHeader']);
+    expect(
+        rows.last
+            .toArray()
+            .whereType<yjs.YXmlElement>()
+            .map((cell) => cell.name),
+        ['tableCell', 'tableCell', 'tableCell']);
+    expect(session.undo(), isTrue);
+    expect(
+        session.body
+            .toArray()
+            .whereType<yjs.YXmlElement>()
+            .where((element) => element.name == 'table'),
+        isEmpty);
+    expect(session.redo(), isTrue);
+    expect(
+        session.body
+            .toArray()
+            .whereType<yjs.YXmlElement>()
+            .where((element) => element.name == 'table'),
+        hasLength(1));
+
     await session.close();
     serverDocument.destroy();
   });
