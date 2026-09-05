@@ -23,4 +23,12 @@ void main() {
     expect(await const ChatPreferences().readSendShortcut(),
         MessageSendShortcut.enter);
   });
+
+  test('新消息提示音默认开启并可持久化关闭', () async {
+    SharedPreferences.setMockInitialValues({});
+    const preferences = ChatPreferences();
+    expect(await preferences.readMessageSoundEnabled(), isTrue);
+    await preferences.writeMessageSoundEnabled(false);
+    expect(await preferences.readMessageSoundEnabled(), isFalse);
+  });
 }

@@ -46,16 +46,23 @@ void main() {
     expect(find.text('账户'), findsOneWidget);
     expect(find.text('服务器'), findsOneWidget);
     expect(find.text('通知'), findsOneWidget);
-    expect(find.text('存储空间'), findsOneWidget);
-    expect(find.text('检查更新'), findsOneWidget);
 
     await expectLater(
       find.byKey(const ValueKey('settings-page-golden')),
       matchesGoldenFile('evidence/settings_page.png'),
     );
 
-    await tester.scrollUntilVisible(find.text('退出登录'), 500,
-        scrollable: find.byType(Scrollable).last);
+    final scrollable = find.byType(Scrollable).last;
+    for (var i = 0; i < 8 && find.text('存储空间').evaluate().isEmpty; i++) {
+      await tester.drag(scrollable, const Offset(0, -480));
+      await tester.pump();
+    }
+    expect(find.text('存储空间'), findsOneWidget);
+    expect(find.text('检查更新'), findsOneWidget);
+    for (var i = 0; i < 8 && find.text('退出登录').evaluate().isEmpty; i++) {
+      await tester.drag(scrollable, const Offset(0, -480));
+      await tester.pump();
+    }
     expect(find.text('退出登录'), findsOneWidget);
   });
 
@@ -77,7 +84,7 @@ void main() {
                 serverUrl: 'https://chat.example.com'))));
     await tester.pumpAndSettle();
 
-    final toggle = find.byType(SwitchListTile);
+    final toggle = find.widgetWithText(SwitchListTile, '通知');
     expect(toggle, findsOneWidget);
     await tester.tap(toggle);
     await tester.pumpAndSettle();
@@ -86,6 +93,23 @@ void main() {
 
     expect(find.text('系统通知权限未开启，请在系统设置中允许通知'), findsOneWidget);
     expect((tester.widget<SwitchListTile>(toggle)).value, isFalse);
+  });
+
+  testWidgets('新消息提示音开关即时回调', (tester) async {
+    bool? enabled = true;
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SettingsPage(
+                repository: DemoRepository(),
+                serverUrl: 'https://chat.example.com',
+                onMessageSoundChanged: (value) => enabled = value))));
+    await tester.pumpAndSettle();
+
+    final toggle = find.widgetWithText(SwitchListTile, '新消息提示音');
+    expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(enabled, isFalse);
   });
 
   testWidgets('退出登录需要二次确认', (tester) async {
@@ -100,8 +124,12 @@ void main() {
                 onLogout: () async => loggedOut = true))));
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('退出登录'));
-    await tester.pump();
+    final scrollable = find.byType(Scrollable).first;
+    for (var i = 0; i < 8 && find.text('退出登录').evaluate().isEmpty; i++) {
+      await tester.drag(scrollable, const Offset(0, -480));
+      await tester.pump();
+    }
+    expect(find.text('退出登录'), findsOneWidget);
     await tester.tap(find.text('退出登录'));
     await tester.pumpAndSettle();
     expect(find.text('确认退出登录？'), findsOneWidget);

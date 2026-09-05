@@ -49,6 +49,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
   ThemeMode _themeMode = ThemeMode.system;
   ChatAppearance _chatAppearance = const ChatAppearance();
   final _conversationAppearances = <String, ChatConversationAppearance>{};
+  bool _messageSoundEnabled = true;
   String? _serverUrl;
   String? _loginError;
   bool _loading = true;
@@ -71,6 +72,8 @@ class _MagicChatAppState extends State<MagicChatApp> {
     final token = await const SessionStore().readToken();
     final theme = prefs.getString('magicchat.theme');
     final chatAppearance = await const ChatAppearancePreferences().readGlobal();
+    final messageSoundEnabled =
+        await const ChatPreferences().readMessageSoundEnabled();
     if (!mounted) return;
     setState(() {
       _serverUrl = server;
@@ -89,6 +92,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
         _ => ThemeMode.system,
       };
       _chatAppearance = chatAppearance;
+      _messageSoundEnabled = messageSoundEnabled;
     });
     if (token != null) {
       unawaited(_registerPush(server, token));
@@ -249,6 +253,11 @@ class _MagicChatAppState extends State<MagicChatApp> {
   Future<void> _setChatAppearance(ChatAppearance appearance) async {
     await const ChatAppearancePreferences().writeGlobal(appearance);
     if (mounted) setState(() => _chatAppearance = appearance);
+  }
+
+  Future<void> _setMessageSoundEnabled(bool enabled) async {
+    await const ChatPreferences().writeMessageSoundEnabled(enabled);
+    if (mounted) setState(() => _messageSoundEnabled = enabled);
   }
 
   Future<void> _setConversationAppearance(
@@ -460,6 +469,8 @@ class _MagicChatAppState extends State<MagicChatApp> {
                     conversationAppearances: _conversationAppearances,
                     onChatAppearanceChanged: _setChatAppearance,
                     onConversationAppearanceChanged: _setConversationAppearance,
+                    messageSoundEnabled: _messageSoundEnabled,
+                    onMessageSoundChanged: _setMessageSoundEnabled,
                     themeMode: _themeMode),
       );
 }
@@ -1057,6 +1068,8 @@ class AppShell extends StatefulWidget {
       this.conversationAppearances = const {},
       this.onChatAppearanceChanged,
       this.onConversationAppearanceChanged,
+      this.messageSoundEnabled = true,
+      this.onMessageSoundChanged,
       this.themeMode = ThemeMode.system,
       super.key});
   final MagicChatRepository repository;
@@ -1074,6 +1087,8 @@ class AppShell extends StatefulWidget {
   final Future<void> Function(
           String conversationId, ChatConversationAppearance appearance)?
       onConversationAppearanceChanged;
+  final bool messageSoundEnabled;
+  final ValueChanged<bool>? onMessageSoundChanged;
   final ThemeMode themeMode;
   @override
   State<AppShell> createState() => _AppShellState();
@@ -1265,6 +1280,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     }
     final prefs = await SharedPreferences.getInstance();
     if (!(prefs.getBool('magicchat.notifications.enabled') ?? true)) return;
+    if (widget.messageSoundEnabled) {
+      unawaited(SystemSound.play(SystemSoundType.alert).catchError((_) {}));
+    }
     final title = sender is Map<String, dynamic> && sender['name'] is String
         ? sender['name'] as String
         : '新消息';
@@ -1443,6 +1461,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           },
           chatAppearance: widget.chatAppearance,
           onChatAppearanceChanged: widget.onChatAppearanceChanged,
+          messageSoundEnabled: widget.messageSoundEnabled,
+          onMessageSoundChanged: widget.onMessageSoundChanged,
           themeMode: widget.themeMode,
           sendMessageShortcut: _sendMessageShortcut),
     ];

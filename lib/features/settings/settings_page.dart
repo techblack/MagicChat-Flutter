@@ -44,6 +44,8 @@ class SettingsPage extends StatefulWidget {
       this.onSendMessageShortcutChanged,
       this.chatAppearance = const ChatAppearance(),
       this.onChatAppearanceChanged,
+      this.messageSoundEnabled = true,
+      this.onMessageSoundChanged,
       this.themeMode = ThemeMode.system,
       this.sendMessageShortcut = MessageSendShortcut.enter,
       super.key});
@@ -59,6 +61,8 @@ class SettingsPage extends StatefulWidget {
   final ValueChanged<MessageSendShortcut>? onSendMessageShortcutChanged;
   final ChatAppearance chatAppearance;
   final ValueChanged<ChatAppearance>? onChatAppearanceChanged;
+  final bool messageSoundEnabled;
+  final ValueChanged<bool>? onMessageSoundChanged;
   final ThemeMode themeMode;
   final MessageSendShortcut sendMessageShortcut;
   @override
@@ -68,11 +72,13 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   Future<CurrentUser>? _userFuture;
   bool _notificationsEnabled = true;
+  late bool _messageSoundEnabled;
   late MessageSendShortcut _sendMessageShortcut;
   @override
   void initState() {
     super.initState();
     _sendMessageShortcut = widget.sendMessageShortcut;
+    _messageSoundEnabled = widget.messageSoundEnabled;
     widget.realtimeStore?.addListener(_onRealtimeChanged);
     _userFuture = widget.repository.currentUser();
     SharedPreferences.getInstance().then((prefs) {
@@ -92,6 +98,9 @@ class _SettingsPageState extends State<SettingsPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.sendMessageShortcut != widget.sendMessageShortcut) {
       _sendMessageShortcut = widget.sendMessageShortcut;
+    }
+    if (oldWidget.messageSoundEnabled != widget.messageSoundEnabled) {
+      _messageSoundEnabled = widget.messageSoundEnabled;
     }
   }
 
@@ -141,6 +150,11 @@ class _SettingsPageState extends State<SettingsPage> {
     if (result != null && mounted) {
       widget.onChatAppearanceChanged?.call(result);
     }
+  }
+
+  void _setMessageSoundEnabled(bool value) {
+    setState(() => _messageSoundEnabled = value);
+    widget.onMessageSoundChanged?.call(value);
   }
 
   Future<void> _checkForUpdate() async {
@@ -534,6 +548,12 @@ class _SettingsPageState extends State<SettingsPage> {
               subtitle: const Text('接收新消息和系统通知'),
               value: _notificationsEnabled,
               onChanged: _setNotifications),
+          SwitchListTile(
+              secondary: const Icon(Icons.volume_up_outlined),
+              title: const Text('新消息提示音'),
+              subtitle: const Text('收到普通新消息时播放提示音'),
+              value: _messageSoundEnabled,
+              onChanged: _setMessageSoundEnabled),
         ])),
         const SizedBox(height: 12),
         Card(
