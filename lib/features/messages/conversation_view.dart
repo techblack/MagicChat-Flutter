@@ -2613,9 +2613,14 @@ class _ConversationViewState extends State<ConversationView>
       builder: (context) => SafeArea(
         child: Wrap(children: [
           if (!topicArchived) ...[
-            const ListTile(title: Text('表情回应')),
+            const ListTile(
+                dense: true,
+                visualDensity: VisualDensity.compact,
+                title: Text('表情回应')),
             SizedBox(
-              height: 156,
+              // 保留三行表情，但让操作面板在小屏/测试窗口内完整可见，
+              // 避免“转发消息”等操作被推到窗口外无法点击。
+              height: 112,
               child: GridView.count(
                 crossAxisCount: 8,
                 padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -2659,34 +2664,46 @@ class _ConversationViewState extends State<ConversationView>
           ],
           if (!topicArchived && message.mine)
             ListTile(
+              dense: true,
+              visualDensity: VisualDensity.compact,
               leading: const Icon(Icons.undo),
               title: const Text('撤回消息'),
               onTap: () => Navigator.pop(context, 'revoke'),
             ),
           if (_canCopyMessage(message))
             ListTile(
+              dense: true,
+              visualDensity: VisualDensity.compact,
               leading: const Icon(Icons.copy_outlined),
               title: const Text('复制消息'),
               onTap: () => Navigator.pop(context, 'copy'),
             ),
           if (!topicArchived && !_isTopicConversation && message.topic == null)
             ListTile(
+              dense: true,
+              visualDensity: VisualDensity.compact,
               leading: const Icon(Icons.reply),
               title: const Text('回复'),
               onTap: () => Navigator.pop(context, 'reply'),
             ),
           if (_canForwardOrSelect(message))
             ListTile(
+                dense: true,
+                visualDensity: VisualDensity.compact,
                 leading: const Icon(Icons.checklist),
                 title: const Text('多选'),
                 onTap: () => Navigator.pop(context, 'select')),
           if (!topicArchived)
             ListTile(
+                dense: true,
+                visualDensity: VisualDensity.compact,
                 leading: const Icon(Icons.forum_outlined),
                 title: const Text('创建话题'),
                 onTap: () => Navigator.pop(context, 'topic')),
           if (_canForwardOrSelect(message))
             ListTile(
+                dense: true,
+                visualDensity: VisualDensity.compact,
                 leading: const Icon(Icons.forward_outlined),
                 title: const Text('转发消息'),
                 onTap: () => Navigator.pop(context, 'forward')),
