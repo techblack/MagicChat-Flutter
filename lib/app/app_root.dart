@@ -1320,6 +1320,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
               realtimeStore: widget.realtimeStore,
               cacheScope: _messageCacheScope,
               sendMessageShortcut: _sendMessageShortcut,
+              enableFileDrop: _index == 0,
               selectedId: _selectedConversation,
               focusMessageId: _focusMessageId,
               focusMessageSequence: _focusMessageSequence,
