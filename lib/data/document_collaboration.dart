@@ -148,6 +148,91 @@ class DocumentCollaborationSession extends ChangeNotifier {
   /// 返回当前文本叶子的可见 marks，供编辑器初始化格式控件。
   Map<String, Object?> xmlTextMarks(yjs.YXmlText node) => _marksFor(node);
 
+  /// 返回可直接转换的顶层文本块类型；列表、表格等复合结构保持原样。
+  RichDocumentBlockType? xmlTextBlockType(yjs.YXmlText node) {
+    final block = _topLevelBlock(node);
+    if (block == null || !identical(block.parent, _body)) return null;
+    return switch (block.name) {
+      'paragraph' => RichDocumentBlockType.paragraph,
+      'heading' => switch ((block.getAttribute('level') as num?)?.toInt()) {
+          1 => RichDocumentBlockType.heading1,
+          3 => RichDocumentBlockType.heading3,
+          _ => RichDocumentBlockType.heading2,
+        },
+      'codeBlock' => RichDocumentBlockType.codeBlock,
+      _ => null,
+    };
+  }
+
+  /// 将顶层段落、标题或代码块转换为另一种文本块，保留正文和 marks。
+  yjs.YXmlText? transformXmlTextBlock(
+      yjs.YXmlText node, RichDocumentBlockType type) {
+    if (documentType != 'document' ||
+        status != DocumentCollaborationStatus.synced ||
+        !const {
+          RichDocumentBlockType.paragraph,
+          RichDocumentBlockType.heading1,
+          RichDocumentBlockType.heading2,
+          RichDocumentBlockType.heading3,
+          RichDocumentBlockType.codeBlock,
+        }.contains(type) ||
+        xmlTextBlockType(node) == null) {
+      return null;
+    }
+    final block = _topLevelBlock(node)!;
+    final index = _body.toArray().indexOf(block);
+    if (index < 0) return null;
+    final replacement = _createTextBlock(type, node.toString(),
+        type == RichDocumentBlockType.codeBlock ? const {} : _marksFor(node));
+    _document.transact((_) {
+      _body.delete(index);
+      _body.insert(index, [replacement.block]);
+    });
+    notifyListeners();
+    return replacement.text;
+  }
+
+  /// 在当前顶层块之前或之后插入可直接编辑的空段落。
+  yjs.YXmlText? insertParagraphNear(yjs.YXmlText node, {required bool after}) {
+    if (documentType != 'document' ||
+        status != DocumentCollaborationStatus.synced) {
+      return null;
+    }
+    final block = _topLevelBlock(node);
+    if (block == null) return null;
+    final index = _body.toArray().indexOf(block);
+    if (index < 0) return null;
+    final paragraph = _createTextBlock(RichDocumentBlockType.paragraph, '');
+    _document.transact((_) {
+      _body.insert(index + (after ? 1 : 0), [paragraph.block]);
+    });
+    notifyListeners();
+    return paragraph.text;
+  }
+
+  /// 删除当前顶层块；删除最后一块时保留一个空段落供继续编辑。
+  yjs.YXmlText? deleteXmlTextBlock(yjs.YXmlText node) {
+    if (documentType != 'document' ||
+        status != DocumentCollaborationStatus.synced) {
+      return null;
+    }
+    final block = _topLevelBlock(node);
+    if (block == null) return null;
+    final index = _body.toArray().indexOf(block);
+    if (index < 0) return null;
+    yjs.YXmlText? replacement;
+    _document.transact((_) {
+      _body.delete(index);
+      if (_body.length == 0) {
+        final paragraph = _createTextBlock(RichDocumentBlockType.paragraph, '');
+        _body.insert(0, [paragraph.block]);
+        replacement = paragraph.text;
+      }
+    });
+    notifyListeners();
+    return replacement;
+  }
+
   /// 在富文档末尾追加一个标准 Tiptap XML block。
   ///
   /// 返回 `false` 表示当前不是已同步的富文档或正文为空；此时调用方可
@@ -216,6 +301,36 @@ class DocumentCollaborationSession extends ChangeNotifier {
         RichDocumentBlockType.blockquote => 'blockquote',
         RichDocumentBlockType.codeBlock => 'codeBlock',
       };
+
+  ({yjs.YXmlElement block, yjs.YXmlText text}) _createTextBlock(
+      RichDocumentBlockType type, String value,
+      [Map<String, Object?> marks = const {}]) {
+    final block = yjs.YXmlElement(_blockName(type));
+    if (type == RichDocumentBlockType.heading1 ||
+        type == RichDocumentBlockType.heading2 ||
+        type == RichDocumentBlockType.heading3) {
+      block.setAttribute(
+          'level',
+          type == RichDocumentBlockType.heading1
+              ? 1
+              : type == RichDocumentBlockType.heading2
+                  ? 2
+                  : 3);
+    }
+    final text = yjs.YXmlText();
+    block.insert(0, [text]);
+    if (value.isNotEmpty) text.insert(0, value, marks);
+    return (block: block, text: text);
+  }
+
+  yjs.YXmlElement? _topLevelBlock(yjs.YXmlText node) {
+    yjs.AbstractType<dynamic>? current = node.parent;
+    while (current is yjs.YXmlElement) {
+      if (identical(current.parent, _body)) return current;
+      current = current.parent;
+    }
+    return null;
+  }
 
   /// 将轻量编辑器中的纯文本转换为标准 Tiptap XML block tree。
   ///

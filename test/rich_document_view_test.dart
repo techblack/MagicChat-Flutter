@@ -46,6 +46,35 @@ void main() {
     expect(edited?.toString(), '可编辑正文');
     document.destroy();
   });
+
+  testWidgets('点击富文档文本块切换为原位输入并回调内容', (tester) async {
+    final document = yjs.Doc(yjs.DocOpts(guid: 'rich-inline-edit-test'));
+    final body = document.get<yjs.YXmlFragment>('body', yjs.YXmlFragment.new)!;
+    _addParagraph(body, '原位正文');
+    yjs.YXmlText? selected;
+    String? changed;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: StatefulBuilder(builder: (context, setState) {
+          return RichDocumentView(
+            body: body,
+            selectedText: selected,
+            onSelectText: (node) => setState(() => selected = node),
+            onTextChanged: (node, value) => changed = value,
+          );
+        }),
+      ),
+    ));
+
+    await tester.tap(find.text('原位正文'));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('rich-document-inline-editor')),
+        findsOneWidget);
+    await tester.enterText(find.byType(TextFormField), '新的正文');
+    await tester.pump();
+    expect(changed, '新的正文');
+    document.destroy();
+  });
 }
 
 void _addHeading(yjs.YXmlFragment body, String value) {

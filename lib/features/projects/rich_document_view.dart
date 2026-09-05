@@ -5,13 +5,24 @@ import '../../domain/message_content.dart';
 
 /// 将 Tiptap 协作正文的 XML block tree 渲染为 Flutter 原生控件。
 ///
-/// 默认只负责展示，不直接修改 Yjs 状态；传入 [onEditText] 后，用户可以
-/// 长按文本叶子交给上层编辑。来自 Web/Desktop 的 heading、列表、任务、
+/// 默认只负责展示，不直接修改 Yjs 状态；传入 [onSelectText] 和
+/// [onTextChanged] 后，用户可以点击文本叶子原位编辑。长按回调继续作为
+/// 完整文本对话框的辅助入口。来自 Web/Desktop 的 heading、列表、任务、
 /// 表格和 marks 仍按 XML tree 原样渲染。
 class RichDocumentView extends StatelessWidget {
-  const RichDocumentView({required this.body, this.onEditText, super.key});
+  const RichDocumentView({
+    required this.body,
+    this.selectedText,
+    this.onSelectText,
+    this.onTextChanged,
+    this.onEditText,
+    super.key,
+  });
 
   final yjs.YXmlFragment body;
+  final yjs.YXmlText? selectedText;
+  final ValueChanged<yjs.YXmlText?>? onSelectText;
+  final void Function(yjs.YXmlText node, String value)? onTextChanged;
   final ValueChanged<yjs.YXmlText>? onEditText;
 
   @override
@@ -77,9 +88,10 @@ class RichDocumentView extends StatelessWidget {
 
   Widget _paragraph(BuildContext context, yjs.YXmlElement node) {
     final textNodes = node.toArray().whereType<yjs.YXmlText>().toList();
-    final content = textNodes.length == 1 && onEditText != null
-        ? _editableText(context, textNodes.single)
-        : Text.rich(_inlineSpan(context, node));
+    final content =
+        textNodes.length == 1 && (onEditText != null || onSelectText != null)
+            ? _editableText(context, textNodes.single)
+            : Text.rich(_inlineSpan(context, node));
     return Padding(
         padding: const EdgeInsets.symmetric(vertical: 4), child: content);
   }
@@ -92,27 +104,65 @@ class RichDocumentView extends StatelessWidget {
       _ => Theme.of(context).textTheme.titleMedium,
     };
     final textNodes = node.toArray().whereType<yjs.YXmlText>().toList();
-    final content = textNodes.length == 1 && onEditText != null
-        ? _editableText(context, textNodes.single, style: style)
-        : Text.rich(_inlineSpan(context, node), style: style);
+    final content =
+        textNodes.length == 1 && (onEditText != null || onSelectText != null)
+            ? _editableText(context, textNodes.single, style: style)
+            : Text.rich(_inlineSpan(context, node), style: style);
     return Padding(
         padding: const EdgeInsets.only(top: 10, bottom: 5), child: content);
   }
 
   Widget _editableText(BuildContext context, yjs.YXmlText node,
       {TextStyle? style}) {
-    final content = Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        child: Text.rich(_inlineSpan(context, node), style: style));
-    return onEditText == null
-        ? content
-        : InkWell(
-            onLongPress: () => onEditText!(node),
-            borderRadius: BorderRadius.circular(4),
-            child: Tooltip(
-                triggerMode: TooltipTriggerMode.tap,
-                message: '长按编辑文本块',
-                child: content));
+    if (identical(selectedText, node) && onTextChanged != null) {
+      return Container(
+        key: const ValueKey('rich-document-inline-editor'),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(
+          color: Theme.of(context)
+              .colorScheme
+              .primaryContainer
+              .withValues(alpha: .28),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+              color:
+                  Theme.of(context).colorScheme.primary.withValues(alpha: .55)),
+        ),
+        child: TextFormField(
+          key: ObjectKey(node),
+          initialValue: node.toString(),
+          autofocus: true,
+          minLines: 1,
+          maxLines: null,
+          style: style,
+          onChanged: (value) => onTextChanged!(node, value),
+          decoration: const InputDecoration(
+              border: InputBorder.none, isDense: true, hintText: '输入正文'),
+        ),
+      );
+    }
+    final value = node.toString();
+    final content = Container(
+      constraints: const BoxConstraints(minHeight: 28),
+      alignment: Alignment.centerLeft,
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: value.isEmpty
+          ? Text('点击输入正文',
+              style: (style ?? Theme.of(context).textTheme.bodyMedium)
+                  ?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant))
+          : Text.rich(_inlineSpan(context, node), style: style),
+    );
+    if (onEditText == null && onSelectText == null) return content;
+    final editor = InkWell(
+      onTap: onSelectText == null ? null : () => onSelectText!(node),
+      onLongPress: onEditText == null ? null : () => onEditText!(node),
+      borderRadius: BorderRadius.circular(8),
+      child: content,
+    );
+    return onSelectText == null
+        ? Tooltip(message: '长按编辑文本块', child: editor)
+        : Semantics(button: true, label: '点击原位编辑', child: editor);
   }
 
   Widget _list(BuildContext context, yjs.YXmlElement node,
@@ -184,15 +234,23 @@ class RichDocumentView extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: _renderChildren(context, node)));
 
-  Widget _codeBlock(BuildContext context, yjs.YXmlElement node) => Container(
-      width: double.infinity,
-      margin: const EdgeInsets.symmetric(vertical: 6),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8)),
-      child: SelectableText(_plainText(node),
-          style: const TextStyle(fontFamily: 'monospace')));
+  Widget _codeBlock(BuildContext context, yjs.YXmlElement node) {
+    final textNodes = node.toArray().whereType<yjs.YXmlText>().toList();
+    final content =
+        textNodes.length == 1 && (onSelectText != null || onEditText != null)
+            ? _editableText(context, textNodes.single,
+                style: const TextStyle(fontFamily: 'monospace'))
+            : SelectableText(_plainText(node),
+                style: const TextStyle(fontFamily: 'monospace'));
+    return Container(
+        width: double.infinity,
+        margin: const EdgeInsets.symmetric(vertical: 6),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(8)),
+        child: content);
+  }
 
   Widget _table(BuildContext context, yjs.YXmlElement node) {
     final rows = node

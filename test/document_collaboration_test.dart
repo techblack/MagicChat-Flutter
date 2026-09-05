@@ -276,6 +276,27 @@ void main() {
     expect(channel.sent, hasLength(markedUpdateCount + 1));
     expect(markedText.toDelta().single['attributes'], isNull);
 
+    final heading = session.transformXmlTextBlock(
+        markedText, RichDocumentBlockType.heading1);
+    expect(heading, isNotNull);
+    expect(session.xmlTextBlockType(heading!), RichDocumentBlockType.heading1);
+    final headingBlock = heading.parent! as yjs.YXmlElement;
+    expect(headingBlock.name, 'heading');
+    expect(headingBlock.getAttribute('level'), 1);
+    expect(heading.toString(), '编辑后的加粗正文');
+
+    final before = session.insertParagraphNear(heading, after: false);
+    final after = session.insertParagraphNear(heading, after: true);
+    expect(before, isNotNull);
+    expect(after, isNotNull);
+    session.replaceXmlText(before!, '上方段落');
+    session.replaceXmlText(after!, '下方段落');
+    expect(session.text, contains('上方段落'));
+    expect(session.text, contains('下方段落'));
+
+    expect(session.deleteXmlTextBlock(heading), isNull);
+    expect(session.text, isNot(contains('编辑后的加粗正文')));
+
     await session.close();
     serverDocument.destroy();
   });
