@@ -78,6 +78,30 @@ class _RealtimeConversationRepository extends DemoRepository {
   }
 }
 
+class _MarkAllReadRepository extends DemoRepository {
+  final readIds = <String>[];
+
+  @override
+  Future<List<ChatConversation>> conversations() async => const [
+        ChatConversation(
+            id: 'unread-a',
+            title: '未读会话 A',
+            unread: 2,
+            lastMessageSeq: 8,
+            lastReadSeq: 6),
+        ChatConversation(
+            id: 'unread-b', title: '未读会话 B', lastMessageSeq: 4, lastReadSeq: 1),
+      ];
+
+  @override
+  Future<ConversationReadResult> markConversationRead(
+      String conversationId, int upToSeq) async {
+    readIds.add(conversationId);
+    return ConversationReadResult(
+        conversationId: conversationId, lastReadSeq: upToSeq, unreadCount: 0);
+  }
+}
+
 void main() {
   const direct = ChatConversation(
       id: 'direct',
@@ -308,6 +332,19 @@ void main() {
     await tester.tap(find.text('消息免打扰'));
     await tester.pumpAndSettle();
     expect(find.byIcon(Icons.notifications_off), findsOneWidget);
+  });
+
+  testWidgets('会话列表可将所有未读会话一次标为已读', (tester) async {
+    final repository = _MarkAllReadRepository();
+    await tester
+        .pumpWidget(MaterialApp(home: AppShell(repository: repository)));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('全部标为已读'));
+    await tester.pumpAndSettle();
+
+    expect(repository.readIds, containsAll(<String>['unread-a', 'unread-b']));
+    expect(find.text('已将 2 个会话标为已读'), findsOneWidget);
   });
 
   testWidgets('实时新消息原地更新会话而不重新请求列表', (tester) async {

@@ -569,6 +569,7 @@ class _ConversationListState extends State<_ConversationList> {
   List<Contact> _displayContacts = const [];
   ConversationFilter _filter = ConversationFilter.all;
   String _query = '';
+  bool _markingAllRead = false;
   @override
   void initState() {
     super.initState();
@@ -662,9 +663,13 @@ class _ConversationListState extends State<_ConversationList> {
         for (final entry in live.entries) {
           if (merged.containsKey(entry.key)) merged[entry.key] = entry.value;
         }
-        final conversations = orderConversations(merged.values).where((item) =>
-            matchesConversationFilter(item, _filter) &&
-            matchesConversationQuery(item, _query));
+        // 先物化筛选结果，避免 ListView.builder 在大量会话下反复对
+        // lazy Iterable 调用 elementAt 造成 O(n²) 遍历。
+        final conversations = orderConversations(merged.values)
+            .where((item) =>
+                matchesConversationFilter(item, _filter) &&
+                matchesConversationQuery(item, _query))
+            .toList(growable: false);
         return RefreshIndicator(
           onRefresh: _refresh,
           child: ListView.separated(
@@ -799,17 +804,30 @@ class _ConversationListState extends State<_ConversationList> {
   }
 
   Widget _conversationFilters(BuildContext context) => Column(children: [
-        TextField(
-            decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.search),
-                hintText: '搜索会话',
-                suffixIcon: _query.isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip: '清除搜索',
-                        onPressed: () => setState(() => _query = ''),
-                        icon: const Icon(Icons.clear))),
-            onChanged: (value) => setState(() => _query = value)),
+        Row(children: [
+          Expanded(
+            child: TextField(
+                decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.search),
+                    hintText: '搜索会话',
+                    suffixIcon: _query.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: '清除搜索',
+                            onPressed: () => setState(() => _query = ''),
+                            icon: const Icon(Icons.clear))),
+                onChanged: (value) => setState(() => _query = value)),
+          ),
+          const SizedBox(width: 4),
+          IconButton(
+              tooltip: '全部标为已读',
+              onPressed: _markingAllRead ? null : _markAllRead,
+              icon: _markingAllRead
+                  ? const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.done_all_outlined)),
+        ]),
         const SizedBox(height: 8),
         SizedBox(
           height: 36,
@@ -827,6 +845,47 @@ class _ConversationListState extends State<_ConversationList> {
                   .toList()),
         )
       ]);
+
+  Future<void> _markAllRead() async {
+    if (_markingAllRead) return;
+    final live = widget.realtimeStore?.conversations ?? const {};
+    final all = <String, ChatConversation>{
+      for (final item in _loadedConversations) item.id: item,
+      ...live,
+    }.values;
+    final unread = all
+        .where((conversation) =>
+            conversationUnreadCount(conversation) > 0 &&
+            conversation.lastMessageSeq > conversation.lastReadSeq)
+        .toList(growable: false);
+    if (unread.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('当前没有未读会话')));
+      }
+      return;
+    }
+    setState(() => _markingAllRead = true);
+    var failed = 0;
+    for (final conversation in unread) {
+      try {
+        final result = await widget.repository
+            .markConversationRead(conversation.id, conversation.lastMessageSeq);
+        widget.realtimeStore?.markConversationRead(result);
+      } catch (_) {
+        failed++;
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _markingAllRead = false;
+      _reload();
+    });
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(failed == 0
+            ? '已将 ${unread.length} 个会话标为已读'
+            : '已处理 ${unread.length - failed} 个会话，$failed 个失败')));
+  }
 
   String? _conversationTime(ChatConversation conversation) {
     final value = conversation.lastMessageAt.isNotEmpty
