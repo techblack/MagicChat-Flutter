@@ -39,4 +39,30 @@ void main() {
         200));
     expect(() => UpdateService(client: client).check(), throwsFormatException);
   });
+
+  test('桌面端从 GitHub Release 选择对应平台产物', () async {
+    final client = MockClient((request) async {
+      expect(request.url.toString(), UpdateService.desktopReleaseApiUrl);
+      expect(request.headers['user-agent'], 'MagicChat-Flutter');
+      return http.Response(
+          '{"tag_name":"v0.3.0","assets":[{"name":"MagicChat-Windows-x64.zip",'
+          '"browser_download_url":"https://github.com/techblack/MagicChat-Flutter/releases/download/v0.3.0/MagicChat-Windows-x64.zip"}]}',
+          200);
+    });
+    final release =
+        await UpdateService(client: client, platform: AppUpdatePlatform.windows)
+            .check();
+    expect(release?.version, '0.3.0');
+    expect(release?.build, 3000);
+    expect(release?.url, contains('MagicChat-Windows-x64.zip'));
+  });
+
+  test('桌面端没有对应产物时拒绝响应', () async {
+    final client = MockClient(
+        (_) async => http.Response('{"tag_name":"v0.3.0","assets":[]}', 200));
+    expect(
+        () => UpdateService(client: client, platform: AppUpdatePlatform.linux)
+            .check(),
+        throwsFormatException);
+  });
 }
