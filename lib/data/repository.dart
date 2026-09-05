@@ -28,6 +28,9 @@ abstract interface class MagicChatRepository {
   Future<void> dissolveGroupConversation(String conversationId);
   Future<void> uploadConversationAvatar(
       String conversationId, AttachmentUpload upload);
+  Future<void> bindConversationProject(String conversationId, String projectId);
+  Future<void> unbindConversationProject(
+      String conversationId, String projectId);
   Future<void> addConversationMembers(String conversationId,
       {List<String> memberIds = const [], List<String> appIds = const []});
   Future<void> removeConversationMember(String conversationId, String memberId,
@@ -257,6 +260,14 @@ class DemoRepository implements MagicChatRepository {
   @override
   Future<void> uploadConversationAvatar(
       String conversationId, AttachmentUpload upload) async {}
+
+  @override
+  Future<void> bindConversationProject(
+      String conversationId, String projectId) async {}
+
+  @override
+  Future<void> unbindConversationProject(
+      String conversationId, String projectId) async {}
 
   @override
   Future<void> addConversationMembers(String conversationId,
@@ -1078,6 +1089,20 @@ class HttpMagicChatRepository implements MagicChatRepository {
   }
 
   @override
+  Future<void> bindConversationProject(
+      String conversationId, String projectId) async {
+    await _request('PUT',
+        '/api/client/conversations/${Uri.encodeComponent(conversationId)}/projects/${Uri.encodeComponent(projectId)}');
+  }
+
+  @override
+  Future<void> unbindConversationProject(
+      String conversationId, String projectId) async {
+    await _request('DELETE',
+        '/api/client/conversations/${Uri.encodeComponent(conversationId)}/projects/${Uri.encodeComponent(projectId)}');
+  }
+
+  @override
   Future<void> addConversationMembers(String conversationId,
       {List<String> memberIds = const [],
       List<String> appIds = const []}) async {
@@ -1270,20 +1295,45 @@ class HttpMagicChatRepository implements MagicChatRepository {
           announcement: '${item['announcement'] ?? ''}',
           isPublic: item['visibility'] == 'public' || item['is_public'] == true,
           avatar: '${item['avatar'] ?? ''}',
-          createdAt:
-              item['created_at'] is String ? item['created_at'] as String : '',
+          createdAt: item[
+                  'created_at'] is String
+              ? item['created_at'] as String
+              : '',
           unread: (item['unread_count'] as num?)?.toInt() ?? 0,
           pinned: item['pinned'] == true,
           muted: item['notification_muted'] == true || item['muted'] == true,
-          lastMessageAt: item['last_message_at'] is String
-              ? item['last_message_at'] as String
-              : '',
+          lastMessageAt:
+              item[
+                      'last_message_at'] is String
+                  ? item['last_message_at'] as String
+                  : '',
           lastMessageSeq: (item['last_message_seq'] as num?)?.toInt() ?? 0,
           lastReadSeq: (item['last_read_seq'] as num?)?.toInt() ?? 0,
           lastMentionedSeq: (item['last_mentioned_seq'] as num?)?.toInt() ?? 0,
           lastChoiceSeq: (item['last_choice_seq'] as num?)?.toInt() ?? 0,
           memberCount: (item['member_count'] as num?)?.toInt() ?? 0,
           canSend: item['can_send'] != false,
+          projects: item[
+                  'projects'] is List
+              ? (item[
+                      'projects'] as List)
+                  .whereType<Map<String, dynamic>>()
+                  .where(
+                      (project) =>
+                          project['id'] is String && project['name'] is String)
+                  .map((project) => Project(
+                      id: project['id'] as String,
+                      name: project['name'] as String,
+                      description:
+                          project['description']
+                                  is String
+                              ? project['description'] as String
+                              : '',
+                      avatar: project['avatar'] is String
+                          ? project['avatar'] as String
+                          : ''))
+                  .toList(growable: false)
+              : const <Project>[],
           topic: item['topic'] is Map<String, dynamic>
               ? TopicMetadata.fromJson(item['topic'] as Map<String, dynamic>)
               : null,

@@ -8,6 +8,49 @@ import 'package:magicchat_client/data/session_store.dart';
 import 'package:magicchat_client/domain/models.dart';
 
 void main() {
+  test('会话解析已关联项目并使用会话项目绑定路由', () async {
+    final requests = <http.Request>[];
+    final repository = HttpMagicChatRepository(
+        serverUrl: 'https://chat.example.com',
+        sessionToken: 'test-token',
+        client: MockClient((request) async {
+          requests.add(request);
+          if (request.url.path == '/api/client/conversations') {
+            return _jsonResponse({
+              'data': {
+                'conversations': [
+                  {
+                    'id': 'group-1',
+                    'name': '工程群',
+                    'type': 'group',
+                    'projects': [
+                      {
+                        'id': 'project-1',
+                        'name': '客户端迭代',
+                        'description': '跨端功能复刻',
+                      }
+                    ],
+                  }
+                ]
+              }
+            });
+          }
+          return _jsonResponse({'data': {}});
+        }));
+
+    final conversation = (await repository.conversations()).single;
+    await repository.bindConversationProject('group-1', 'project-2');
+    await repository.unbindConversationProject('group-1', 'project-1');
+
+    expect(conversation.projects.single.name, '客户端迭代');
+    expect(requests[1].method, 'PUT');
+    expect(requests[1].url.path,
+        '/api/client/conversations/group-1/projects/project-2');
+    expect(requests[2].method, 'DELETE');
+    expect(requests[2].url.path,
+        '/api/client/conversations/group-1/projects/project-1');
+  });
+
   test('浏览器 Cookie 会话不发送占位 Bearer 头', () async {
     final requests = <http.Request>[];
     final repository = HttpMagicChatRepository(

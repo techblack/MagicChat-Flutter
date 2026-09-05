@@ -65,12 +65,21 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
       topicDetail = await widget.repository.topicDetail(conversation.id);
       conversation = topicDetail.conversation;
     }
+    var availableProjects = const <Project>[];
+    if (conversation.type == 'group') {
+      try {
+        availableProjects = await widget.repository.projects();
+      } catch (_) {
+        // 项目服务不可用时仍可查看和管理其他聊天详情。
+      }
+    }
     final hydrated = _hydrateConversation(conversation, contacts);
     widget.realtimeStore?.replaceConversation(hydrated);
     return _ConversationDetailsData(
         conversation: hydrated,
         currentUser: currentUser,
         contacts: contacts,
+        availableProjects: availableProjects,
         topicDetail: topicDetail);
   }
 
@@ -240,6 +249,8 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
                     ]),
                   ),
                   const SizedBox(height: 14),
+                  _conversationProjectsCard(
+                      data, conversation, canManage && !_busy),
                 ],
                 Card(
                   clipBehavior: Clip.antiAlias,
@@ -298,6 +309,154 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
         ),
       ],
     );
+  }
+
+  Widget _conversationProjectsCard(_ConversationDetailsData data,
+      ChatConversation conversation, bool canManage) {
+    final linked = conversation.projects;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Column(children: [
+        ListTile(
+          leading: const Icon(Icons.work_outline),
+          title: Text('关联项目（${linked.length}）'),
+          subtitle: Text(linked.isEmpty ? '暂无关联项目' : '群成员可使用关联项目的协作内容'),
+          trailing: canManage
+              ? IconButton(
+                  tooltip: '关联项目',
+                  onPressed: () => _showProjectPicker(data, conversation),
+                  icon: const Icon(Icons.add_circle_outline))
+              : null,
+        ),
+        if (linked.isNotEmpty)
+          ...linked.expand((project) => [
+                const Divider(height: 1, indent: 56),
+                ListTile(
+                  leading: const Icon(Icons.folder_outlined),
+                  title: Text(project.name),
+                  subtitle: project.description.trim().isEmpty
+                      ? null
+                      : Text(project.description.trim(),
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                  trailing: canManage
+                      ? IconButton(
+                          tooltip: '解除关联',
+                          onPressed: () =>
+                              _confirmUnbindProject(conversation, project),
+                          icon: const Icon(Icons.link_off_outlined))
+                      : null,
+                ),
+              ]),
+      ]),
+    );
+  }
+
+  Future<void> _showProjectPicker(
+      _ConversationDetailsData data, ChatConversation conversation) async {
+    final linkedIds =
+        conversation.projects.map((project) => project.id).toSet();
+    final candidates = data.availableProjects
+        .where(
+            (project) => !project.isPersonal && !linkedIds.contains(project.id))
+        .toList(growable: false);
+    if (candidates.isEmpty) {
+      _showMessage('暂无可关联的项目');
+      return;
+    }
+    var keyword = '';
+    String? selectedId;
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          final visible = candidates.where((project) {
+            final query = keyword.trim().toLowerCase();
+            return query.isEmpty ||
+                project.name.toLowerCase().contains(query) ||
+                project.description.toLowerCase().contains(query);
+          }).toList(growable: false);
+          return AlertDialog(
+            title: const Text('关联项目'),
+            content: SizedBox(
+              width: 420,
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                TextField(
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.search), hintText: '搜索项目'),
+                    onChanged: (value) =>
+                        setDialogState(() => keyword = value)),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 260,
+                  child: visible.isEmpty
+                      ? const Center(child: Text('没有匹配的项目'))
+                      : ListView.builder(
+                          itemCount: visible.length,
+                          itemBuilder: (context, index) {
+                            final project = visible[index];
+                            final selected = selectedId == project.id;
+                            return ListTile(
+                              leading: Icon(selected
+                                  ? Icons.radio_button_checked
+                                  : Icons.radio_button_unchecked),
+                              title: Text(project.name),
+                              subtitle: project.description.trim().isEmpty
+                                  ? null
+                                  : Text(project.description.trim(),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis),
+                              selected: selected,
+                              onTap: () =>
+                                  setDialogState(() => selectedId = project.id),
+                            );
+                          }),
+                ),
+              ]),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('取消')),
+              FilledButton(
+                  onPressed: selectedId == null
+                      ? null
+                      : () => Navigator.pop(dialogContext, selectedId),
+                  child: const Text('关联')),
+            ],
+          );
+        },
+      ),
+    );
+    if (selected == null || !mounted) return;
+    await _run(
+        () => widget.repository
+            .bindConversationProject(conversation.id, selected),
+        successMessage: '项目已关联');
+  }
+
+  Future<void> _confirmUnbindProject(
+      ChatConversation conversation, Project project) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('解除项目关联？'),
+        content: Text('确定解除群聊与“${project.name}”的关联吗？'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('解除关联')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _run(
+        () => widget.repository
+            .unbindConversationProject(conversation.id, project.id),
+        successMessage: '已解除项目关联');
   }
 
   String _pageTitle(ChatConversation? conversation) {
@@ -647,12 +806,14 @@ class _ConversationDetailsData {
     required this.conversation,
     required this.currentUser,
     required this.contacts,
+    this.availableProjects = const [],
     this.topicDetail,
   });
 
   final ChatConversation conversation;
   final CurrentUser currentUser;
   final List<Contact> contacts;
+  final List<Project> availableProjects;
   final TopicDetail? topicDetail;
 }
 
@@ -693,6 +854,7 @@ ChatConversation _hydrateConversation(
     type: conversation.type,
     memberCount: conversation.memberCount,
     members: members,
+    projects: conversation.projects,
     canSend: conversation.canSend,
     topic: conversation.topic,
   );
