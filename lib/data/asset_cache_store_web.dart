@@ -42,6 +42,12 @@ class LocalAssetCache {
     return bytes == null ? null : Uint8List.fromList(bytes);
   }
 
+  void writeMemory(String key, Uint8List bytes) {
+    if (bytes.isNotEmpty) _memory[key] = Uint8List.fromList(bytes);
+  }
+
+  void removeMemory(String key) => _memory.remove(key);
+
   Future<void> remove(String key) async {
     _memory.remove(key);
     final prefs = await SharedPreferences.getInstance();

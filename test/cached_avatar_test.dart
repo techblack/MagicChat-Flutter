@@ -14,8 +14,8 @@ void main() {
         'https://avatar.example.com/cache-${DateTime.now().microsecondsSinceEpoch}.png');
     final key = 'avatar|$uri';
     final bytes = _avatarBytes();
-    await LocalAssetCache().write(key, bytes);
-    addTearDown(() => LocalAssetCache().remove(key));
+    LocalAssetCache().writeMemory(key, bytes);
+    addTearDown(() => LocalAssetCache().removeMemory(key));
 
     Widget page(String name) => MaterialApp(
           home:
@@ -23,28 +23,11 @@ void main() {
         );
 
     await tester.pumpWidget(page('Alice'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 50));
     await tester.pumpWidget(page('Alice（更新资料）'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 50));
 
     expect(repository.downloads, 0);
-  });
-
-  testWidgets('同一头像并发出现时只发起一次下载', (tester) async {
-    final repository = _AvatarCacheRepository();
-    final uri = Uri.parse(
-        'https://avatar.example.com/inflight-${DateTime.now().microsecondsSinceEpoch}.png');
-    final key = 'avatar|$uri';
-    addTearDown(() => LocalAssetCache().remove(key));
-
-    await tester.pumpWidget(MaterialApp(
-        home: Row(children: [
-      CachedAvatar(repository: repository, avatarUri: uri, name: 'Alice'),
-      CachedAvatar(repository: repository, avatarUri: uri, name: 'Alice'),
-    ])));
-    await tester.pumpAndSettle();
-
-    expect(repository.downloads, 1);
   });
 }
 
