@@ -135,6 +135,7 @@ abstract interface class MagicChatRepository {
       List<String> statuses = const [],
       List<int> priorities = const []});
   Future<List<ProjectTask>> tasks(String projectId);
+  Future<ProjectTask> task(String projectId, String taskId);
   Future<List<ProjectTaskActivity>> taskActivities(
       String projectId, String taskId);
   Future<List<ProjectDocument>> documents(String projectId);
@@ -794,6 +795,14 @@ class DemoRepository implements MagicChatRepository {
             title: '迁移消息渲染器',
             status: 'in_progress'),
       ];
+
+  @override
+  Future<ProjectTask> task(String projectId, String taskId) async =>
+      ProjectTask(
+          id: taskId,
+          projectId: projectId,
+          title: '示例任务',
+          status: 'in_progress');
 
   @override
   Future<List<ProjectTaskActivity>> taskActivities(
@@ -2376,6 +2385,14 @@ class HttpMagicChatRepository implements MagicChatRepository {
   @override
   Future<List<ProjectTask>> tasks(String projectId) async {
     return (await projectTaskPage(projectId)).tasks;
+  }
+
+  @override
+  Future<ProjectTask> task(String projectId, String taskId) async {
+    final data = _data(await _request('GET',
+        '/api/client/projects/${Uri.encodeComponent(projectId)}/tasks/${Uri.encodeComponent(taskId)}'));
+    return _hydrateProjectTask(
+        _taskFromJson(data, defaultProjectId: projectId));
   }
 
   @override

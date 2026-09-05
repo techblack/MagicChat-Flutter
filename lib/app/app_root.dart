@@ -1057,6 +1057,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   int? _focusMessageSequence;
   String? _focusContactId;
   String? _focusProjectId;
+  String? _focusTaskProjectId;
+  String? _focusTaskId;
   String? _focusDocumentId;
   int _unreadCount = 0;
   MessageSendShortcut _sendMessageShortcut = MessageSendShortcut.enter;
@@ -1355,9 +1357,19 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       ProjectsPage(
           repository: _repository,
           initialProjectId: _focusProjectId,
+          initialTaskProjectId: _focusTaskProjectId,
+          initialTaskId: _focusTaskId,
           initialDocumentId: _focusDocumentId,
           onInitialProjectOpened: () {
             if (mounted) setState(() => _focusProjectId = null);
+          },
+          onInitialTaskOpened: () {
+            if (mounted) {
+              setState(() {
+                _focusTaskProjectId = null;
+                _focusTaskId = null;
+              });
+            }
           },
           onInitialDocumentOpened: () {
             if (mounted) setState(() => _focusDocumentId = null);
@@ -1541,10 +1553,23 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     if (target == null) return;
     final uri = Uri.tryParse(target);
     if (uri == null) return;
+    final task = parseProjectTaskMessagePath(target);
+    if (task != null) {
+      setState(() {
+        _focusProjectId = null;
+        _focusDocumentId = null;
+        _focusTaskProjectId = task.projectId;
+        _focusTaskId = task.taskId;
+        _index = 2;
+      });
+      return;
+    }
     final document = parseDocumentMessagePath(target);
     if (document != null) {
       setState(() {
         _focusProjectId = null;
+        _focusTaskProjectId = null;
+        _focusTaskId = null;
         _focusDocumentId = document.documentId;
         _index = 2;
       });
@@ -1565,6 +1590,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         onOpenProject: (id) {
           setState(() {
             _focusDocumentId = null;
+            _focusTaskProjectId = null;
+            _focusTaskId = null;
             _focusProjectId = id;
             _index = 2;
           });
