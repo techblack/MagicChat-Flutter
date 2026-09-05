@@ -526,6 +526,16 @@ class _ConversationViewState extends State<ConversationView>
         conversationType: _messageCacheConversationType);
   }
 
+  Future<void> _upsertCachedMessages(
+      String id, Iterable<ChatMessage> messages) async {
+    final scope = widget.cacheScope;
+    if (scope == null) return;
+    final records = messages.map(messageCacheRecord).toList(growable: false);
+    if (records.isEmpty) return;
+    await _messageCacheStore.upsertAll(scope, id, records,
+        conversationType: _messageCacheConversationType);
+  }
+
   Future<List<ChatMessage>> _readCachedMessages(String id) async {
     final scope = widget.cacheScope;
     if (scope == null) return const [];
@@ -1064,7 +1074,8 @@ class _ConversationViewState extends State<ConversationView>
           _hasMoreOlder = false;
         }
         _olderMessages.insertAll(0, added);
-        unawaited(_cacheMessages(id, [..._olderMessages, ...snapshot]));
+        // 旧页只做增量写入，避免每翻一页都重写整段历史，保证长会话加载为 O(page)。
+        unawaited(_upsertCachedMessages(id, added));
         setState(() {});
         if (added.isNotEmpty) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
