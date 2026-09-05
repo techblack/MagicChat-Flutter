@@ -2610,15 +2610,47 @@ class _ConversationViewState extends State<ConversationView>
         child: Wrap(children: [
           if (!topicArchived) ...[
             const ListTile(title: Text('表情回应')),
-            Wrap(
-              children: ['👍', '❤️', '😂', '🎉', '🤔', '👏']
-                  .map((emoji) => IconButton(
-                        icon: Text(emoji, style: const TextStyle(fontSize: 24)),
-                        tooltip: emoji,
-                        onPressed: () =>
-                            Navigator.pop(context, 'reaction:$emoji'),
-                      ))
-                  .toList(),
+            SizedBox(
+              height: 156,
+              child: GridView.count(
+                crossAxisCount: 8,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                mainAxisSpacing: 4,
+                crossAxisSpacing: 4,
+                children: const [
+                  '👍',
+                  '❤️',
+                  '😂',
+                  '🎉',
+                  '🤔',
+                  '👏',
+                  '😄',
+                  '😮',
+                  '😢',
+                  '😡',
+                  '🙏',
+                  '🔥',
+                  '✅',
+                  '⭐',
+                  '💡',
+                  '🚀',
+                  '🎂',
+                  '💯',
+                  '👀',
+                  '💪',
+                  '🙌',
+                  '🤝',
+                  '💔',
+                  '🤣',
+                ]
+                    .map((emoji) => IconButton(
+                          icon: Text(emoji, style: TextStyle(fontSize: 24)),
+                          tooltip: emoji,
+                          onPressed: () =>
+                              Navigator.pop(context, 'reaction:$emoji'),
+                        ))
+                    .toList(),
+              ),
             ),
           ],
           if (!topicArchived && message.mine)
