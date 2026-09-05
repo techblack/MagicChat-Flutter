@@ -14,6 +14,7 @@ class RichDocumentToolbar extends StatelessWidget {
     this.canRedo = false,
     this.onUndo,
     this.onRedo,
+    this.onInsertTable,
     super.key,
   });
 
@@ -23,6 +24,7 @@ class RichDocumentToolbar extends StatelessWidget {
   final bool canRedo;
   final VoidCallback? onUndo;
   final VoidCallback? onRedo;
+  final VoidCallback? onInsertTable;
 
   @override
   Widget build(BuildContext context) => Semantics(
@@ -61,6 +63,11 @@ class RichDocumentToolbar extends StatelessWidget {
                       RichDocumentBlockType.blockquote),
                   _tool(context, Icons.code, '代码块',
                       RichDocumentBlockType.codeBlock),
+                  const VerticalDivider(width: 12, indent: 10, endIndent: 10),
+                  IconButton(
+                      tooltip: '插入表格',
+                      onPressed: enabled ? onInsertTable : null,
+                      icon: const Icon(Icons.table_chart_outlined, size: 20)),
                 ],
               ),
             ),
