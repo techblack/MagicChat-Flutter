@@ -122,6 +122,7 @@ void main() {
     await tester.enterText(
         find.widgetWithText(TextFormField, '邮箱'), 'alice@example.com');
     await tester.enterText(find.widgetWithText(TextFormField, '密码'), 'secret');
+    await tester.tap(find.byType(Checkbox));
     await tester.tap(find.text('登录'));
     await tester.pumpAndSettle();
 
@@ -204,6 +205,8 @@ void main() {
     await tester.pumpAndSettle();
     final codeField = find.widgetWithText(TextFormField, '邮箱验证码');
     await tester.enterText(codeField, '1234 5678');
+    await tester.tap(find.byType(Checkbox));
+    await tester.ensureVisible(find.text('登录').last);
     await tester.tap(find.text('登录'));
     await tester.pumpAndSettle();
 
