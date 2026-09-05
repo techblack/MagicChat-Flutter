@@ -2329,6 +2329,76 @@ class _MessageBubble extends StatelessWidget {
     }
   }
 
+  Widget _markdownContent(BuildContext context, bool mine, ColorScheme colors) {
+    return FutureBuilder<List<Contact>>(
+      future: contactsFuture,
+      builder: (context, snapshot) {
+        final contacts = snapshot.data ?? const <Contact>[];
+        final content = formatMentionText(
+            message.text,
+            contacts.map((contact) => (
+                  id: contact.id,
+                  name: contact.displayName,
+                )));
+        return CollapsibleMessageContent(
+          key: ValueKey('collapsible-message-${message.id}'),
+          variant: CollapsibleMessageVariant.markdown,
+          contentIdentity: content,
+          backgroundColor:
+              mine ? colors.primary : colors.surfaceContainerHighest,
+          foregroundColor: mine ? colors.onPrimary : colors.primary,
+          builder: (context) => MarkdownBody(
+            data: content,
+            styleSheet:
+                MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+              p: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: mine ? colors.onPrimary : null),
+              a: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: mine ? colors.onPrimary : colors.primary,
+                  decoration: TextDecoration.underline),
+            ),
+            onTapLink: (text, href, title) {
+              final uri = parseMarkdownLink(href);
+              if (uri != null) {
+                unawaited(launchUrl(uri, mode: LaunchMode.externalApplication));
+              }
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _textContent(BuildContext context, bool mine, ColorScheme colors) {
+    return FutureBuilder<List<Contact>>(
+      future: contactsFuture,
+      builder: (context, snapshot) {
+        final contacts = snapshot.data ?? const <Contact>[];
+        final content = formatMentionText(
+            message.text,
+            contacts.map((contact) => (
+                  id: contact.id,
+                  name: contact.displayName,
+                )));
+        final text = Text(content,
+            style: TextStyle(color: mine ? colors.onPrimary : null));
+        if (message.contentType != 'text') return text;
+        return CollapsibleMessageContent(
+          key: ValueKey('collapsible-message-${message.id}'),
+          variant: CollapsibleMessageVariant.text,
+          contentIdentity: content,
+          backgroundColor:
+              mine ? colors.primary : colors.surfaceContainerHighest,
+          foregroundColor: mine ? colors.onPrimary : colors.primary,
+          builder: (_) => Text(content,
+              style: TextStyle(color: mine ? colors.onPrimary : null)),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final messageTime = formatMessageTime(message.createdAt);
@@ -2484,31 +2554,7 @@ class _MessageBubble extends StatelessWidget {
                                 .bodyMedium
                                 ?.copyWith(color: colors.onSurfaceVariant))
                         : message.contentType == 'markdown'
-                            ? MarkdownBody(
-                                data: message.text,
-                                styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-                                    p: Theme.of(context)
-                                        .textTheme
-                                        .bodyMedium
-                                        ?.copyWith(
-                                            color:
-                                                mine ? colors.onPrimary : null),
-                                    a: Theme.of(context)
-                                        .textTheme
-                                        .bodyMedium
-                                        ?.copyWith(
-                                            color: mine
-                                                ? colors.onPrimary
-                                                : colors.primary,
-                                            decoration:
-                                                TextDecoration.underline)),
-                                onTapLink: (text, href, title) {
-                                  final uri = parseMarkdownLink(href);
-                                  if (uri != null) {
-                                    unawaited(launchUrl(uri,
-                                        mode: LaunchMode.externalApplication));
-                                  }
-                                })
+                            ? _markdownContent(context, mine, colors)
                             : message.contentType == 'link' ||
                                     message.contentType == 'card'
                                 ? MessageLinkCard(
@@ -2550,24 +2596,9 @@ class _MessageBubble extends StatelessWidget {
                                         body: message.rawBody,
                                         summary: message.text,
                                         contactsFuture: contactsFuture,
-                                        textColor: mine ? colors.onPrimary : null)
-                                    : FutureBuilder<List<Contact>>(
-                                        future: contactsFuture,
-                                        builder: (context, snapshot) {
-                                          final contacts = snapshot.data ??
-                                              const <Contact>[];
-                                          return Text(
-                                              formatMentionText(
-                                                  message.text,
-                                                  contacts.map((c) => (
-                                                        id: c.id,
-                                                        name: c.displayName
-                                                      ))),
-                                              style: TextStyle(
-                                                  color: mine
-                                                      ? colors.onPrimary
-                                                      : null));
-                                        })),
+                                        textColor:
+                                            mine ? colors.onPrimary : null)
+                                    : _textContent(context, mine, colors)),
           ]),
         if (hasVoicePlayer)
           VoiceMessagePlayer(
