@@ -1286,6 +1286,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     }
   }
 
+  void _retryRealtime() {
+    final realtime = widget.realtime;
+    if (realtime == null) return;
+    unawaited(realtime.reconnect());
+  }
+
   Future<void> _loadCurrentUser({RealtimeStore? store}) async {
     try {
       final user = await widget.repository.currentUser();
@@ -1667,6 +1673,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                                     color: Theme.of(context)
                                         .colorScheme
                                         .onTertiaryContainer))),
+                    TextButton(
+                        onPressed:
+                            widget.realtime == null ? null : _retryRealtime,
+                        child: const Text('重试')),
                     const SizedBox(width: 16),
                   ]),
                 ),

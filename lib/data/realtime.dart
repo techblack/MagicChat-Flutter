@@ -86,6 +86,14 @@ class RealtimeSession {
     await _open();
   }
 
+  /// 手动重试当前连接，沿用已确认的 cursor，避免刷新时重复同步历史事件。
+  Future<void> reconnect() async {
+    if (_closed) return;
+    _retry?.cancel();
+    _attempt = 0;
+    await _open();
+  }
+
   Future<void> _open() async {
     if (_closed) return;
     ready = false;

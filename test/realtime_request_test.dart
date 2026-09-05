@@ -8,6 +8,8 @@ void main() {
     final realtime = _FakeRealtime();
     final session = RealtimeSession(realtime: realtime);
     await session.connect();
+    await session.reconnect();
+    expect(realtime.connectCount, 2);
 
     await expectLater(session.sendRequest('conversation.status', const {}),
         throwsA(isA<StateError>()));
@@ -100,11 +102,15 @@ class _FakeRealtime extends MagicChatRealtime {
 
   final controller = StreamController<Map<String, dynamic>>.broadcast();
   final sent = <Map<String, dynamic>>[];
+  var connectCount = 0;
 
   void add(Map<String, dynamic> event) => controller.add(event);
 
   @override
-  Stream<Map<String, dynamic>> connect({int? cursor}) => controller.stream;
+  Stream<Map<String, dynamic>> connect({int? cursor}) {
+    connectCount++;
+    return controller.stream;
+  }
 
   @override
   Future<void> send(Map<String, dynamic> envelope) async {
