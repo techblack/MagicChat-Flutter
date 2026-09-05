@@ -8,7 +8,7 @@ import 'session_store.dart';
 
 const pushGatewayUrl = 'https://push.jiying.chat';
 const pushClientVersion =
-    String.fromEnvironment('FLUTTER_BUILD_NAME', defaultValue: '0.2.7');
+    String.fromEnvironment('FLUTTER_BUILD_NAME', defaultValue: '0.2.8');
 const pushGrantRenewalWindow = Duration(days: 7);
 
 String pushPlatformName(TargetPlatform platform) {
