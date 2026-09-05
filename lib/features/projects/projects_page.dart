@@ -17,11 +17,15 @@ class ProjectsPage extends StatefulWidget {
       {required this.repository,
       this.initialProjectId,
       this.onInitialProjectOpened,
+      this.initialDocumentId,
+      this.onInitialDocumentOpened,
       this.documentCollaborationFactory,
       super.key});
   final MagicChatRepository repository;
   final String? initialProjectId;
   final VoidCallback? onInitialProjectOpened;
+  final String? initialDocumentId;
+  final VoidCallback? onInitialDocumentOpened;
   final DocumentCollaborationFactory? documentCollaborationFactory;
 
   @override
@@ -33,6 +37,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
   final _searchController = TextEditingController();
   String _search = '';
   String? _openedInitialProjectId;
+  String? _openedInitialDocumentId;
 
   MagicChatRepository get repository => widget.repository;
 
@@ -78,12 +83,51 @@ class _ProjectsPageState extends State<ProjectsPage> {
     });
   }
 
+  void _openInitialDocument(List<Project> projects) {
+    final id = widget.initialDocumentId;
+    if (id == null || id.isEmpty || id == _openedInitialDocumentId) return;
+    _openedInitialDocumentId = id;
+    unawaited(_showInitialDocument(id, projects));
+  }
+
+  Future<void> _showInitialDocument(
+      String documentId, List<Project> projects) async {
+    try {
+      final document = await repository.document(documentId);
+      if (!mounted || widget.initialDocumentId != documentId) return;
+      final project =
+          projects.where((item) => item.id == document.projectId).firstOrNull;
+      await Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DocumentEditorPage(
+            repository: repository,
+            document: document,
+            projectName: project?.name ?? '',
+            collaboration: widget.documentCollaborationFactory?.call(document),
+          ),
+        ),
+      );
+      widget.onInitialDocumentOpened?.call();
+    } catch (error) {
+      _openedInitialDocumentId = null;
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('文档加载失败：$error')));
+      }
+    }
+  }
+
   @override
   void didUpdateWidget(covariant ProjectsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.initialProjectId == null) _openedInitialProjectId = null;
+    if (widget.initialDocumentId == null) _openedInitialDocumentId = null;
     if (oldWidget.initialProjectId != widget.initialProjectId) {
       unawaited(_projects.then(_openInitialProject));
+    }
+    if (oldWidget.initialDocumentId != widget.initialDocumentId) {
+      unawaited(_projects.then(_openInitialDocument));
     }
   }
 
@@ -114,6 +158,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
                 return const Center(child: CircularProgressIndicator());
               }
               _openInitialProject(snapshot.data!);
+              _openInitialDocument(snapshot.data!);
               final keyword = _search.trim().toLowerCase();
               final projects = keyword.isEmpty
                   ? snapshot.data!
@@ -1008,6 +1053,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
                     builder: (_) => DocumentEditorPage(
                         repository: repository,
                         document: document,
+                        projectName: project.name,
                         collaboration: widget.documentCollaborationFactory
                             ?.call(document)))),
             onLongPress: () => _documentActions(context, project, document));

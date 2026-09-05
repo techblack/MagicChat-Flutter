@@ -191,6 +191,21 @@ String? parseInternalMessagePath(String value) {
   return trimmed;
 }
 
+/// 解析文档卡片使用的应用内路径。
+({String documentType, String documentId})? parseDocumentMessagePath(
+    String value) {
+  final target = parseInternalMessagePath(value);
+  final uri = target == null ? null : Uri.tryParse(target);
+  final segments = uri?.pathSegments ?? const <String>[];
+  if (segments.length != 3 ||
+      segments.first != 'documents' ||
+      (segments[1] != 'document' && segments[1] != 'markdown') ||
+      segments[2].trim().isEmpty) {
+    return null;
+  }
+  return (documentType: segments[1], documentId: segments[2]);
+}
+
 /// 将服务端提及 token 渲染为用户可读文本，同时保留未知用户的安全占位。
 String formatMentionText(
     String content, Iterable<({String id, String name})> contacts) {

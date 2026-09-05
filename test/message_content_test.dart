@@ -37,6 +37,14 @@ void main() {
     expect(link.text, '[链接] https://example.com/fallback');
   });
 
+  test('文档卡片路径只接受可编辑文档类型并解析编码后的标识', () {
+    expect(parseDocumentMessagePath('/documents/markdown/document%2F1'),
+        (documentType: 'markdown', documentId: 'document/1'));
+    expect(parseDocumentMessagePath('/documents/folder/document-1'), isNull);
+    expect(parseDocumentMessagePath('https://example.com/documents/document/1'),
+        isNull);
+  });
+
   test('消息摘要覆盖图片说明、语音时长和未知类型', () {
     expect(
       MessageContent.parse({
