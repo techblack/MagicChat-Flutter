@@ -300,7 +300,7 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
 
   String _pageTitle(ChatConversation? conversation) {
     if (conversation?.type == 'group') {
-      return '聊天信息 (${conversation!.members.length})';
+      return '聊天信息 (${conversation!.effectiveMemberCount})';
     }
     return conversation?.type == 'topic' ? '话题详情' : '聊天详情';
   }
@@ -689,6 +689,7 @@ ChatConversation _hydrateConversation(
     lastMentionedSeq: conversation.lastMentionedSeq,
     lastChoiceSeq: conversation.lastChoiceSeq,
     type: conversation.type,
+    memberCount: conversation.memberCount,
     members: members,
     canSend: conversation.canSend,
     topic: conversation.topic,

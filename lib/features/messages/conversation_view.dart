@@ -1224,11 +1224,18 @@ class _ConversationViewState extends State<ConversationView> {
     final conversationId = widget.conversationId;
     if (conversationId == null) return const _ConversationEmptyState();
     final canSend = _conversationCanSend(conversationId);
+    final activeConversation =
+        _conversation ?? widget.realtimeStore?.conversations[conversationId];
+    final announcement = activeConversation?.type == 'group'
+        ? activeConversation!.announcement.trim()
+        : '';
     return Column(
       children: [
         if (_topicDetail != null)
           TopicSourceBanner(
               detail: _topicDetail!, contactsFuture: _contactsFuture),
+        if (announcement.isNotEmpty)
+          ConversationAnnouncement(announcement: announcement),
         if (_selectedMessageIds.isNotEmpty)
           Material(
             color: Theme.of(context).colorScheme.surfaceContainerHighest,

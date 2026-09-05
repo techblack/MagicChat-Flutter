@@ -20,6 +20,7 @@ class ChatConversation {
       this.lastMentionedSeq = 0,
       this.lastChoiceSeq = 0,
       this.type = 'direct',
+      this.memberCount = 0,
       this.members = const [],
       this.canSend = true,
       this.topic});
@@ -39,9 +40,12 @@ class ChatConversation {
   final int lastMentionedSeq;
   final int lastChoiceSeq;
   final String type;
+  final int memberCount;
   final List<Contact> members;
   final bool canSend;
   final TopicMetadata? topic;
+
+  int get effectiveMemberCount => max(memberCount, members.length);
 
   String get displayTitle {
     final value = title.trim();
@@ -116,6 +120,7 @@ class ChatConversation {
       lastReadSeq: (value['last_read_seq'] as num?)?.toInt() ?? 0,
       lastMentionedSeq: (value['last_mentioned_seq'] as num?)?.toInt() ?? 0,
       lastChoiceSeq: (value['last_choice_seq'] as num?)?.toInt() ?? 0,
+      memberCount: (value['member_count'] as num?)?.toInt() ?? 0,
       canSend: value['can_send'] != false,
       members: members,
       topic: rawTopic is Map<String, dynamic>

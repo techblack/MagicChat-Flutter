@@ -81,6 +81,7 @@ class RealtimeStore extends ChangeNotifier {
         lastReadSeq: result.lastReadSeq,
         lastMentionedSeq: current.lastMentionedSeq,
         lastChoiceSeq: current.lastChoiceSeq,
+        memberCount: current.memberCount,
         members: current.members,
         canSend: current.canSend,
         topic: current.topic);
@@ -346,6 +347,7 @@ class RealtimeStore extends ChangeNotifier {
         lastMentionedSeq: current.lastMentionedSeq,
         lastChoiceSeq: current.lastChoiceSeq,
         type: current.type,
+        memberCount: current.memberCount,
         members: current.members,
         canSend: current.canSend,
         topic: current.topic);
@@ -406,6 +408,7 @@ class RealtimeStore extends ChangeNotifier {
         lastMentionedSeq: current.lastMentionedSeq,
         lastChoiceSeq: current.lastChoiceSeq,
         type: current.type,
+        memberCount: current.memberCount,
         members: current.members,
         canSend: current.canSend,
         topic: current.topic);
@@ -446,6 +449,7 @@ class RealtimeStore extends ChangeNotifier {
                 : current.lastChoiceSeq
             : current.lastChoiceSeq,
         type: current.type,
+        memberCount: current.memberCount,
         members: current.members,
         canSend: current.canSend,
         topic: current.topic);
@@ -484,6 +488,7 @@ class RealtimeStore extends ChangeNotifier {
         lastMentionedSeq: current.lastMentionedSeq,
         lastChoiceSeq: current.lastChoiceSeq,
         type: current.type,
+        memberCount: current.memberCount,
         members: current.members,
         canSend: current.canSend && !archived,
         topic: TopicMetadata(

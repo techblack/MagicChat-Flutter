@@ -87,6 +87,7 @@ void main() {
                   'last_message_seq': 9,
                   'last_read_seq': 5,
                   'last_mentioned_seq': 8,
+                  'member_count': 12,
                 }
               ]
             }
@@ -99,6 +100,8 @@ void main() {
 
     expect(conversation.lastMentionedSeq, 8);
     expect(conversation.lastChoiceSeq, 0);
+    expect(conversation.memberCount, 12);
+    expect(conversation.effectiveMemberCount, 12);
   });
 
   testWidgets('按群成员角色展示对应群聊操作', (tester) async {
