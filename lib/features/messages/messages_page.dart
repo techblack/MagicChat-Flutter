@@ -247,12 +247,12 @@ class _ConversationHeader extends StatefulWidget {
 }
 
 class _ConversationHeaderState extends State<_ConversationHeader> {
-  late Future<String> _titleFuture;
+  late Future<ChatConversation?> _conversationFuture;
 
   @override
   void initState() {
     super.initState();
-    _titleFuture = _loadTitle();
+    _conversationFuture = _loadConversation();
     widget.realtimeStore?.addListener(_onRealtimeChanged);
   }
 
@@ -265,7 +265,7 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
     }
     if (oldWidget.conversationId != widget.conversationId ||
         oldWidget.repository != widget.repository) {
-      _titleFuture = _loadTitle();
+      _conversationFuture = _loadConversation();
     }
   }
 
@@ -280,21 +280,18 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
         widget.realtimeStore?.conversations
                 .containsKey(widget.conversationId) ==
             true) {
-      setState(() => _titleFuture = _loadTitle());
+      setState(() => _conversationFuture = _loadConversation());
     }
   }
 
-  Future<String> _loadTitle() async {
+  Future<ChatConversation?> _loadConversation() async {
     final live = widget.realtimeStore?.conversations[widget.conversationId];
-    if (live != null) return live.displayTitle;
+    if (live != null) return live;
     final conversations = await widget.repository.conversations();
     for (final conversation in conversations) {
-      if (conversation.id == widget.conversationId &&
-          conversation.displayTitle.trim().isNotEmpty) {
-        return conversation.displayTitle;
-      }
+      if (conversation.id == widget.conversationId) return conversation;
     }
-    return '聊天';
+    return null;
   }
 
   @override
@@ -302,14 +299,18 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
     final content = SizedBox(
         width: double.infinity,
         height: 52,
-        child: FutureBuilder<String>(
-          future: _titleFuture,
-          initialData: widget.realtimeStore
-              ?.conversations[widget.conversationId]?.displayTitle,
+        child: FutureBuilder<ChatConversation?>(
+          future: _conversationFuture,
+          initialData:
+              widget.realtimeStore?.conversations[widget.conversationId],
           builder: (context, snapshot) {
-            final title = snapshot.data?.trim().isNotEmpty == true
-                ? snapshot.data!.trim()
+            final conversation = snapshot.data;
+            final title = conversation?.displayTitle.trim().isNotEmpty == true
+                ? conversation!.displayTitle.trim()
                 : '聊天';
+            final headerTitle = conversation?.type == 'group'
+                ? '$title (${conversation!.effectiveMemberCount})'
+                : title;
             return Stack(alignment: Alignment.center, children: [
               if (widget.compact)
                 Positioned(
@@ -323,7 +324,7 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 104),
                 child: Text(
-                  title,
+                  headerTitle,
                   key: const ValueKey('conversation-header-title'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,

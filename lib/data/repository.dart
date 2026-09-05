@@ -342,6 +342,7 @@ class DemoRepository implements MagicChatRepository {
         lastReadSeq: current.lastReadSeq,
         lastChoiceSeq: current.lastChoiceSeq,
         type: current.type,
+        memberCount: current.memberCount,
         members: current.members,
         canSend: current.canSend && !metadata.archived,
         topic: metadata);
@@ -1227,6 +1228,7 @@ class HttpMagicChatRepository implements MagicChatRepository {
           lastReadSeq: (item['last_read_seq'] as num?)?.toInt() ?? 0,
           lastMentionedSeq: (item['last_mentioned_seq'] as num?)?.toInt() ?? 0,
           lastChoiceSeq: (item['last_choice_seq'] as num?)?.toInt() ?? 0,
+          memberCount: (item['member_count'] as num?)?.toInt() ?? 0,
           canSend: item['can_send'] != false,
           topic: item['topic'] is Map<String, dynamic>
               ? TopicMetadata.fromJson(item['topic'] as Map<String, dynamic>)
