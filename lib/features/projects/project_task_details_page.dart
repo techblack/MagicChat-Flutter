@@ -3,6 +3,7 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
 import '../../data/repository.dart';
 import '../../domain/models.dart';
+import '../messages/send_card_dialog.dart';
 
 class ProjectTaskDetailsPage extends StatefulWidget {
   const ProjectTaskDetailsPage(
@@ -60,9 +61,32 @@ class _ProjectTaskDetailsPageState extends State<ProjectTaskDetailsPage> {
     }
   }
 
+  Future<void> _sendCard() => showDialog<void>(
+        context: context,
+        builder: (_) => SendCardDialog(
+          repository: widget.repository,
+          cardTitle: widget.task.title,
+          cardDescription: '任务 · ${widget.project.name}',
+          onSend: (conversationId) => widget.repository.sendEntityCard(
+            conversationId,
+            entityType: 'task',
+            entityId: widget.task.id,
+          ),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: Text(widget.task.title)),
+        appBar: AppBar(
+          title: Text(widget.task.title),
+          actions: [
+            IconButton(
+                key: const ValueKey('task-send-card'),
+                tooltip: '发送到会话',
+                onPressed: _sendCard,
+                icon: const Icon(Icons.send_outlined)),
+          ],
+        ),
         body: Column(children: [
           Expanded(
               child: ListView(padding: const EdgeInsets.all(16), children: [
