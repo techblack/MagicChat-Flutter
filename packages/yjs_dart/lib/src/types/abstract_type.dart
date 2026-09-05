@@ -642,14 +642,16 @@ void typeListDelete(
   // Delete items
   while (length > 0 && n != null) {
     if (!n.deleted) {
-      if (length < n.length) {
-        getItemCleanStart(
-          transaction,
-          createID(n.id.client, n.id.clock + length),
-        );
+      if (n.countable) {
+        if (length < n.length) {
+          getItemCleanStart(
+            transaction,
+            createID(n.id.client, n.id.clock + length),
+          );
+        }
+        length -= n.length;
       }
       n.delete(transaction);
-      length -= n.length;
     }
     n = n.right as Item?;
   }

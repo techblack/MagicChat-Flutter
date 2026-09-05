@@ -280,6 +280,13 @@ void main() {
     await tester.pump();
     expect(session.body.toArray(), hasLength(2));
     expect(find.text('输入正文'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('撤销'));
+    await tester.pump();
+    expect(session.body.toArray(), hasLength(1));
+    await tester.tap(find.byTooltip('重做'));
+    await tester.pump();
+    expect(session.body.toArray(), hasLength(2));
     serverDocument.destroy();
   });
 }

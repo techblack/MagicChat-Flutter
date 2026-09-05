@@ -258,6 +258,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     if (session == null || node == null) return;
     final marks = Map<String, Object?>.from(session.xmlTextMarks(node));
     update(marks);
+    session.stopUndoCapture();
     session.replaceXmlText(node, node.toString(), marks: marks);
     setState(() {});
   }
@@ -266,6 +267,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     final session = widget.collaboration;
     final node = _selectedRichText;
     if (session == null || node == null) return;
+    session.stopUndoCapture();
     session.replaceXmlText(node, node.toString(), marks: const {});
     setState(() {});
   }
@@ -292,6 +294,18 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     if (session == null || node == null) return;
     final replacement = session.deleteXmlTextBlock(node);
     setState(() => _selectedRichText = replacement);
+  }
+
+  void _undoRichDocument() {
+    final session = widget.collaboration;
+    if (session == null || !session.undo()) return;
+    setState(() => _selectedRichText = null);
+  }
+
+  void _redoRichDocument() {
+    final session = widget.collaboration;
+    if (session == null || !session.redo()) return;
+    setState(() => _selectedRichText = null);
   }
 
   @override
@@ -367,6 +381,10 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                 RichDocumentToolbar(
                     enabled: widget.collaboration!.status ==
                         DocumentCollaborationStatus.synced,
+                    canUndo: widget.collaboration!.canUndo,
+                    canRedo: widget.collaboration!.canRedo,
+                    onUndo: _undoRichDocument,
+                    onRedo: _redoRichDocument,
                     onInsert: (type) =>
                         unawaited(_appendBlock(initialType: type))),
                 if (_selectedRichText case final selected?
