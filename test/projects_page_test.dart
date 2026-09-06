@@ -345,6 +345,28 @@ void main() {
     expect(find.text('输入 Markdown 或文档内容…'), findsOneWidget);
   });
 
+  testWidgets('文档目录支持当前项目搜索并保留父目录', (tester) async {
+    await tester.pumpWidget(_app());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('客户端迭代'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('文档'));
+    await tester.pumpAndSettle();
+    final search = find.byWidgetPredicate((widget) =>
+        widget is TextField && widget.decoration?.hintText == '搜索当前项目文档');
+    expect(search, findsOneWidget);
+
+    await tester.enterText(search, '发布');
+    await tester.pumpAndSettle();
+    expect(find.text('产品资料'), findsOneWidget);
+    expect(find.text('发布说明'), findsOneWidget);
+
+    await tester.enterText(search, '不存在');
+    await tester.pumpAndSettle();
+    expect(find.text('未找到匹配文档'), findsOneWidget);
+  });
+
   testWidgets('文档本机草稿可以切换为 Markdown 预览', (tester) async {
     SharedPreferences.setMockInitialValues({
       'magicchat.document.document-1.draft': '# 发布说明\n\n- 项目契约已经对齐',
@@ -469,6 +491,7 @@ class _ProjectRepository extends DemoRepository {
             id: 'document-1',
             projectId: 'project-1',
             title: '发布说明',
+            parentId: 'folder-1',
             documentType: 'markdown'),
       ];
 }

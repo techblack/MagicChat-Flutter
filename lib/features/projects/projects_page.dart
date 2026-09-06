@@ -1218,40 +1218,14 @@ class _ProjectsPageState extends State<ProjectsPage> {
   }
 
   Widget _documentsView(BuildContext context, Project project) =>
-      FutureBuilder<List<ProjectDocument>>(
-          future: repository.documents(project.id),
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return Center(child: Text('文档加载失败：${snapshot.error}'));
-            }
-            if (!snapshot.hasData) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            final documents = [
-              ...snapshot.data!
-            ]..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
-            return Stack(children: [
-              ListView(padding: const EdgeInsets.all(16), children: [
-                _LazyDocumentTree(
-                    project: project,
-                    documents: documents,
-                    repository: repository,
-                    parentId: null,
-                    documentCollaborationFactory:
-                        widget.documentCollaborationFactory,
-                    onDocumentActions: (document) =>
-                        _documentActions(context, project, document)),
-              ]),
-              Positioned(
-                  right: 16,
-                  bottom: 16,
-                  child: FloatingActionButton.small(
-                      heroTag: 'projects-create-document',
-                      onPressed: () => _createDocument(context, project),
-                      tooltip: '新建文档',
-                      child: const Icon(Icons.note_add_outlined))),
-            ]);
-          });
+      _ProjectDocumentsView(
+        repository: repository,
+        project: project,
+        documentCollaborationFactory: widget.documentCollaborationFactory,
+        onDocumentActions: (document) =>
+            _documentActions(context, project, document),
+        onCreateDocument: () => _createDocument(context, project),
+      );
 
   Future<void> _createDocument(BuildContext context, Project project,
       {String? parentId}) async {
@@ -1733,12 +1707,148 @@ class _ProjectsPageState extends State<ProjectsPage> {
       };
 }
 
+class _ProjectDocumentsView extends StatefulWidget {
+  const _ProjectDocumentsView({
+    required this.repository,
+    required this.project,
+    required this.documentCollaborationFactory,
+    required this.onDocumentActions,
+    required this.onCreateDocument,
+  });
+
+  final MagicChatRepository repository;
+  final Project project;
+  final DocumentCollaborationFactory? documentCollaborationFactory;
+  final Future<void> Function(ProjectDocument document) onDocumentActions;
+  final VoidCallback onCreateDocument;
+
+  @override
+  State<_ProjectDocumentsView> createState() => _ProjectDocumentsViewState();
+}
+
+class _ProjectDocumentsViewState extends State<_ProjectDocumentsView> {
+  late Future<List<ProjectDocument>> _future =
+      widget.repository.documents(widget.project.id);
+  final _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    final future = widget.repository.documents(widget.project.id);
+    setState(() => _future = future);
+    await future;
+  }
+
+  List<ProjectDocument> _filterDocuments(List<ProjectDocument> source) {
+    final query = _query.trim().toLowerCase();
+    if (query.isEmpty) return source;
+    final byId = {for (final document in source) document.id: document};
+    final included = <String>{
+      for (final document in source)
+        if (document.title.toLowerCase().contains(query)) document.id,
+    };
+    var changed = true;
+    while (changed) {
+      changed = false;
+      for (final id in included.toList(growable: false)) {
+        final parentId = byId[id]?.parentId;
+        if (parentId != null && byId.containsKey(parentId)) {
+          changed = included.add(parentId) || changed;
+        }
+      }
+    }
+    return source.where((document) => included.contains(document.id)).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<List<ProjectDocument>>(
+        future: _future,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(
+                child: TextButton.icon(
+                    onPressed: _refresh,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('文档加载失败，点击重试')));
+          }
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final documents = [..._filterDocuments(snapshot.data!)]
+            ..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
+          final query = _query.trim();
+          return Stack(children: [
+            Column(children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                child: TextField(
+                  controller: _searchController,
+                  onChanged: (value) => setState(() => _query = value),
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.search),
+                    hintText: '搜索当前项目文档',
+                    suffixIcon: query.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: '清除搜索',
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() => _query = '');
+                            },
+                            icon: const Icon(Icons.clear)),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: documents.isEmpty
+                    ? Center(child: Text(query.isEmpty ? '暂无文档' : '未找到匹配文档'))
+                    : RefreshIndicator(
+                        onRefresh: _refresh,
+                        child: ListView(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+                          children: [
+                            _LazyDocumentTree(
+                              project: widget.project,
+                              documents: documents,
+                              repository: widget.repository,
+                              parentId: null,
+                              expandFolders: query.isNotEmpty,
+                              documentCollaborationFactory:
+                                  widget.documentCollaborationFactory,
+                              onDocumentActions: widget.onDocumentActions,
+                            ),
+                          ],
+                        ),
+                      ),
+              ),
+            ]),
+            Positioned(
+              right: 16,
+              bottom: 16,
+              child: FloatingActionButton.small(
+                heroTag: 'projects-create-document',
+                onPressed: widget.onCreateDocument,
+                tooltip: '新建文档',
+                child: const Icon(Icons.note_add_outlined),
+              ),
+            ),
+          ]);
+        },
+      );
+}
+
 class _LazyDocumentTree extends StatelessWidget {
   const _LazyDocumentTree({
     required this.project,
     required this.documents,
     required this.repository,
     required this.parentId,
+    required this.expandFolders,
     required this.documentCollaborationFactory,
     required this.onDocumentActions,
   });
@@ -1747,6 +1857,7 @@ class _LazyDocumentTree extends StatelessWidget {
   final List<ProjectDocument> documents;
   final MagicChatRepository repository;
   final String? parentId;
+  final bool expandFolders;
   final DocumentCollaborationFactory? documentCollaborationFactory;
   final Future<void> Function(ProjectDocument document) onDocumentActions;
 
@@ -1763,6 +1874,7 @@ class _LazyDocumentTree extends StatelessWidget {
             documents: documents,
             repository: repository,
             document: document,
+            expandFolders: expandFolders,
             documentCollaborationFactory: documentCollaborationFactory,
             onDocumentActions: onDocumentActions,
           ),
@@ -1777,6 +1889,7 @@ class _LazyDocumentNode extends StatefulWidget {
     required this.documents,
     required this.repository,
     required this.document,
+    required this.expandFolders,
     required this.documentCollaborationFactory,
     required this.onDocumentActions,
     super.key,
@@ -1786,6 +1899,7 @@ class _LazyDocumentNode extends StatefulWidget {
   final List<ProjectDocument> documents;
   final MagicChatRepository repository;
   final ProjectDocument document;
+  final bool expandFolders;
   final DocumentCollaborationFactory? documentCollaborationFactory;
   final Future<void> Function(ProjectDocument document) onDocumentActions;
 
@@ -1797,35 +1911,63 @@ class _LazyDocumentNodeState extends State<_LazyDocumentNode> {
   bool _expanded = false;
 
   @override
+  void initState() {
+    super.initState();
+    _expanded = widget.expandFolders;
+  }
+
+  @override
+  void didUpdateWidget(covariant _LazyDocumentNode oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.expandFolders != widget.expandFolders) {
+      _expanded = widget.expandFolders;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final document = widget.document;
     if (document.kind == 'folder') {
+      final descendants = Padding(
+        padding: const EdgeInsets.only(left: 16),
+        child: _LazyDocumentTree(
+          project: widget.project,
+          documents: widget.documents,
+          repository: widget.repository,
+          parentId: document.id,
+          expandFolders: widget.expandFolders,
+          documentCollaborationFactory: widget.documentCollaborationFactory,
+          onDocumentActions: widget.onDocumentActions,
+        ),
+      );
+      if (widget.expandFolders) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            InkWell(
+              onLongPress: () => widget.onDocumentActions(document),
+              child: ListTile(
+                leading: const Icon(Icons.folder_outlined),
+                title: Text(document.title),
+                subtitle: const Text('目录'),
+              ),
+            ),
+            descendants,
+          ],
+        );
+      }
       return InkWell(
         onLongPress: () => widget.onDocumentActions(document),
         child: ExpansionTile(
           key: PageStorageKey(document.id),
+          initiallyExpanded: widget.expandFolders,
           leading: const Icon(Icons.folder_outlined),
           title: Text(document.title),
           subtitle: const Text('目录'),
           onExpansionChanged: (expanded) =>
               setState(() => _expanded = expanded),
           // 后代树仅在用户展开目录后挂载，避免目录页首屏递归构建全部节点。
-          children: _expanded
-              ? [
-                  Padding(
-                    padding: const EdgeInsets.only(left: 16),
-                    child: _LazyDocumentTree(
-                      project: widget.project,
-                      documents: widget.documents,
-                      repository: widget.repository,
-                      parentId: document.id,
-                      documentCollaborationFactory:
-                          widget.documentCollaborationFactory,
-                      onDocumentActions: widget.onDocumentActions,
-                    ),
-                  ),
-                ]
-              : const [],
+          children: _expanded ? [descendants] : const [],
         ),
       );
     }
