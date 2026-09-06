@@ -8,13 +8,13 @@ MagicChat 的跨平台 Flutter 客户端。一套代码覆盖 Android、iOS、Wi
 
 ## 功能
 
-- 消息：私聊、群聊、应用会话、话题、回复、转发、回应、选择消息、附件、桌面文件拖放、语音、Markdown、图表与系统事件
+- 消息：私聊、群聊、应用会话、话题、回复、转发、回应、选择消息、附件、桌面文件拖放与截图、语音、Markdown、图表与系统事件
 - 联系人：好友目录、好友申请、在线状态、公开群组和应用管理
 - 项目：项目、任务、看板、月历、甘特图、评论、提醒、成员与群组授权
 - 文档：Markdown 协作编辑、Yjs 富文档、在线协作者状态和文档目录树
 - 客户端：多账户、主题切换、SQLite WAL 消息缓存、会话高级检索、全局搜索、二维码、推送授权、通知提示音和隐私设置、跨平台版本检查
 - Android 更新：应用内下载官方 APK、显示进度并打开系统安装器
-- 桌面集成：Windows、macOS、Linux 系统托盘、开机静默自启动、未读会话快捷入口和关闭后后台运行
+- 桌面集成：Windows、macOS、Linux 系统托盘、开机静默自启动、未读会话快捷入口、区域/全屏截图、全局快捷键和关闭后后台运行
 - 实时同步：WebSocket 游标续传、断线重连、幂等事件投影，以及实时消息先落本地缓存再展示
 
 ## 快速开始
@@ -45,9 +45,12 @@ Linux 构建还需要 Clang、CMake、Ninja、GTK3、libsecret 和 GStreamer 开
 sudo apt-get install clang cmake ninja-build pkg-config \
   libgtk-3-dev libsecret-1-dev \
   libayatana-appindicator3-dev \
+  libkeybinder-3.0-dev gnome-screenshot \
   libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
 flutter build linux
 ```
+
+桌面端打开会话后可从输入区选择区域截图或全屏截图，确认预览后作为图片消息发送。默认全局快捷键为 Windows/Linux 的 `Ctrl+Shift+A`、macOS 的 `Command+Shift+A`，可在设置中重新录制或禁用。Linux KDE 会优先使用 Spectacle，其他桌面环境需要 `gnome-screenshot`；macOS 首次使用时需要授予“屏幕录制”权限。
 
 CI 会执行格式、静态检查、单元测试，并构建 Web Release 与 Linux Debug 产物。
 

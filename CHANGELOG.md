@@ -66,6 +66,7 @@
 
 - 修复 Android 特定长文本/Markdown 会话上翻后被拉回底部：复杂消息首帧直接按折叠高度裁剪，移除尺寸动画，并在用户触摸或滚动后取消所有异步底部校正。
 - Android、iOS、macOS、Windows、Linux 和 Web 统一使用 MagicChat 品牌气泡图标。
+- Windows、macOS 和 Linux 支持系统区域/全屏截图，截图可预览后直接作为当前会话的图片消息发送；新增可修改或禁用的全局截图快捷键，并提供 macOS 屏幕录制权限引导。
 - Windows、macOS 和 Linux 新增系统托盘；关闭窗口后可从托盘恢复或退出，Windows/Linux 托盘菜单按通知隐私展示并直达未读会话。
 - Windows、macOS 和 Linux 设置页新增默认关闭的开机自动启动；启用后以 `--hidden` 静默运行，登录页也保留托盘入口，托盘不可用时自动恢复窗口。
 - Android 检查到新版本后可在应用内下载 APK、查看进度、取消下载并直接打开系统安装器；其他平台继续使用下载页。

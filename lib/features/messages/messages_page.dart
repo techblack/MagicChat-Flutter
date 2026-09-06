@@ -15,6 +15,8 @@ class MessagesPage extends StatelessWidget {
       this.onOpenInternalLink,
       this.sendMessageShortcut = MessageSendShortcut.enter,
       this.enableFileDrop = true,
+      this.screenshotController,
+      this.screenshotRequestToken = 0,
       this.focusMessageId,
       this.focusMessageSequence,
       this.onMessageFocused,
@@ -39,6 +41,8 @@ class MessagesPage extends StatelessWidget {
   final ValueChanged<String>? onOpenInternalLink;
   final MessageSendShortcut sendMessageShortcut;
   final bool enableFileDrop;
+  final DesktopScreenshotController? screenshotController;
+  final int screenshotRequestToken;
   final String? focusMessageId;
   final int? focusMessageSequence;
   final VoidCallback? onMessageFocused;
@@ -83,6 +87,8 @@ class MessagesPage extends StatelessWidget {
                 chatAppearance: chatAppearance,
                 conversationAppearance: conversationAppearance,
                 enableFileDrop: enableFileDrop,
+                screenshotController: screenshotController,
+                screenshotRequestToken: screenshotRequestToken,
                 conversationId: selectedId,
                 focusMessageId: focusMessageId,
                 focusMessageSequence: focusMessageSequence,

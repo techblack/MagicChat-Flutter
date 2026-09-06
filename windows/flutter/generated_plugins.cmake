@@ -7,7 +7,9 @@ list(APPEND FLUTTER_PLUGIN_LIST
   desktop_drop
   desktop_tray
   flutter_secure_storage_windows
+  hotkey_manager_windows
   record_windows
+  screen_capturer_windows
   sqlite3_flutter_libs
   url_launcher_windows
 )

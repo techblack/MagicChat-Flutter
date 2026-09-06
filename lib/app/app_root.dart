@@ -1270,12 +1270,17 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   String? _focusDocumentId;
   int _unreadCount = 0;
   MessageSendShortcut _sendMessageShortcut = MessageSendShortcut.enter;
+  DesktopScreenshotShortcut _screenshotShortcut =
+      DesktopScreenshotShortcut.defaultFor(defaultTargetPlatform);
+  int _screenshotRequestToken = 0;
   final _conversationHistory = <String>[];
   final _contactCacheStore = ContactCacheStore();
   StreamSubscription<Map<String, dynamic>>? _realtimeSubscription;
   final _notifications = const LocalNotificationService();
   final _pushTokenProvider = const PushTokenProvider();
   final _appBadge = const AppBadgeService();
+  final _desktopScreenshot = DesktopScreenshotController();
+  final _desktopWindow = const PlatformDesktopWindowController();
   final _messageCacheStore = MessageCacheStore();
   final _handledNotificationRoutes = <String>{};
   final _loadedConversationAppearances = <String, ChatConversationAppearance>{};
@@ -1465,8 +1470,58 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   }
 
   Future<void> _loadChatPreferences() async {
-    final shortcut = await const ChatPreferences().readSendShortcut();
-    if (mounted) setState(() => _sendMessageShortcut = shortcut);
+    final values = await Future.wait([
+      const ChatPreferences().readSendShortcut(),
+      const DesktopScreenshotPreferences().read(defaultTargetPlatform),
+    ]);
+    if (!mounted) return;
+    final sendShortcut = values[0] as MessageSendShortcut;
+    final screenshotShortcut = values[1] as DesktopScreenshotShortcut;
+    setState(() {
+      _sendMessageShortcut = sendShortcut;
+      _screenshotShortcut = screenshotShortcut;
+    });
+    final registered = await _desktopScreenshot.configure(
+        screenshotShortcut, _triggerScreenshotFromShortcut);
+    if (!registered && screenshotShortcut.enabled && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('截图快捷键注册失败，可在设置中修改或禁用')));
+        }
+      });
+    }
+  }
+
+  Future<bool> _updateScreenshotShortcut(
+      DesktopScreenshotShortcut shortcut) async {
+    final registered = await _desktopScreenshot.configure(
+        shortcut, _triggerScreenshotFromShortcut);
+    if (!registered || !mounted) return registered;
+    setState(() => _screenshotShortcut = shortcut);
+    return true;
+  }
+
+  Future<void> _triggerScreenshotFromShortcut() async {
+    await _desktopWindow.show();
+    if (!mounted) return;
+    final conversationId = _selectedConversation;
+    if (conversationId == null || conversationId.isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('请先打开一个会话再截图')));
+      return;
+    }
+    final conversation = widget.realtimeStore?.conversations[conversationId];
+    if (conversation?.canSend == false ||
+        conversation?.topic?.archived == true) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('当前会话为只读，无法发送截图')));
+      return;
+    }
+    setState(() {
+      _index = 0;
+      _screenshotRequestToken++;
+    });
   }
 
   Future<void> _notifyIncomingMessage(Map<String, dynamic> event) async {
@@ -1571,6 +1626,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     _realtimeSubscription?.cancel();
     widget.realtime?.close();
     unawaited(_messageCacheStore.close());
+    unawaited(_desktopScreenshot.dispose());
     super.dispose();
   }
 
@@ -1616,6 +1672,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
               onConversationAppearanceChanged:
                   widget.onConversationAppearanceChanged,
               enableFileDrop: _index == 0,
+              screenshotController: _desktopScreenshot,
+              screenshotRequestToken: _screenshotRequestToken,
               selectedId: _selectedConversation,
               focusMessageId: _focusMessageId,
               focusMessageSequence: _focusMessageSequence,
@@ -1682,6 +1740,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           onSendMessageShortcutChanged: (shortcut) {
             setState(() => _sendMessageShortcut = shortcut);
           },
+          screenshotShortcut: _screenshotShortcut,
+          onScreenshotShortcutChanged: _updateScreenshotShortcut,
           chatAppearance: widget.chatAppearance,
           onChatAppearanceChanged: widget.onChatAppearanceChanged,
           messageSoundEnabled: widget.messageSoundEnabled,

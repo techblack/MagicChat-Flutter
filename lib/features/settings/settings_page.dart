@@ -1,4 +1,5 @@
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -7,6 +8,8 @@ import '../../data/avatar_processor.dart';
 import '../../data/chat_preferences.dart';
 import '../../data/chat_appearance_preferences.dart';
 import '../../data/desktop_auto_launch.dart';
+import '../../data/desktop_screenshot.dart';
+import '../../data/desktop_screenshot_preferences.dart';
 import '../../data/local_notification_service.dart';
 import '../../data/realtime_store.dart';
 import '../../data/repository.dart';
@@ -21,6 +24,7 @@ import '../qr_scanner_page.dart';
 import '../shared/cached_avatar.dart';
 import 'account_deactivation_page.dart';
 import 'app_update_dialog.dart';
+import 'desktop_screenshot_shortcut_dialog.dart';
 import 'server_management_page.dart';
 import 'storage_management_page.dart';
 
@@ -44,6 +48,8 @@ class SettingsPage extends StatefulWidget {
       this.onDeactivateAccount,
       this.onThemeChanged,
       this.onSendMessageShortcutChanged,
+      this.screenshotShortcut,
+      this.onScreenshotShortcutChanged,
       this.chatAppearance = const ChatAppearance(),
       this.onChatAppearanceChanged,
       this.messageSoundEnabled = true,
@@ -64,6 +70,9 @@ class SettingsPage extends StatefulWidget {
   final ValueChanged<StoredAccount>? onAccountSwitch;
   final ValueChanged<ThemeMode>? onThemeChanged;
   final ValueChanged<MessageSendShortcut>? onSendMessageShortcutChanged;
+  final DesktopScreenshotShortcut? screenshotShortcut;
+  final Future<bool> Function(DesktopScreenshotShortcut shortcut)?
+      onScreenshotShortcutChanged;
   final ChatAppearance chatAppearance;
   final ValueChanged<ChatAppearance>? onChatAppearanceChanged;
   final bool messageSoundEnabled;
@@ -86,10 +95,13 @@ class _SettingsPageState extends State<SettingsPage> {
   late final DesktopAutoLaunchController _desktopAutoLaunch;
   bool _autoLaunchEnabled = false;
   bool _autoLaunchLoading = true;
+  late DesktopScreenshotShortcut _screenshotShortcut;
   @override
   void initState() {
     super.initState();
     _sendMessageShortcut = widget.sendMessageShortcut;
+    _screenshotShortcut = widget.screenshotShortcut ??
+        DesktopScreenshotShortcut.defaultFor(defaultTargetPlatform);
     _messageSoundEnabled = widget.messageSoundEnabled;
     _notificationPrivacy = widget.notificationPrivacy;
     _desktopAutoLaunch = widget.desktopAutoLaunch ?? DesktopAutoLaunchService();
@@ -113,6 +125,10 @@ class _SettingsPageState extends State<SettingsPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.sendMessageShortcut != widget.sendMessageShortcut) {
       _sendMessageShortcut = widget.sendMessageShortcut;
+    }
+    if (widget.screenshotShortcut != null &&
+        oldWidget.screenshotShortcut != widget.screenshotShortcut) {
+      _screenshotShortcut = widget.screenshotShortcut!;
     }
     if (oldWidget.messageSoundEnabled != widget.messageSoundEnabled) {
       _messageSoundEnabled = widget.messageSoundEnabled;
@@ -192,6 +208,34 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() => _sendMessageShortcut = value);
     widget.onSendMessageShortcutChanged?.call(value);
     await const ChatPreferences().writeSendShortcut(value);
+  }
+
+  Future<void> _applyScreenshotShortcut(
+      DesktopScreenshotShortcut shortcut) async {
+    final accepted =
+        await widget.onScreenshotShortcutChanged?.call(shortcut) ?? true;
+    if (!accepted) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('快捷键注册失败，可能已被其他应用占用')));
+      }
+      return;
+    }
+    await const DesktopScreenshotPreferences().write(shortcut);
+    if (mounted) setState(() => _screenshotShortcut = shortcut);
+  }
+
+  Future<void> _editScreenshotShortcut() async {
+    final shortcut = await showDialog<DesktopScreenshotShortcut>(
+      context: context,
+      builder: (_) => DesktopScreenshotShortcutDialog(
+        initial: _screenshotShortcut,
+        platform: defaultTargetPlatform,
+      ),
+    );
+    if (shortcut != null && mounted) {
+      await _applyScreenshotShortcut(shortcut.copyWith(enabled: true));
+    }
   }
 
   Future<void> _editChatAppearance() async {
@@ -608,6 +652,26 @@ class _SettingsPageState extends State<SettingsPage> {
                         value: MessageSendShortcut.commandOrControlEnter,
                         child: Text('Ctrl/⌘+Enter')),
                   ])),
+          if (!kIsWeb &&
+              isDesktopScreenshotPlatform(defaultTargetPlatform)) ...[
+            SwitchListTile(
+              secondary: const Icon(Icons.crop_free),
+              title: const Text('桌面截图快捷键'),
+              subtitle: Text(_screenshotShortcut.enabled
+                  ? '${_screenshotShortcut.label(defaultTargetPlatform)} · 区域截图'
+                  : '已禁用'),
+              value: _screenshotShortcut.enabled,
+              onChanged: (enabled) => _applyScreenshotShortcut(
+                  _screenshotShortcut.copyWith(enabled: enabled)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.keyboard_command_key),
+              title: const Text('修改截图快捷键'),
+              subtitle: Text(_screenshotShortcut.label(defaultTargetPlatform)),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _editScreenshotShortcut,
+            ),
+          ],
           SwitchListTile(
               secondary: const Icon(Icons.notifications_outlined),
               title: const Text('通知'),
