@@ -1,10 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../data/repository.dart';
 import '../../domain/message_content.dart';
 import '../../domain/models.dart';
+import '../shared/user_facing_error.dart';
 
 enum GlobalSearchResultType { conversation, contact, project, message }
 
@@ -135,6 +137,9 @@ class _GlobalSearchDialogState extends State<GlobalSearchDialog> {
   Timer? _searchDebounce;
   int _searchGeneration = 0;
   List<Contact> _displayContacts = const [];
+  List<GlobalSearchResult> _visibleResults = const [];
+  final _resultKeys = <String, GlobalKey>{};
+  int _activeIndex = -1;
 
   @override
   void dispose() {
@@ -153,13 +158,18 @@ class _GlobalSearchDialogState extends State<GlobalSearchDialog> {
         ? await widget.repository.searchMessages(keyword.trim())
         : const <MessageSearchResult>[];
     _displayContacts = local[1] as List<Contact>;
-    return buildGlobalSearchResults(
+    final results = buildGlobalSearchResults(
       keyword: keyword,
       conversations: local[0] as List<ChatConversation>,
       contacts: local[1] as List<Contact>,
       projects: local[2] as List<Project>,
       messages: messages,
     );
+    if (mounted && keyword == _keyword) {
+      _visibleResults = results;
+      _activeIndex = -1;
+    }
+    return results;
   }
 
   void _onChanged(String value) {
@@ -169,6 +179,9 @@ class _GlobalSearchDialogState extends State<GlobalSearchDialog> {
     setState(() {
       _keyword = keyword;
       _results = null;
+      _visibleResults = const [];
+      _activeIndex = -1;
+      _resultKeys.clear();
     });
     if (keyword.isEmpty) return;
     _searchDebounce = Timer(const Duration(milliseconds: 300), () {
@@ -200,6 +213,35 @@ class _GlobalSearchDialogState extends State<GlobalSearchDialog> {
     }
   }
 
+  KeyEventResult _handleSearchKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent || _visibleResults.isEmpty) {
+      return KeyEventResult.ignored;
+    }
+    final key = event.logicalKey;
+    var next = _activeIndex;
+    if (key == LogicalKeyboardKey.arrowDown) {
+      next = _activeIndex < _visibleResults.length - 1 ? _activeIndex + 1 : 0;
+    } else if (key == LogicalKeyboardKey.arrowUp) {
+      next = _activeIndex <= 0 ? _visibleResults.length - 1 : _activeIndex - 1;
+    } else if (key == LogicalKeyboardKey.home) {
+      next = 0;
+    } else if (key == LogicalKeyboardKey.end) {
+      next = _visibleResults.length - 1;
+    } else if (key == LogicalKeyboardKey.enter && _activeIndex >= 0) {
+      _open(_visibleResults[_activeIndex]);
+      return KeyEventResult.handled;
+    } else {
+      return KeyEventResult.ignored;
+    }
+    setState(() => _activeIndex = next);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || next < 0 || next >= _visibleResults.length) return;
+      final target = _resultKeys[_visibleResults[next].key]?.currentContext;
+      if (target != null) Scrollable.ensureVisible(target, alignment: 0.35);
+    });
+    return KeyEventResult.handled;
+  }
+
   @override
   Widget build(BuildContext context) => AlertDialog(
         title: const Text('综合搜索'),
@@ -208,25 +250,28 @@ class _GlobalSearchDialogState extends State<GlobalSearchDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(
-                controller: _controller,
-                autofocus: true,
-                minLines: 1,
-                maxLines: 2,
-                decoration: InputDecoration(
-                  labelText: '搜索消息、联系人和项目',
-                  suffixIcon: _keyword.isEmpty
-                      ? null
-                      : IconButton(
-                          tooltip: '清除搜索',
-                          onPressed: () {
-                            _controller.clear();
-                            _onChanged('');
-                          },
-                          icon: const Icon(Icons.clear),
-                        ),
+              Focus(
+                onKeyEvent: _handleSearchKeyEvent,
+                child: TextField(
+                  controller: _controller,
+                  autofocus: true,
+                  minLines: 1,
+                  maxLines: 2,
+                  decoration: InputDecoration(
+                    labelText: '搜索消息、联系人和项目',
+                    suffixIcon: _keyword.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: '清除搜索',
+                            onPressed: () {
+                              _controller.clear();
+                              _onChanged('');
+                            },
+                            icon: const Icon(Icons.clear),
+                          ),
+                  ),
+                  onChanged: _onChanged,
                 ),
-                onChanged: _onChanged,
               ),
               const SizedBox(height: 12),
               if (_keyword.isNotEmpty)
@@ -235,7 +280,18 @@ class _GlobalSearchDialogState extends State<GlobalSearchDialog> {
                     future: _results,
                     builder: (context, snapshot) {
                       if (snapshot.hasError) {
-                        return Text('搜索失败：${snapshot.error}');
+                        return Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('搜索失败：${userFacingError(snapshot.error!)}'),
+                            const SizedBox(height: 8),
+                            TextButton.icon(
+                              onPressed: () => _onChanged(_keyword),
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('重试'),
+                            ),
+                          ],
+                        );
                       }
                       if (!snapshot.hasData) {
                         return const Center(child: CircularProgressIndicator());
@@ -269,6 +325,10 @@ class _GlobalSearchDialogState extends State<GlobalSearchDialog> {
       GlobalSearchResultType.message: '聊天记录',
     };
     final children = <Widget>[];
+    final indexes = {
+      for (var index = 0; index < _visibleResults.length; index++)
+        _visibleResults[index].key: index,
+    };
     for (final type in GlobalSearchResultType.values) {
       final values = grouped[type];
       if (values == null || values.isEmpty) continue;
@@ -276,44 +336,63 @@ class _GlobalSearchDialogState extends State<GlobalSearchDialog> {
           padding: const EdgeInsets.fromLTRB(4, 8, 4, 4),
           child: Text(labels[type]!,
               style: Theme.of(context).textTheme.labelLarge)));
-      children.addAll(values.map(_resultTile));
+      children.addAll(values
+          .map((result) => _resultTile(result, indexes[result.key] ?? -1)));
     }
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxHeight: 360),
-      child: ListView(shrinkWrap: true, children: children),
+    return Semantics(
+      container: true,
+      label: '搜索结果',
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 360),
+        child: ListView(shrinkWrap: true, children: children),
+      ),
     );
   }
 
-  Widget _resultTile(GlobalSearchResult result) {
+  Widget _resultTile(GlobalSearchResult result, int index) {
+    final key = _resultKeys.putIfAbsent(result.key, GlobalKey.new);
+    final selected = index >= 0 && index == _activeIndex;
+    Widget tile(Widget child) => KeyedSubtree(
+          key: key,
+          child: Semantics(
+            selected: selected,
+            button: true,
+            label: selected ? '已选中搜索结果' : null,
+            child: child,
+          ),
+        );
     switch (result.type) {
       case GlobalSearchResultType.conversation:
         final value = result.conversation!;
-        return ListTile(
+        return tile(ListTile(
           key: ValueKey(result.key),
+          selected: selected,
           leading: const Icon(Icons.chat_bubble_outline),
           title: Text(value.displayTitle),
           subtitle: Text('会话 · ${_conversationType(value.type)}'),
           onTap: () => _open(result),
-        );
+        ));
       case GlobalSearchResultType.contact:
         final value = result.contact!;
-        return ListTile(
+        return tile(ListTile(
           key: ValueKey(result.key),
+          selected: selected,
           leading: const Icon(Icons.person_outline),
           title: Text(value.displayName),
           subtitle: Text('联系人 · ${_contactType(value.type)}'),
           onTap: () => _open(result),
-        );
+        ));
       case GlobalSearchResultType.project:
         final value = result.project!;
-        return ListTile(
+        return tile(ListTile(
           key: ValueKey(result.key),
+          selected: selected,
           leading: const Icon(Icons.folder_outlined),
           title: Text(value.name),
           subtitle: Text(
               '项目 · ${value.description.isEmpty ? '暂无说明' : value.description}'),
           onTap: () => _open(result),
-        );
+        ));
       case GlobalSearchResultType.message:
         final value = result.message!;
         final text = formatMentionText(
@@ -322,13 +401,14 @@ class _GlobalSearchDialogState extends State<GlobalSearchDialog> {
                   id: contact.id,
                   name: contact.displayName,
                 )));
-        return ListTile(
+        return tile(ListTile(
           key: ValueKey(result.key),
+          selected: selected,
           leading: const Icon(Icons.message_outlined),
           title: Text(text, maxLines: 2, overflow: TextOverflow.ellipsis),
           subtitle: Text(value.displayConversationName),
           onTap: () => _open(result),
-        );
+        ));
     }
   }
 

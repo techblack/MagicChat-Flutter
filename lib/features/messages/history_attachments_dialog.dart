@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../data/repository.dart';
 import '../../domain/models.dart';
 import '../shared/external_link_launcher.dart';
+import '../shared/user_facing_error.dart';
 
 Future<void> showHistoryAttachmentsDialog(
   BuildContext context, {
@@ -87,7 +88,7 @@ class _HistoryAttachmentsDialogState extends State<HistoryAttachmentsDialog> {
       final opened = await launchExternalWebLink(context, uri);
       if (opened == false) _showError('无法打开附件');
     } catch (error) {
-      _showError('打开附件失败：$error');
+      _showError('打开附件失败：${userFacingError(error)}');
     }
   }
 

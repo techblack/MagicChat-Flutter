@@ -11,6 +11,7 @@ import '../../data/repository.dart';
 import '../../data/document_collaboration.dart';
 import '../../domain/models.dart';
 import '../messages/send_card_dialog.dart';
+import '../shared/user_facing_error.dart';
 import 'markdown_editor_toolbar.dart';
 import 'rich_document_view.dart';
 import 'rich_document_toolbar.dart';
@@ -122,8 +123,8 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('保存失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('保存失败：${userFacingError(error)}')));
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -138,8 +139,8 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
       await session.reconnect();
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('重新连接失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('重新连接失败：${userFacingError(error)}')));
       }
     } finally {
       if (mounted) setState(() => _reconnecting = false);
@@ -184,8 +185,8 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('导出失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('导出失败：${userFacingError(error)}')));
       }
     }
   }

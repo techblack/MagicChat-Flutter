@@ -227,8 +227,8 @@ class MessagesPage extends StatelessWidget {
       if (context.mounted) onSelect(conversation.id);
     } catch (error) {
       if (context.mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('创建失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('创建失败：${userFacingError(error)}')));
     }
   }
 

@@ -7,6 +7,7 @@ import '../../data/message_cache_store.dart';
 import '../../data/repository.dart';
 import '../../domain/models.dart';
 import '../shared/cached_avatar.dart';
+import '../shared/user_facing_error.dart';
 
 class EntityDetailsPage extends StatefulWidget {
   const EntityDetailsPage({
@@ -87,19 +88,19 @@ class _EntityDetailsPageState extends State<EntityDetailsPage> {
       widget.onOpenConversation?.call(conversation.id);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(_actionError(contact, error))));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(_actionError(contact, userFacingError(error)))));
       }
     } finally {
       if (mounted) setState(() => _openingConversation = false);
     }
   }
 
-  String _actionError(Contact contact, Object error) => contact.type == 'group'
-      ? '无法加入群聊：$error'
+  String _actionError(Contact contact, String detail) => contact.type == 'group'
+      ? '无法加入群聊：$detail'
       : contact.type == 'app'
-          ? '无法发起应用会话：$error'
-          : '无法发起私聊：$error';
+          ? '无法发起应用会话：$detail'
+          : '无法发起私聊：$detail';
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -268,8 +269,8 @@ class _AvatarPreviewPageState extends State<_AvatarPreviewPage> {
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('头像保存失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('头像保存失败：${userFacingError(error)}')));
       }
     } finally {
       if (mounted) setState(() => _saving = false);

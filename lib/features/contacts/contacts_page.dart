@@ -15,6 +15,7 @@ import 'contact_directory_model.dart';
 import 'contact_directory_tile.dart';
 import 'entity_details_page.dart';
 import 'friend_management_dialog.dart';
+import '../shared/user_facing_error.dart';
 
 class ContactsPage extends StatefulWidget {
   const ContactsPage(
@@ -483,8 +484,8 @@ class _ContactsPageState extends State<ContactsPage> {
       widget.onOpenConversation?.call(conversation.id);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('创建群聊失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('创建群聊失败：${userFacingError(error)}')));
       }
     }
   }

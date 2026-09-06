@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../data/document_collaboration.dart';
 import '../../data/repository.dart';
 import '../../domain/models.dart';
+import '../shared/user_facing_error.dart';
 
 typedef RichDocumentImageDialogResult = ({
   bool deleted,
@@ -83,7 +84,7 @@ class _RichDocumentImageDialogState extends State<RichDocumentImageDialog> {
         if (_alt.text.trim().isEmpty) _alt.text = file.name;
       });
     } catch (error) {
-      if (mounted) _showError('上传图片失败：$error');
+      if (mounted) _showError('上传图片失败：${userFacingError(error)}');
     } finally {
       if (mounted) setState(() => _uploading = false);
     }

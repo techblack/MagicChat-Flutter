@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/repository.dart';
 import '../../domain/models.dart';
+import '../shared/user_facing_error.dart';
 
 typedef SendCardToConversation = Future<void> Function(String conversationId);
 
@@ -49,8 +50,8 @@ class _SendCardDialogState extends State<SendCardDialog> {
               : '卡片已发送到 ${conversation.displayTitle}')));
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('发送卡片失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('发送卡片失败：${userFacingError(error)}')));
       }
     } finally {
       if (mounted) setState(() => _sending = false);

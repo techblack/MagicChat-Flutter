@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
@@ -124,6 +125,30 @@ void main() {
         const ValueKey('message:conversation-engineering:message-release')));
     await tester.pumpAndSettle();
     expect(opened, isEmpty);
+    expect(openedMessages, ['conversation-engineering:message-release:42']);
+  });
+
+  testWidgets('综合搜索支持键盘上下、Home/End 和 Enter 打开结果', (tester) async {
+    final openedMessages = <String>[];
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: GlobalSearchDialog(
+          repository: _SearchRepository(),
+          onOpenConversation: (_) {},
+          onOpenMessage: (conversationId, messageId, sequence) =>
+              openedMessages.add('$conversationId:$messageId:$sequence'),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'release');
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.end);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+
     expect(openedMessages, ['conversation-engineering:message-release:42']);
   });
 }

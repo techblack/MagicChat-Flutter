@@ -66,8 +66,8 @@ class _ChoiceOptionsState extends State<_ChoiceOptions> {
       if (mounted) setState(() => _submitted = true);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('提交选择失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('提交选择失败：${userFacingError(error)}')));
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
