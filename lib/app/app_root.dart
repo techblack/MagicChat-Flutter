@@ -618,8 +618,6 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  static const _userAgreementUrl = 'https://jiying.chat/user-agreement/';
-  static const _privacyPolicyUrl = 'https://jiying.chat/privacy-policy/';
   final _formKey = GlobalKey<FormState>();
   final _serverFieldKey = GlobalKey<FormFieldState<String>>();
   final _emailFieldKey = GlobalKey<FormFieldState<String>>();
@@ -861,9 +859,8 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _openLegalDocument(String url) async {
-    final launched =
-        await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-    if (!launched && mounted) {
+    final launched = await launchExternalWebLink(context, Uri.parse(url));
+    if (launched == false && mounted) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('暂时无法打开协议页面，请稍后重试')));
     }
@@ -1146,7 +1143,7 @@ class _LoginPageState extends State<LoginPage> {
                                             InkWell(
                                               onTap: () => unawaited(
                                                   _openLegalDocument(
-                                                      _userAgreementUrl)),
+                                                      magicChatUserAgreementUrl)),
                                               child: Text('《用户协议》',
                                                   style: TextStyle(
                                                       color: Theme.of(context)
@@ -1159,7 +1156,7 @@ class _LoginPageState extends State<LoginPage> {
                                             InkWell(
                                               onTap: () => unawaited(
                                                   _openLegalDocument(
-                                                      _privacyPolicyUrl)),
+                                                      magicChatPrivacyPolicyUrl)),
                                               child: Text('《隐私政策》',
                                                   style: TextStyle(
                                                       color: Theme.of(context)

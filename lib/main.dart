@@ -15,6 +15,7 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'data/repository.dart';
 import 'data/auth_service.dart';
+import 'data/app_links.dart';
 import 'data/session_store.dart';
 import 'data/server_store.dart';
 import 'data/platform_connector_selector.dart';
