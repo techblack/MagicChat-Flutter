@@ -8,10 +8,10 @@ import 'document_realtime.dart';
 
 enum DocumentCollaborationStatus { disconnected, connecting, synced, error }
 
-/// Flutter 富文档目前开放的安全 block 追加操作。
+/// Flutter 富文档开放的官方 block 类型。
 ///
-/// 这些操作只会在 `body` 末尾插入新节点，不重写已有 XML tree，因此不会
-/// 破坏来自 Web/Desktop 的图片、表格或文字 marks。
+/// 新块按 Tiptap schema 插入；结构转换只处理已识别的安全树，并保留文本
+/// marks。包含未知子节点的结构不会被重写。
 enum RichDocumentBlockType {
   paragraph,
   heading1,
@@ -31,6 +31,59 @@ typedef RichDocumentImageAttributes = ({
   String? fileId,
   int width,
 });
+
+typedef RichDocumentHorizontalRuleAttributes = ({
+  String lineStyle,
+  int thickness,
+});
+
+RichDocumentHorizontalRuleAttributes normalizeRichDocumentHorizontalRule(
+    Object? lineStyle, Object? thickness) {
+  final style = const {'dashed', 'dotted', 'double'}.contains(lineStyle)
+      ? lineStyle as String
+      : 'solid';
+  final parsed = thickness is num ? thickness : num.tryParse('$thickness');
+  final width =
+      (parsed?.isFinite == true ? parsed!.round() : 1).clamp(1, 6).toInt();
+  return (lineStyle: style, thickness: width);
+}
+
+class _RichTextSnapshot {
+  const _RichTextSnapshot({
+    required this.source,
+    required this.delta,
+    required this.alignment,
+    required this.group,
+    required this.checked,
+  });
+
+  final yjs.YXmlText source;
+  final List<Map<String, Object?>> delta;
+  final String alignment;
+  final int group;
+  final bool checked;
+}
+
+class _PendingRichText {
+  const _PendingRichText(
+    this.source,
+    this.target,
+    this.delta, {
+    required this.keepMarks,
+  });
+
+  final yjs.YXmlText source;
+  final yjs.YXmlText target;
+  final List<Map<String, Object?>> delta;
+  final bool keepMarks;
+}
+
+class _RichStructureReplacement {
+  const _RichStructureReplacement(this.blocks, this.pending);
+
+  final List<yjs.YXmlElement> blocks;
+  final List<_PendingRichText> pending;
+}
 
 /// 将协作文档绑定到服务端 Yjs 类型，并通过 Hocuspocus sync 帧交换更新。
 ///
@@ -125,9 +178,13 @@ class DocumentCollaborationSession extends ChangeNotifier {
       _handlersAttached = true;
     }
     await _subscription?.cancel();
-    _subscription = _realtime.events.listen(_onFrame, onError: (_) {
-      _markError();
-    }, onDone: _markError);
+    _subscription = _realtime.events.listen(
+      _onFrame,
+      onError: (_) {
+        _markError();
+      },
+      onDone: _markError,
+    );
     try {
       await _realtime.connect();
     } catch (_) {
@@ -161,8 +218,11 @@ class DocumentCollaborationSession extends ChangeNotifier {
   }
 
   /// 更新一个已有的 XML 文本叶子，保留该叶子的 marks 属性。
-  void replaceXmlText(yjs.YXmlText node, String value,
-      {Map<String, Object?>? marks}) {
+  void replaceXmlText(
+    yjs.YXmlText node,
+    String value, {
+    Map<String, Object?>? marks,
+  }) {
     if (documentType != 'document' ||
         status != DocumentCollaborationStatus.synced) {
       return;
@@ -191,20 +251,19 @@ class DocumentCollaborationSession extends ChangeNotifier {
   /// 返回当前文本叶子的可见 marks，供编辑器初始化格式控件。
   Map<String, Object?> xmlTextMarks(yjs.YXmlText node) => _marksFor(node);
 
-  /// 返回可直接转换的顶层文本块类型；列表、表格等复合结构保持原样。
+  /// 返回当前文本所在的可安全转换结构类型。
+  ///
+  /// 顶层列表和引用按整体转换；表格单元格只转换单元格内的当前块。包含
+  /// 未知或嵌套节点的结构不开放转换，避免覆盖其他客户端写入的内容。
   RichDocumentBlockType? xmlTextBlockType(yjs.YXmlText node) {
-    final block = _topLevelBlock(node);
-    if (block == null || !identical(block.parent, _body)) return null;
-    return switch (block.name) {
-      'paragraph' => RichDocumentBlockType.paragraph,
-      'heading' => switch ((block.getAttribute('level') as num?)?.toInt()) {
-          1 => RichDocumentBlockType.heading1,
-          3 => RichDocumentBlockType.heading3,
-          _ => RichDocumentBlockType.heading2,
-        },
-      'codeBlock' => RichDocumentBlockType.codeBlock,
-      _ => null,
-    };
+    final block = _editableStructureBlock(node);
+    final type = block == null ? null : _richBlockType(block);
+    final snapshots = block == null ? null : _structureSnapshots(block);
+    return type != null &&
+            snapshots != null &&
+            snapshots.any((snapshot) => identical(snapshot.source, node))
+        ? type
+        : null;
   }
 
   /// 返回段落或标题的对齐方式，未设置时按 Tiptap 默认左对齐。
@@ -238,7 +297,8 @@ class DocumentCollaborationSession extends ChangeNotifier {
     final block = _topLevelBlock(node);
     if (block == null || !_supportsBlockBackground(block)) return null;
     return normalizeRichDocumentBlockBackground(
-        block.getAttribute('blockBackgroundColor'));
+      block.getAttribute('blockBackgroundColor'),
+    );
   }
 
   /// 设置或清除文本所在顶层块的背景，写入 Web/Desktop 共用的 Yjs 属性。
@@ -263,79 +323,91 @@ class DocumentCollaborationSession extends ChangeNotifier {
     return true;
   }
 
-  /// 将顶层段落、标题或代码块转换为另一种文本块，保留正文和 marks。
+  /// 将当前已知结构转换为另一种官方 block，保留全部文本、marks 和列表项。
   yjs.YXmlText? transformXmlTextBlock(
-      yjs.YXmlText node, RichDocumentBlockType type) {
+    yjs.YXmlText node,
+    RichDocumentBlockType type,
+  ) {
     if (documentType != 'document' ||
         status != DocumentCollaborationStatus.synced ||
-        !const {
-          RichDocumentBlockType.paragraph,
-          RichDocumentBlockType.heading1,
-          RichDocumentBlockType.heading2,
-          RichDocumentBlockType.heading3,
-          RichDocumentBlockType.codeBlock,
-        }.contains(type) ||
         xmlTextBlockType(node) == null) {
       return null;
     }
-    final block = _topLevelBlock(node)!;
-    final index = _body.toArray().indexOf(block);
+    final block = _editableStructureBlock(node)!;
+    if (_richBlockType(block) == type) return node;
+    final snapshots = _structureSnapshots(block);
+    final parent = block.parent;
+    if (snapshots == null || parent is! yjs.YXmlFragment) return null;
+    final index = parent.toArray().indexOf(block);
     if (index < 0) return null;
+    final background = normalizeRichDocumentBlockBackground(
+      block.getAttribute('blockBackgroundColor'),
+    );
+    final replacement = _createStructureReplacement(
+      snapshots,
+      type,
+      blockBackground: background,
+    );
+    if (replacement == null) return null;
     _undoManager?.stopCapturing();
-    final replacement = _createTextBlock(type, node.toString(),
-        type == RichDocumentBlockType.codeBlock ? const {} : _marksFor(node));
-    final alignment = xmlTextAlignment(node);
-    final background = xmlTextBlockBackground(node);
-    if (type != RichDocumentBlockType.codeBlock && alignment != 'left') {
-      replacement.block.setAttribute('textAlign', alignment);
-    }
-    if (background != null) {
-      replacement.block.setAttribute('blockBackgroundColor', background);
-    }
+    yjs.YXmlText? selected;
     _document.transact((_) {
-      _body.delete(index);
-      _body.insert(index, [replacement.block]);
+      parent.delete(index);
+      parent.insert(index, replacement.blocks);
+      for (final pending in replacement.pending) {
+        _applyTextDelta(
+          pending.target,
+          pending.delta,
+          keepMarks: pending.keepMarks,
+        );
+        if (identical(pending.source, node)) selected = pending.target;
+      }
     });
+    _undoManager?.stopCapturing();
     notifyListeners();
-    return replacement.text;
+    return selected;
   }
 
-  /// 在当前顶层块之前或之后插入可直接编辑的空段落。
+  /// 在当前结构块之前或之后插入可直接编辑的空段落。
   yjs.YXmlText? insertParagraphNear(yjs.YXmlText node, {required bool after}) {
     if (documentType != 'document' ||
         status != DocumentCollaborationStatus.synced) {
       return null;
     }
-    final block = _topLevelBlock(node);
+    final block = _editableStructureBlock(node);
     if (block == null) return null;
-    final index = _body.toArray().indexOf(block);
+    final parent = block.parent;
+    if (parent is! yjs.YXmlFragment) return null;
+    final index = parent.toArray().indexOf(block);
     if (index < 0) return null;
     _undoManager?.stopCapturing();
     final paragraph = _createTextBlock(RichDocumentBlockType.paragraph, '');
     _document.transact((_) {
-      _body.insert(index + (after ? 1 : 0), [paragraph.block]);
+      parent.insert(index + (after ? 1 : 0), [paragraph.block]);
     });
     notifyListeners();
     return paragraph.text;
   }
 
-  /// 删除当前顶层块；删除最后一块时保留一个空段落供继续编辑。
+  /// 删除当前结构块；删除父节点最后一块时保留空段落供继续编辑。
   yjs.YXmlText? deleteXmlTextBlock(yjs.YXmlText node) {
     if (documentType != 'document' ||
         status != DocumentCollaborationStatus.synced) {
       return null;
     }
-    final block = _topLevelBlock(node);
+    final block = _editableStructureBlock(node);
     if (block == null) return null;
-    final index = _body.toArray().indexOf(block);
+    final parent = block.parent;
+    if (parent is! yjs.YXmlFragment) return null;
+    final index = parent.toArray().indexOf(block);
     if (index < 0) return null;
     _undoManager?.stopCapturing();
     yjs.YXmlText? replacement;
     _document.transact((_) {
-      _body.delete(index);
-      if (_body.length == 0) {
+      parent.delete(index);
+      if (parent.length == 0) {
         final paragraph = _createTextBlock(RichDocumentBlockType.paragraph, '');
-        _body.insert(0, [paragraph.block]);
+        parent.insert(0, [paragraph.block]);
         replacement = paragraph.text;
       }
     });
@@ -343,9 +415,119 @@ class DocumentCollaborationSession extends ChangeNotifier {
     return replacement;
   }
 
+  /// 在当前结构块之后插入官方 horizontalRule，默认使用 1px 实线。
+  yjs.YXmlElement? insertHorizontalRule({yjs.YXmlText? near}) {
+    if (documentType != 'document' ||
+        status != DocumentCollaborationStatus.synced) {
+      return null;
+    }
+    yjs.YXmlFragment parent = _body;
+    var index = parent.length;
+    if (near != null) {
+      final block = _editableStructureBlock(near);
+      final blockParent = block?.parent;
+      if (block != null && blockParent is yjs.YXmlFragment) {
+        final blockIndex = blockParent.toArray().indexOf(block);
+        if (blockIndex >= 0) {
+          parent = blockParent;
+          index = blockIndex + 1;
+        }
+      }
+    }
+    final rule = yjs.YXmlElement('horizontalRule')
+      ..setAttribute('lineStyle', 'solid')
+      ..setAttribute('thickness', 1);
+    _undoManager?.stopCapturing();
+    _document.transact((_) => parent.insert(index, [rule]));
+    _undoManager?.stopCapturing();
+    notifyListeners();
+    return rule;
+  }
+
+  RichDocumentHorizontalRuleAttributes horizontalRuleAttributes(
+    yjs.YXmlElement rule,
+  ) =>
+      normalizeRichDocumentHorizontalRule(
+        rule.getAttribute('lineStyle'),
+        rule.getAttribute('thickness'),
+      );
+
+  bool updateHorizontalRule(
+    yjs.YXmlElement rule,
+    RichDocumentHorizontalRuleAttributes attributes,
+  ) {
+    if (documentType != 'document' ||
+        status != DocumentCollaborationStatus.synced ||
+        rule.name != 'horizontalRule' ||
+        !_isDescendantOfBody(rule) ||
+        !const {
+          'solid',
+          'dashed',
+          'dotted',
+          'double',
+        }.contains(attributes.lineStyle) ||
+        attributes.thickness < 1 ||
+        attributes.thickness > 6) {
+      return false;
+    }
+    final current = horizontalRuleAttributes(rule);
+    if (current == attributes) return false;
+    _undoManager?.stopCapturing();
+    _document.transact((_) {
+      rule
+        ..setAttribute('lineStyle', attributes.lineStyle)
+        ..setAttribute('thickness', attributes.thickness);
+    });
+    _undoManager?.stopCapturing();
+    notifyListeners();
+    return true;
+  }
+
+  bool deleteHorizontalRule(yjs.YXmlElement rule) {
+    if (documentType != 'document' ||
+        status != DocumentCollaborationStatus.synced ||
+        rule.name != 'horizontalRule' ||
+        !_isDescendantOfBody(rule)) {
+      return false;
+    }
+    final parent = rule.parent;
+    if (parent is! yjs.YXmlFragment) return false;
+    final index = parent.toArray().indexOf(rule);
+    if (index < 0) return false;
+    _undoManager?.stopCapturing();
+    _document.transact((_) {
+      parent.delete(index);
+      if (parent.length == 0) {
+        final paragraph = _createTextBlock(RichDocumentBlockType.paragraph, '');
+        parent.insert(0, [paragraph.block]);
+      }
+    });
+    _undoManager?.stopCapturing();
+    notifyListeners();
+    return true;
+  }
+
+  bool setTaskItemChecked(yjs.YXmlElement item, bool checked) {
+    if (documentType != 'document' ||
+        status != DocumentCollaborationStatus.synced ||
+        item.name != 'taskItem' ||
+        !_isDescendantOfBody(item) ||
+        item.getAttribute('checked') == checked) {
+      return false;
+    }
+    _undoManager?.stopCapturing();
+    item.setAttribute('checked', checked);
+    _undoManager?.stopCapturing();
+    notifyListeners();
+    return true;
+  }
+
   /// 在当前块之后插入标准 Tiptap 表格，并返回首个表头单元格文本。
-  yjs.YXmlText? insertTable(
-      {yjs.YXmlText? near, required int rows, required int columns}) {
+  yjs.YXmlText? insertTable({
+    yjs.YXmlText? near,
+    required int rows,
+    required int columns,
+  }) {
     if (documentType != 'document' ||
         status != DocumentCollaborationStatus.synced ||
         rows < 1 ||
@@ -367,8 +549,9 @@ class DocumentCollaborationSession extends ChangeNotifier {
       final row = yjs.YXmlElement('tableRow');
       final cells = <yjs.YXmlElement>[];
       for (var columnIndex = 0; columnIndex < columns; columnIndex++) {
-        final cell =
-            yjs.YXmlElement(rowIndex == 0 ? 'tableHeader' : 'tableCell');
+        final cell = yjs.YXmlElement(
+          rowIndex == 0 ? 'tableHeader' : 'tableCell',
+        );
         final paragraph = yjs.YXmlElement('paragraph');
         final text = yjs.YXmlText();
         firstText ??= text;
@@ -431,7 +614,9 @@ class DocumentCollaborationSession extends ChangeNotifier {
   }
 
   bool updateDocumentImage(
-      yjs.YXmlElement image, RichDocumentImageAttributes attributes) {
+    yjs.YXmlElement image,
+    RichDocumentImageAttributes attributes,
+  ) {
     final external = attributes.externalUrl?.trim();
     final externalUri = external == null ? null : Uri.tryParse(external);
     final fileId = attributes.fileId?.trim();
@@ -453,7 +638,9 @@ class DocumentCollaborationSession extends ChangeNotifier {
       image
         ..setAttribute('alignment', attributes.alignment)
         ..setAttribute(
-            'alt', String.fromCharCodes(attributes.alt.runes.take(500)))
+          'alt',
+          String.fromCharCodes(attributes.alt.runes.take(500)),
+        )
         ..setAttribute('width', width);
       if (external == null) {
         image.removeAttribute('externalUrl');
@@ -488,8 +675,10 @@ class DocumentCollaborationSession extends ChangeNotifier {
   ///
   /// 返回 `false` 表示当前不是已同步的富文档或正文为空；此时调用方可
   /// 保留输入内容而不产生任何 Yjs 更新。
-  bool appendTextBlock(String value,
-      {RichDocumentBlockType type = RichDocumentBlockType.paragraph}) {
+  bool appendTextBlock(
+    String value, {
+    RichDocumentBlockType type = RichDocumentBlockType.paragraph,
+  }) {
     if (documentType != 'document' ||
         status != DocumentCollaborationStatus.synced ||
         value.trim().isEmpty) {
@@ -503,7 +692,8 @@ class DocumentCollaborationSession extends ChangeNotifier {
           type == RichDocumentBlockType.taskList) {
         final list = yjs.YXmlElement(_blockName(type));
         final item = yjs.YXmlElement(
-            type == RichDocumentBlockType.taskList ? 'taskItem' : 'listItem');
+          type == RichDocumentBlockType.taskList ? 'taskItem' : 'listItem',
+        );
         if (type == RichDocumentBlockType.taskList) {
           item.setAttribute('checked', false);
         }
@@ -526,12 +716,13 @@ class DocumentCollaborationSession extends ChangeNotifier {
             type == RichDocumentBlockType.heading2 ||
             type == RichDocumentBlockType.heading3) {
           block.setAttribute(
-              'level',
-              type == RichDocumentBlockType.heading1
-                  ? 1
-                  : type == RichDocumentBlockType.heading2
-                      ? 2
-                      : 3);
+            'level',
+            type == RichDocumentBlockType.heading1
+                ? 1
+                : type == RichDocumentBlockType.heading2
+                    ? 2
+                    : 3,
+          );
         }
         block.insert(0, [yjs.YXmlText()..insert(0, text)]);
         _body.insert(_body.length, [block]);
@@ -555,24 +746,283 @@ class DocumentCollaborationSession extends ChangeNotifier {
       };
 
   ({yjs.YXmlElement block, yjs.YXmlText text}) _createTextBlock(
-      RichDocumentBlockType type, String value,
-      [Map<String, Object?> marks = const {}]) {
+    RichDocumentBlockType type,
+    String value, [
+    Map<String, Object?> marks = const {},
+  ]) {
     final block = yjs.YXmlElement(_blockName(type));
     if (type == RichDocumentBlockType.heading1 ||
         type == RichDocumentBlockType.heading2 ||
         type == RichDocumentBlockType.heading3) {
       block.setAttribute(
-          'level',
-          type == RichDocumentBlockType.heading1
-              ? 1
-              : type == RichDocumentBlockType.heading2
-                  ? 2
-                  : 3);
+        'level',
+        type == RichDocumentBlockType.heading1
+            ? 1
+            : type == RichDocumentBlockType.heading2
+                ? 2
+                : 3,
+      );
     }
     final text = yjs.YXmlText();
     block.insert(0, [text]);
     if (value.isNotEmpty) text.insert(0, value, marks);
     return (block: block, text: text);
+  }
+
+  RichDocumentBlockType? _richBlockType(yjs.YXmlElement block) =>
+      switch (block.name) {
+        'paragraph' => RichDocumentBlockType.paragraph,
+        'heading' => switch ((block.getAttribute('level') as num?)?.toInt()) {
+            1 => RichDocumentBlockType.heading1,
+            3 => RichDocumentBlockType.heading3,
+            _ => RichDocumentBlockType.heading2,
+          },
+        'bulletList' => RichDocumentBlockType.bulletList,
+        'orderedList' => RichDocumentBlockType.orderedList,
+        'taskList' => RichDocumentBlockType.taskList,
+        'blockquote' => RichDocumentBlockType.blockquote,
+        'codeBlock' => RichDocumentBlockType.codeBlock,
+        _ => null,
+      };
+
+  yjs.YXmlElement? _editableStructureBlock(yjs.YXmlText node) {
+    yjs.YXmlElement? candidate;
+    yjs.AbstractType<dynamic>? current = node.parent;
+    while (current is yjs.YXmlElement) {
+      if (current.name == 'tableCell' || current.name == 'tableHeader') {
+        return candidate;
+      }
+      candidate = current;
+      if (identical(current.parent, _body)) return current;
+      current = current.parent;
+    }
+    return null;
+  }
+
+  List<_RichTextSnapshot>? _structureSnapshots(yjs.YXmlElement block) {
+    final type = _richBlockType(block);
+    if (type == null) return null;
+    if (type == RichDocumentBlockType.bulletList ||
+        type == RichDocumentBlockType.orderedList ||
+        type == RichDocumentBlockType.taskList) {
+      final items = block.toArray();
+      if (items.isEmpty || items.any((item) => item is! yjs.YXmlElement)) {
+        return null;
+      }
+      final result = <_RichTextSnapshot>[];
+      for (var index = 0; index < items.length; index++) {
+        final item = items[index]! as yjs.YXmlElement;
+        final expected =
+            type == RichDocumentBlockType.taskList ? 'taskItem' : 'listItem';
+        if (item.name != expected) {
+          return null;
+        }
+        final children = item.toArray();
+        if (children.isEmpty ||
+            children.any(
+              (child) => child is! yjs.YXmlElement || child.name != 'paragraph',
+            )) {
+          return null;
+        }
+        for (final child in children.whereType<yjs.YXmlElement>()) {
+          final snapshot = _textBlockSnapshot(
+            child,
+            group: index,
+            checked: item.getAttribute('checked') == true,
+          );
+          if (snapshot == null) return null;
+          result.add(snapshot);
+        }
+      }
+      return result;
+    }
+    if (type == RichDocumentBlockType.blockquote) {
+      final children = block.toArray();
+      if (children.isEmpty ||
+          children.any(
+            (child) =>
+                child is! yjs.YXmlElement ||
+                !const {
+                  'paragraph',
+                  'heading',
+                  'codeBlock',
+                }.contains(child.name),
+          )) {
+        return null;
+      }
+      final result = <_RichTextSnapshot>[];
+      for (var index = 0; index < children.length; index++) {
+        final snapshot = _textBlockSnapshot(
+          children[index]! as yjs.YXmlElement,
+          group: index,
+        );
+        if (snapshot == null) return null;
+        result.add(snapshot);
+      }
+      return result;
+    }
+    final snapshot = _textBlockSnapshot(block, group: 0);
+    return snapshot == null ? null : [snapshot];
+  }
+
+  _RichTextSnapshot? _textBlockSnapshot(
+    yjs.YXmlElement block, {
+    required int group,
+    bool checked = false,
+  }) {
+    final children = block.toArray();
+    if (children.length != 1 || children.single is! yjs.YXmlText) return null;
+    final text = children.single! as yjs.YXmlText;
+    final delta = <Map<String, Object?>>[];
+    for (final operation in text.toDelta()) {
+      if (operation['insert'] is! String) return null;
+      final copy = <String, Object?>{'insert': operation['insert']};
+      final attributes = operation['attributes'];
+      if (attributes is Map) {
+        copy['attributes'] = Map<String, Object?>.from(attributes);
+      }
+      delta.add(copy);
+    }
+    final alignment = block.getAttribute('textAlign');
+    return _RichTextSnapshot(
+      source: text,
+      delta: delta,
+      alignment: alignment == 'center' || alignment == 'right'
+          ? alignment as String
+          : 'left',
+      group: group,
+      checked: checked,
+    );
+  }
+
+  _RichStructureReplacement? _createStructureReplacement(
+    List<_RichTextSnapshot> snapshots,
+    RichDocumentBlockType type, {
+    String? blockBackground,
+  }) {
+    if (snapshots.isEmpty) return null;
+    final blocks = <yjs.YXmlElement>[];
+    final pending = <_PendingRichText>[];
+    if (type == RichDocumentBlockType.bulletList ||
+        type == RichDocumentBlockType.orderedList ||
+        type == RichDocumentBlockType.taskList) {
+      final list = yjs.YXmlElement(_blockName(type));
+      if (blockBackground != null) {
+        list.setAttribute('blockBackgroundColor', blockBackground);
+      }
+      yjs.YXmlElement? item;
+      int? group;
+      final items = <yjs.YXmlElement>[];
+      final itemBlocks = <yjs.YXmlElement>[];
+      void flushItem() {
+        final current = item;
+        if (current == null) return;
+        current.insert(0, List.of(itemBlocks));
+        items.add(current);
+        itemBlocks.clear();
+      }
+
+      for (final snapshot in snapshots) {
+        if (group != snapshot.group) {
+          flushItem();
+          group = snapshot.group;
+          item = yjs.YXmlElement(
+            type == RichDocumentBlockType.taskList ? 'taskItem' : 'listItem',
+          );
+          if (type == RichDocumentBlockType.taskList) {
+            item.setAttribute('checked', snapshot.checked);
+          }
+        }
+        final created = _createTextBlock(RichDocumentBlockType.paragraph, '');
+        if (snapshot.alignment != 'left') {
+          created.block.setAttribute('textAlign', snapshot.alignment);
+        }
+        itemBlocks.add(created.block);
+        pending.add(
+          _PendingRichText(
+            snapshot.source,
+            created.text,
+            snapshot.delta,
+            keepMarks: true,
+          ),
+        );
+      }
+      flushItem();
+      list.insert(0, items);
+      blocks.add(list);
+      return _RichStructureReplacement(blocks, pending);
+    }
+    if (type == RichDocumentBlockType.blockquote) {
+      final quote = yjs.YXmlElement('blockquote');
+      if (blockBackground != null) {
+        quote.setAttribute('blockBackgroundColor', blockBackground);
+      }
+      final paragraphs = <yjs.YXmlElement>[];
+      for (final snapshot in snapshots) {
+        final created = _createTextBlock(RichDocumentBlockType.paragraph, '');
+        if (snapshot.alignment != 'left') {
+          created.block.setAttribute('textAlign', snapshot.alignment);
+        }
+        paragraphs.add(created.block);
+        pending.add(
+          _PendingRichText(
+            snapshot.source,
+            created.text,
+            snapshot.delta,
+            keepMarks: true,
+          ),
+        );
+      }
+      quote.insert(0, paragraphs);
+      blocks.add(quote);
+      return _RichStructureReplacement(blocks, pending);
+    }
+    for (final snapshot in snapshots) {
+      final created = _createTextBlock(type, '');
+      if (type != RichDocumentBlockType.codeBlock &&
+          snapshot.alignment != 'left') {
+        created.block.setAttribute('textAlign', snapshot.alignment);
+      }
+      if (blockBackground != null) {
+        created.block.setAttribute('blockBackgroundColor', blockBackground);
+      }
+      blocks.add(created.block);
+      pending.add(
+        _PendingRichText(
+          snapshot.source,
+          created.text,
+          snapshot.delta,
+          keepMarks: type != RichDocumentBlockType.codeBlock,
+        ),
+      );
+    }
+    return _RichStructureReplacement(blocks, pending);
+  }
+
+  void _applyTextDelta(
+    yjs.YXmlText target,
+    List<Map<String, Object?>> delta, {
+    required bool keepMarks,
+  }) {
+    for (final operation in delta) {
+      final value = operation['insert']! as String;
+      final rawAttributes = operation['attributes'];
+      final attributes = keepMarks && rawAttributes is Map
+          ? Map<String, Object?>.from(rawAttributes)
+          : const <String, Object?>{};
+      if (value.isNotEmpty) {
+        target.insert(target.length, value, attributes);
+      }
+    }
+  }
+
+  bool _isDescendantOfBody(yjs.AbstractType<dynamic> node) {
+    yjs.AbstractType<dynamic>? current = node;
+    while (current != null) {
+      if (identical(current.parent, _body)) return true;
+      current = current.parent;
+    }
+    return false;
   }
 
   yjs.YXmlElement? _topLevelBlock(yjs.YXmlText node) {
@@ -658,8 +1108,12 @@ class DocumentCollaborationSession extends ChangeNotifier {
     if (node.length > 0) node.delete(0, node.length);
   }
 
-  void _replaceTextRange(yjs.YText text, String current, String next,
-      {Map<String, Object?> attributes = const {}}) {
+  void _replaceTextRange(
+    yjs.YText text,
+    String current,
+    String next, {
+    Map<String, Object?> attributes = const {},
+  }) {
     final change = _textChange(current, next);
     if (change.deleteLength > 0) {
       if (current.isNotEmpty) text.delete(0, current.length);
@@ -677,7 +1131,9 @@ class DocumentCollaborationSession extends ChangeNotifier {
   }
 
   ({int prefix, int deleteLength, String insertion}) _textChange(
-      String current, String next) {
+    String current,
+    String next,
+  ) {
     final currentRunes = current.runes.toList(growable: false);
     final nextRunes = next.runes.toList(growable: false);
     var prefixRunes = 0;
@@ -695,18 +1151,14 @@ class DocumentCollaborationSession extends ChangeNotifier {
     }
     final prefix = String.fromCharCodes(currentRunes.take(prefixRunes)).length;
     final currentSuffix = String.fromCharCodes(
-            currentRunes.skip(currentRunes.length - suffixRunes))
-        .length;
-    final nextSuffix =
-        String.fromCharCodes(nextRunes.skip(nextRunes.length - suffixRunes))
-            .length;
+      currentRunes.skip(currentRunes.length - suffixRunes),
+    ).length;
+    final nextSuffix = String.fromCharCodes(
+      nextRunes.skip(nextRunes.length - suffixRunes),
+    ).length;
     final deleteLength = current.length - prefix - currentSuffix;
     final insertion = next.substring(prefix, next.length - nextSuffix);
-    return (
-      prefix: prefix,
-      deleteLength: deleteLength,
-      insertion: insertion,
-    );
+    return (prefix: prefix, deleteLength: deleteLength, insertion: insertion);
   }
 
   String _readBodyText() {
@@ -733,8 +1185,12 @@ class DocumentCollaborationSession extends ChangeNotifier {
     return children.join();
   }
 
-  void _onDocumentUpdate(dynamic update,
-      [dynamic origin, dynamic _, dynamic __]) {
+  void _onDocumentUpdate(
+    dynamic update, [
+    dynamic origin,
+    dynamic _,
+    dynamic __,
+  ]) {
     if (_closed || identical(origin, this) || update is! Uint8List) return;
     final encoder = yjs.createEncoder();
     yjs.writeVarString(encoder, documentId);

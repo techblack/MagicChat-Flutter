@@ -19,6 +19,7 @@ class RichDocumentToolbar extends StatelessWidget {
     this.formatPainterActive = false,
     this.onFormatPainter,
     this.onClearFormatting,
+    this.onInsertHorizontalRule,
     this.onInsertTable,
     this.onInsertImage,
     super.key,
@@ -33,6 +34,7 @@ class RichDocumentToolbar extends StatelessWidget {
   final bool formatPainterActive;
   final VoidCallback? onFormatPainter;
   final VoidCallback? onClearFormatting;
+  final VoidCallback? onInsertHorizontalRule;
   final VoidCallback? onInsertTable;
   final VoidCallback? onInsertImage;
 
@@ -85,6 +87,10 @@ class RichDocumentToolbar extends StatelessWidget {
                   _tool(context, Icons.code, '代码块',
                       RichDocumentBlockType.codeBlock),
                   const VerticalDivider(width: 12, indent: 10, endIndent: 10),
+                  IconButton(
+                      tooltip: '插入分割线',
+                      onPressed: enabled ? onInsertHorizontalRule : null,
+                      icon: const Icon(Icons.horizontal_rule, size: 20)),
                   IconButton(
                       tooltip: '插入表格',
                       onPressed: enabled ? onInsertTable : null,
@@ -181,6 +187,18 @@ class RichDocumentInlineToolbar extends StatelessWidget {
                     PopupMenuItem(
                         value: RichDocumentBlockType.heading3,
                         child: Text('三级标题')),
+                    PopupMenuItem(
+                        value: RichDocumentBlockType.bulletList,
+                        child: Text('无序列表')),
+                    PopupMenuItem(
+                        value: RichDocumentBlockType.orderedList,
+                        child: Text('有序列表')),
+                    PopupMenuItem(
+                        value: RichDocumentBlockType.taskList,
+                        child: Text('任务列表')),
+                    PopupMenuItem(
+                        value: RichDocumentBlockType.blockquote,
+                        child: Text('引用')),
                     PopupMenuItem(
                         value: RichDocumentBlockType.codeBlock,
                         child: Text('代码块')),
@@ -452,6 +470,10 @@ class RichDocumentInlineToolbar extends StatelessWidget {
         RichDocumentBlockType.heading2 ||
         RichDocumentBlockType.heading3 =>
           Icons.title,
+        RichDocumentBlockType.bulletList => Icons.format_list_bulleted,
+        RichDocumentBlockType.orderedList => Icons.format_list_numbered,
+        RichDocumentBlockType.taskList => Icons.checklist,
+        RichDocumentBlockType.blockquote => Icons.format_quote,
         RichDocumentBlockType.codeBlock => Icons.code,
         _ => Icons.notes_outlined,
       };
