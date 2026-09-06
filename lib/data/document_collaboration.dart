@@ -5,6 +5,7 @@ import 'package:yjs_dart/yjs_dart.dart' as yjs;
 
 import '../domain/rich_document_format.dart';
 import 'document_realtime.dart';
+import 'rich_document_paste.dart';
 
 enum DocumentCollaborationStatus { disconnected, connecting, synced, error }
 
@@ -35,6 +36,11 @@ enum RichDocumentTableAction {
 }
 
 typedef RichDocumentTableEditResult = ({
+  bool changed,
+  yjs.YXmlText? selection,
+});
+
+typedef RichDocumentPasteEditResult = ({
   bool changed,
   yjs.YXmlText? selection,
 });
@@ -657,6 +663,37 @@ class DocumentCollaborationSession extends ChangeNotifier {
     _undoManager?.stopCapturing();
     notifyListeners();
     return (changed: true, selection: next);
+  }
+
+  /// 将经过白名单解析的剪贴板内容作为新 block 插入，不改写已有 Yjs 节点。
+  RichDocumentPasteEditResult pasteRichDocument(
+    RichDocumentClipboardContent content, {
+    yjs.YXmlText? near,
+  }) {
+    if (documentType != 'document' ||
+        status != DocumentCollaborationStatus.synced) {
+      return (changed: false, selection: null);
+    }
+    final paste = parseRichDocumentPaste(content);
+    if (paste.blocks.isEmpty) return (changed: false, selection: null);
+    yjs.YXmlFragment parent = _body;
+    var index = parent.length;
+    if (near != null) {
+      final block = _editableStructureBlock(near);
+      final blockParent = block?.parent;
+      if (block != null && blockParent is yjs.YXmlFragment) {
+        final blockIndex = blockParent.toArray().indexOf(block);
+        if (blockIndex >= 0) {
+          parent = blockParent;
+          index = blockIndex + 1;
+        }
+      }
+    }
+    _undoManager?.stopCapturing();
+    _document.transact((_) => parent.insert(index, paste.blocks));
+    _undoManager?.stopCapturing();
+    notifyListeners();
+    return (changed: true, selection: paste.firstText);
   }
 
   /// 在当前块之后插入标准 documentImage 占位节点。

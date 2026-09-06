@@ -460,6 +460,8 @@ class RichDocumentView extends StatelessWidget {
   TextStyle _markStyle(BuildContext context, Map<String, Object?> marks) {
     Color? parseColor(Object? value) {
       if (value is! String) return null;
+      final oklch = richDocumentBlockBackgroundDisplayColor(value);
+      if (oklch != null) return oklch;
       var hex = value.trim().replaceFirst('#', '');
       if (hex.length == 6) hex = 'FF$hex';
       if (hex.length != 8) return null;

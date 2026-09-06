@@ -56,7 +56,7 @@ class YXmlFragment extends AbstractType<dynamic> {
 
   /// Returns the attribute value for [key], or null if not set.
   Object? getAttribute(String key) {
-    return typeMapGet(this, key);
+    return doc == null ? _prelimAttributes[key] : typeMapGet(this, key);
   }
 
   /// Inserts content at [index].
@@ -83,8 +83,13 @@ class YXmlFragment extends AbstractType<dynamic> {
 
   /// Returns the list content as a List.
   List<Object?> toArray() {
-    return typeListSlice(this, 0, length);
+    return doc == null
+        ? List<Object?>.unmodifiable(_prelimContent)
+        : typeListSlice(this, 0, length);
   }
+
+  @override
+  int get length => doc == null ? _prelimContent.length : super.length;
 
   @override
   YXmlFragment clone() {

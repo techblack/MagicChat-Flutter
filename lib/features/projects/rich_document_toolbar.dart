@@ -19,6 +19,7 @@ class RichDocumentToolbar extends StatelessWidget {
     this.formatPainterActive = false,
     this.onFormatPainter,
     this.onClearFormatting,
+    this.onPaste,
     this.onInsertHorizontalRule,
     this.onInsertTable,
     this.onInsertImage,
@@ -34,6 +35,7 @@ class RichDocumentToolbar extends StatelessWidget {
   final bool formatPainterActive;
   final VoidCallback? onFormatPainter;
   final VoidCallback? onClearFormatting;
+  final VoidCallback? onPaste;
   final VoidCallback? onInsertHorizontalRule;
   final VoidCallback? onInsertTable;
   final VoidCallback? onInsertImage;
@@ -87,6 +89,10 @@ class RichDocumentToolbar extends StatelessWidget {
                   _tool(context, Icons.code, '代码块',
                       RichDocumentBlockType.codeBlock),
                   const VerticalDivider(width: 12, indent: 10, endIndent: 10),
+                  IconButton(
+                      tooltip: '粘贴富文本',
+                      onPressed: enabled ? onPaste : null,
+                      icon: const Icon(Icons.content_paste_outlined, size: 20)),
                   IconButton(
                       tooltip: '插入分割线',
                       onPressed: enabled ? onInsertHorizontalRule : null,

@@ -650,6 +650,63 @@ void main() {
     await session.close();
     serverDocument.destroy();
   });
+
+  test('富文档粘贴原位插入标准块并保留已有未知节点', () async {
+    final channel = _FakeChannel();
+    final session = DocumentCollaborationSession(
+        serverUrl: 'https://chat.example.com',
+        token: 'session-token',
+        documentId: 'doc-rich-paste',
+        documentType: 'document',
+        connector: (_, __) => channel);
+    await session.connect();
+    channel.emit(
+        encodeHocuspocusAuthenticatedFrame(documentName: 'doc-rich-paste'));
+    await Future<void>.delayed(Duration.zero);
+    final serverDocument = yjs.Doc(yjs.DocOpts(guid: 'doc-rich-paste'));
+    final serverBody =
+        serverDocument.get<yjs.YXmlFragment>('body', yjs.YXmlFragment.new)!;
+    final paragraph = yjs.YXmlElement('paragraph');
+    final selected = yjs.YXmlText()..insert(0, '已有正文');
+    paragraph.insert(0, [selected]);
+    final unknown = yjs.YXmlElement('futureBlock');
+    unknown.insert(0, [yjs.YXmlText()..insert(0, '未知结构')]);
+    serverBody.insert(0, [paragraph, unknown]);
+    final incoming = yjs.createEncoder();
+    yjs.writeVarString(incoming, 'doc-rich-paste');
+    yjs.writeVarUint(incoming, HocuspocusMessageType.sync);
+    yjs.writeSyncStep2(incoming, serverDocument);
+    channel.emit(yjs.toUint8Array(incoming));
+    await Future<void>.delayed(Duration.zero);
+
+    final localBlocks =
+        session.body.toArray().whereType<yjs.YXmlElement>().toList();
+    final localParagraph = localBlocks.first;
+    final localSelected =
+        localParagraph.toArray().whereType<yjs.YXmlText>().single;
+    final localUnknown = localBlocks.last;
+    final result = session.pasteRichDocument(
+        (html: '<h2>粘贴标题</h2><p><strong>粘贴正文</strong></p>', text: null),
+        near: localSelected);
+
+    expect(result.changed, isTrue);
+    expect(result.selection?.toString(), '粘贴标题');
+    final afterPaste =
+        session.body.toArray().whereType<yjs.YXmlElement>().toList();
+    expect(afterPaste.map((block) => block.name),
+        ['paragraph', 'heading', 'paragraph', 'futureBlock']);
+    expect(identical(afterPaste.last, localUnknown), isTrue);
+    expect(localUnknown.toString(), contains('未知结构'));
+    expect(session.undo(), isTrue);
+    final afterUndo =
+        session.body.toArray().whereType<yjs.YXmlElement>().toList();
+    expect(afterUndo.map((block) => block.name), ['paragraph', 'futureBlock']);
+    expect(afterUndo.first.toString(), contains('已有正文'));
+    expect(afterUndo.last.toString(), contains('未知结构'));
+
+    await session.close();
+    serverDocument.destroy();
+  });
 }
 
 List<yjs.YXmlElement> _tableRows(yjs.YXmlElement table) => table
