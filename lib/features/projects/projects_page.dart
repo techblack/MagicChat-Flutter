@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/repository.dart';
 import '../../data/document_collaboration.dart';
+import '../../data/realtime.dart';
 import '../../domain/models.dart';
 import 'document_editor_page.dart';
 import 'project_progress.dart';
@@ -23,6 +24,7 @@ String _projectTaskViewPreferenceKey(String projectId) =>
 class ProjectsPage extends StatefulWidget {
   const ProjectsPage(
       {required this.repository,
+      this.realtimeSession,
       this.initialProjectId,
       this.onInitialProjectOpened,
       this.initialTaskProjectId,
@@ -33,6 +35,7 @@ class ProjectsPage extends StatefulWidget {
       this.documentCollaborationFactory,
       super.key});
   final MagicChatRepository repository;
+  final RealtimeSession? realtimeSession;
   final String? initialProjectId;
   final VoidCallback? onInitialProjectOpened;
   final String? initialTaskProjectId;
@@ -53,6 +56,8 @@ class _ProjectsPageState extends State<ProjectsPage> {
   String? _openedInitialProjectId;
   String? _openedInitialTaskKey;
   String? _openedInitialDocumentId;
+  Timer? _fallbackPollTimer;
+  bool _fallbackPollInFlight = false;
 
   MagicChatRepository get repository => widget.repository;
 
@@ -60,6 +65,10 @@ class _ProjectsPageState extends State<ProjectsPage> {
   void initState() {
     super.initState();
     _projects = repository.projects();
+    if (widget.realtimeSession != null) {
+      _fallbackPollTimer = Timer.periodic(
+          const Duration(minutes: 5), (_) => unawaited(_pollFallback()));
+    }
   }
 
   void _reloadProjects() {
@@ -196,8 +205,23 @@ class _ProjectsPageState extends State<ProjectsPage> {
 
   @override
   void dispose() {
+    _fallbackPollTimer?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pollFallback() async {
+    final session = widget.realtimeSession;
+    if (!mounted || session == null || session.ready || _fallbackPollInFlight)
+      return;
+    _fallbackPollInFlight = true;
+    try {
+      await _refreshProjects();
+    } catch (_) {
+      // 项目缓存继续展示，下一周期再尝试同步。
+    } finally {
+      _fallbackPollInFlight = false;
+    }
   }
 
   @override

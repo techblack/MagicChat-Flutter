@@ -61,6 +61,7 @@ class MessagesPage extends StatelessWidget {
           Positioned.fill(
               child: _ConversationList(
                   repository: repository,
+                  realtimeSession: realtimeSession,
                   serverUrl: serverUrl,
                   cacheScope: cacheScope,
                   realtimeStore: realtimeStore,
@@ -579,6 +580,7 @@ class _ConversationStatusIndicatorState
 class _ConversationList extends StatefulWidget {
   const _ConversationList(
       {required this.repository,
+      this.realtimeSession,
       this.serverUrl,
       this.cacheScope,
       this.realtimeStore,
@@ -586,6 +588,7 @@ class _ConversationList extends StatefulWidget {
       required this.onSelect,
       this.onUnreadChanged});
   final MagicChatRepository repository;
+  final RealtimeSession? realtimeSession;
   final String? serverUrl;
   final MessageCacheScope? cacheScope;
   final RealtimeStore? realtimeStore;
@@ -603,11 +606,17 @@ class _ConversationListState extends State<_ConversationList> {
   ConversationFilter _filter = ConversationFilter.all;
   String _query = '';
   bool _markingAllRead = false;
+  Timer? _fallbackPollTimer;
+  bool _fallbackPollInFlight = false;
   @override
   void initState() {
     super.initState();
     _currentUserId = widget.realtimeStore?.currentUserId;
     widget.realtimeStore?.addListener(_onRealtimeChanged);
+    if (widget.realtimeSession != null) {
+      _fallbackPollTimer = Timer.periodic(
+          const Duration(seconds: 15), (_) => unawaited(_pollFallback()));
+    }
     unawaited(_loadCurrentUser());
     _reload();
   }
@@ -641,8 +650,25 @@ class _ConversationListState extends State<_ConversationList> {
 
   @override
   void dispose() {
+    _fallbackPollTimer?.cancel();
     widget.realtimeStore?.removeListener(_onRealtimeChanged);
     super.dispose();
+  }
+
+  Future<void> _pollFallback() async {
+    final session = widget.realtimeSession;
+    if (!mounted || session == null || session.ready || _fallbackPollInFlight)
+      return;
+    _fallbackPollInFlight = true;
+    try {
+      final future = _loadConversations();
+      if (mounted) setState(() => _future = future);
+      await future;
+    } catch (_) {
+      // 保留现有会话列表，下一周期继续尝试；实时重连不受 HTTP 失败影响。
+    } finally {
+      _fallbackPollInFlight = false;
+    }
   }
 
   void _reload() {

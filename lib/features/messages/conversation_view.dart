@@ -221,6 +221,8 @@ class _ConversationViewState extends State<ConversationView>
   int _scrollInteractionGeneration = 0;
   Timer? _typingHeartbeat;
   bool _typingStatusInFlight = false;
+  Timer? _fallbackPollTimer;
+  bool _fallbackPollInFlight = false;
 
   bool get _topicArchived =>
       _conversation?.topic?.archived == true ||
@@ -292,6 +294,10 @@ class _ConversationViewState extends State<ConversationView>
     _controller.addListener(_persistDraft);
     _composerFocusNode.addListener(_onComposerFocusChanged);
     widget.realtimeStore?.addListener(_onRealtimeChanged);
+    if (widget.realtimeSession != null) {
+      _fallbackPollTimer = Timer.periodic(const Duration(seconds: 15),
+          (_) => unawaited(_pollFallbackMessages()));
+    }
     _readRetryTimer = Timer.periodic(const Duration(seconds: 20), (_) {
       final id = widget.conversationId;
       if (id != null && !_historyMode) _requestLatestRead(id);
@@ -1472,6 +1478,7 @@ class _ConversationViewState extends State<ConversationView>
     widget.realtimeStore?.removeListener(_onRealtimeChanged);
     _stopTypingHeartbeat();
     _readRetryTimer?.cancel();
+    _fallbackPollTimer?.cancel();
     _highlightTimer?.cancel();
     _persistDraft();
     _controller.removeListener(_persistDraft);
@@ -1481,6 +1488,25 @@ class _ConversationViewState extends State<ConversationView>
     _scrollController.dispose();
     if (_ownsMessageCacheStore) unawaited(_messageCacheStore.close());
     super.dispose();
+  }
+
+  Future<void> _pollFallbackMessages() async {
+    final session = widget.realtimeSession;
+    final conversationId = widget.conversationId;
+    if (!mounted ||
+        session == null ||
+        session.ready ||
+        conversationId == null ||
+        _historyMode ||
+        _fallbackPollInFlight) return;
+    _fallbackPollInFlight = true;
+    try {
+      await _refreshMessages(conversationId);
+    } catch (_) {
+      // 保留本地缓存和当前消息，下一周期继续尝试。
+    } finally {
+      _fallbackPollInFlight = false;
+    }
   }
 
   KeyEventResult _handleComposerKeyEvent(
