@@ -170,6 +170,8 @@ void main() {
 
   testWidgets('设置页可禁用并重新启用截图快捷键', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    await tester.binding.setSurfaceSize(const Size(800, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     final initial = DesktopScreenshotShortcut.defaultFor(TargetPlatform.linux);
     final changes = <DesktopScreenshotShortcut>[];
     await tester.pumpWidget(MaterialApp(
