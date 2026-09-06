@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magicchat_client/features/projects/rich_document_block_background.dart';
+import 'package:magicchat_client/features/projects/rich_document_horizontal_rule.dart';
 import 'package:magicchat_client/features/projects/rich_document_view.dart';
 import 'package:yjs_dart/yjs_dart.dart' as yjs;
 
@@ -168,6 +169,117 @@ void main() {
     expect(edited, same(image));
     document.destroy();
   });
+
+  testWidgets('任务项可勾选且分割线按官方属性渲染并可打开设置', (tester) async {
+    final document = yjs.Doc(yjs.DocOpts(guid: 'rich-structure-view-test'));
+    final body = document.get<yjs.YXmlFragment>('body', yjs.YXmlFragment.new)!;
+    final taskList = yjs.YXmlElement('taskList');
+    final task = yjs.YXmlElement('taskItem')..setAttribute('checked', false);
+    final paragraph = yjs.YXmlElement('paragraph');
+    paragraph.insert(0, [yjs.YXmlText()..insert(0, '完成验收')]);
+    task.insert(0, [paragraph]);
+    taskList.insert(0, [task]);
+    final rule = yjs.YXmlElement('horizontalRule')
+      ..setAttribute('lineStyle', 'dashed')
+      ..setAttribute('thickness', 4);
+    body.insert(0, [taskList, rule]);
+    yjs.YXmlElement? editedRule;
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: StatefulBuilder(builder: (context, setState) {
+          return RichDocumentView(
+            body: body,
+            onTaskChecked: (item, checked) => setState(() {
+              item.setAttribute('checked', checked);
+            }),
+            onEditHorizontalRule: (value) => editedRule = value,
+          );
+        }),
+      ),
+    ));
+
+    final checkbox = find.byType(Checkbox);
+    expect(tester.widget<Checkbox>(checkbox).onChanged, isNotNull);
+    await tester.tap(checkbox);
+    await tester.pump();
+    expect(task.getAttribute('checked'), isTrue);
+    final horizontalRule = tester.widget<RichDocumentHorizontalRuleView>(
+        find.byType(RichDocumentHorizontalRuleView));
+    expect(
+        horizontalRule.attributes, const (lineStyle: 'dashed', thickness: 4));
+    await tester
+        .tap(find.byKey(const ValueKey('rich-document-horizontal-rule')));
+    expect(editedRule, same(rule));
+    document.destroy();
+  });
+
+  testWidgets('列表、任务、引用、代码和表格单元格均可原位编辑', (tester) async {
+    final document = yjs.Doc(yjs.DocOpts(guid: 'rich-nested-edit-test'));
+    final body = document.get<yjs.YXmlFragment>('body', yjs.YXmlFragment.new)!;
+    final nodes = <String, yjs.YXmlText>{};
+
+    final list = yjs.YXmlElement('bulletList');
+    final listItem = yjs.YXmlElement('listItem');
+    final listParagraph = _paragraphWithText('列表内容');
+    nodes['列表内容'] = listParagraph.text;
+    listItem.insert(0, [listParagraph.block]);
+    list.insert(0, [listItem]);
+
+    final taskList = yjs.YXmlElement('taskList');
+    final taskItem = yjs.YXmlElement('taskItem')
+      ..setAttribute('checked', false);
+    final taskParagraph = _paragraphWithText('任务内容');
+    nodes['任务内容'] = taskParagraph.text;
+    taskItem.insert(0, [taskParagraph.block]);
+    taskList.insert(0, [taskItem]);
+
+    final quote = yjs.YXmlElement('blockquote');
+    final quoteParagraph = _paragraphWithText('引用内容');
+    nodes['引用内容'] = quoteParagraph.text;
+    quote.insert(0, [quoteParagraph.block]);
+
+    final code = yjs.YXmlElement('codeBlock');
+    final codeText = yjs.YXmlText()..insert(0, '代码内容');
+    nodes['代码内容'] = codeText;
+    code.insert(0, [codeText]);
+
+    final table = yjs.YXmlElement('table');
+    final row = yjs.YXmlElement('tableRow');
+    final cell = yjs.YXmlElement('tableCell');
+    final cellParagraph = _paragraphWithText('单元格内容');
+    nodes['单元格内容'] = cellParagraph.text;
+    cell.insert(0, [cellParagraph.block]);
+    row.insert(0, [cell]);
+    table.insert(0, [row]);
+    body.insert(0, [list, taskList, quote, code, table]);
+
+    yjs.YXmlText? selected;
+    final changes = <yjs.YXmlText, String>{};
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: StatefulBuilder(builder: (context, setState) {
+          return RichDocumentView(
+            body: body,
+            selectedText: selected,
+            onSelectText: (node) => setState(() => selected = node),
+            onTextChanged: (node, value) => changes[node] = value,
+          );
+        }),
+      ),
+    ));
+
+    for (final entry in nodes.entries) {
+      await tester.tap(find.text(entry.key));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('rich-document-inline-editor')),
+          findsOneWidget);
+      await tester.enterText(find.byType(TextFormField), '已编辑${entry.key}');
+      await tester.pump();
+      expect(changes[entry.value], '已编辑${entry.key}');
+    }
+    document.destroy();
+  });
 }
 
 double _contrastRatio(Color background, Color foreground) {
@@ -189,6 +301,13 @@ void _addParagraph(yjs.YXmlFragment body, String value,
   final text = yjs.YXmlText()..insert(0, value, marks);
   paragraph.insert(0, [text]);
   body.insert(body.length, [paragraph]);
+}
+
+({yjs.YXmlElement block, yjs.YXmlText text}) _paragraphWithText(String value) {
+  final paragraph = yjs.YXmlElement('paragraph');
+  final text = yjs.YXmlText()..insert(0, value);
+  paragraph.insert(0, [text]);
+  return (block: paragraph, text: text);
 }
 
 void _addList(yjs.YXmlFragment body,

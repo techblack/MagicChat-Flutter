@@ -15,6 +15,7 @@ import '../shared/user_facing_error.dart';
 import 'markdown_editor_toolbar.dart';
 import 'rich_document_view.dart';
 import 'rich_document_toolbar.dart';
+import 'rich_document_horizontal_rule.dart';
 import 'rich_document_image_dialog.dart';
 import 'rich_table_size_picker.dart';
 import 'document_export.dart';
@@ -506,6 +507,44 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     });
   }
 
+  void _insertRichHorizontalRule() {
+    final session = widget.collaboration;
+    if (session == null ||
+        session.status != DocumentCollaborationStatus.synced) {
+      return;
+    }
+    final rule = session.insertHorizontalRule(near: _selectedRichText);
+    if (rule != null) setState(() => _selectedRichText = null);
+  }
+
+  Future<void> _editRichHorizontalRule(yjs.YXmlElement rule) async {
+    final session = widget.collaboration;
+    if (session == null ||
+        session.status != DocumentCollaborationStatus.synced) {
+      return;
+    }
+    final result = await showDialog<RichDocumentHorizontalRuleDialogResult>(
+      context: context,
+      builder: (_) => RichDocumentHorizontalRuleDialog(
+        initialValue: session.horizontalRuleAttributes(rule),
+      ),
+    );
+    if (!mounted || result == null) return;
+    if (result.deleted) {
+      session.deleteHorizontalRule(rule);
+    } else {
+      session.updateHorizontalRule(rule, result.attributes);
+    }
+    setState(() {});
+  }
+
+  void _setRichTaskChecked(yjs.YXmlElement item, bool checked) {
+    final session = widget.collaboration;
+    if (session != null && session.setTaskItemChecked(item, checked)) {
+      setState(() {});
+    }
+  }
+
   Future<void> _insertRichTable() async {
     final session = widget.collaboration;
     if (session == null ||
@@ -672,6 +711,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                           onRedo: _redoRichDocument,
                           onFormatPainter: _toggleRichFormatPainter,
                           onClearFormatting: _clearRichTextFormatting,
+                          onInsertHorizontalRule: _insertRichHorizontalRule,
                           onInsertTable: _insertRichTable,
                           onInsertImage: _insertRichImage,
                           onInsert: (type) =>
@@ -718,6 +758,16 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                                   ? _updateRichText
                                   : null,
                               imageUrlResolver: _resolveDocumentImage,
+                              onEditHorizontalRule: widget
+                                          .collaboration!.status ==
+                                      DocumentCollaborationStatus.synced
+                                  ? (rule) =>
+                                      unawaited(_editRichHorizontalRule(rule))
+                                  : null,
+                              onTaskChecked: widget.collaboration!.status ==
+                                      DocumentCollaborationStatus.synced
+                                  ? _setRichTaskChecked
+                                  : null,
                               onEditImage: widget.collaboration!.status ==
                                       DocumentCollaborationStatus.synced
                                   ? (image) => unawaited(_editRichImage(image))

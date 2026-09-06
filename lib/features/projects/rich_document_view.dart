@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:yjs_dart/yjs_dart.dart' as yjs;
 
+import '../../data/document_collaboration.dart';
 import '../../domain/message_content.dart';
 import 'rich_document_block_background.dart';
+import 'rich_document_horizontal_rule.dart';
 
 /// 将 Tiptap 协作正文的 XML block tree 渲染为 Flutter 原生控件。
 ///
@@ -19,6 +21,8 @@ class RichDocumentView extends StatelessWidget {
     this.onEditText,
     this.imageUrlResolver,
     this.onEditImage,
+    this.onEditHorizontalRule,
+    this.onTaskChecked,
     super.key,
   });
 
@@ -29,6 +33,8 @@ class RichDocumentView extends StatelessWidget {
   final ValueChanged<yjs.YXmlText>? onEditText;
   final Future<Uri?> Function(String fileId)? imageUrlResolver;
   final ValueChanged<yjs.YXmlElement>? onEditImage;
+  final ValueChanged<yjs.YXmlElement>? onEditHorizontalRule;
+  final void Function(yjs.YXmlElement item, bool checked)? onTaskChecked;
 
   @override
   Widget build(BuildContext context) {
@@ -71,8 +77,18 @@ class RichDocumentView extends StatelessWidget {
       case 'codeBlock':
         return _withBlockBackground(node, _codeBlock(context, node));
       case 'horizontalRule':
-        return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8), child: Divider());
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: RichDocumentHorizontalRuleView(
+            attributes: normalizeRichDocumentHorizontalRule(
+              node.getAttribute('lineStyle'),
+              node.getAttribute('thickness'),
+            ),
+            onTap: onEditHorizontalRule == null
+                ? null
+                : () => onEditHorizontalRule!(node),
+          ),
+        );
       case 'table':
         return _withBlockBackground(node, _table(context, node));
       case 'documentImage':
@@ -210,7 +226,9 @@ class RichDocumentView extends StatelessWidget {
     final marker = task
         ? Checkbox(
             value: node.getAttribute('checked') == true,
-            onChanged: null,
+            onChanged: onTaskChecked == null
+                ? null
+                : (checked) => onTaskChecked!(node, checked == true),
             visualDensity: VisualDensity.compact,
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap)
         : SizedBox(

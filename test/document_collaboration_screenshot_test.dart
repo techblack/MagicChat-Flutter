@@ -136,6 +136,10 @@ void main() {
     final body =
         serverDocument.get<yjs.YXmlFragment>('body', yjs.YXmlFragment.new)!;
     _insertParagraphs(body, '团队规范\n\n富文档正文已通过 body 协作同步');
+    final rule = yjs.YXmlElement('horizontalRule')
+      ..setAttribute('lineStyle', 'dashed')
+      ..setAttribute('thickness', 3);
+    body.insert(body.length, [rule]);
     final incoming = yjs.createEncoder();
     yjs.writeVarString(incoming, 'document-rich-3');
     yjs.writeVarUint(incoming, HocuspocusMessageType.sync);
@@ -288,6 +292,38 @@ void main() {
     await tester.pump();
     expect(session.body.toArray(), hasLength(2));
 
+    await tester.ensureVisible(find.byTooltip('插入分割线'));
+    await tester.tap(find.byTooltip('插入分割线'));
+    await tester.pump();
+    final horizontalRule = session.body
+        .toArray()
+        .whereType<yjs.YXmlElement>()
+        .where((element) => element.name == 'horizontalRule')
+        .single;
+    await tester
+        .tap(find.byKey(const ValueKey('rich-document-horizontal-rule')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('rich-horizontal-rule-style')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('点线').last);
+    await tester.pumpAndSettle();
+    tester
+        .widget<Slider>(
+            find.byKey(const ValueKey('rich-horizontal-rule-thickness')))
+        .onChanged!(5);
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.pumpAndSettle();
+    expect(session.horizontalRuleAttributes(horizontalRule),
+        const (lineStyle: 'dotted', thickness: 5));
+    await tester
+        .tap(find.byKey(const ValueKey('rich-document-horizontal-rule')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, '删除'));
+    await tester.pumpAndSettle();
+    expect(session.body.toArray().contains(horizontalRule), isFalse);
+
+    await tester.ensureVisible(find.byTooltip('插入表格'));
     await tester.tap(find.byTooltip('插入表格'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('rich-table-size-2-3')));
