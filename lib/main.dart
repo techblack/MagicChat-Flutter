@@ -62,6 +62,7 @@ import 'features/messages/conversation_list.dart';
 import 'features/messages/voice_message_player.dart';
 import 'features/messages/voice_message_composer_sheet.dart';
 import 'features/shared/cached_avatar.dart';
+import 'features/shared/app_bootstrap_state.dart';
 import 'features/shared/conversation_avatar.dart';
 import 'features/shared/external_link_launcher.dart';
 import 'features/shared/user_facing_error.dart';

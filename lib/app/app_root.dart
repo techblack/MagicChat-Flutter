@@ -69,6 +69,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
   DesktopCloseBehavior _desktopCloseBehavior = DesktopCloseBehavior.background;
   String? _serverUrl;
   String? _loginError;
+  String? _restoreError;
   bool _loading = true;
   bool _sessionExpiring = false;
   late final DesktopAutoLaunchController _desktopAutoLaunch;
@@ -85,7 +86,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
     _desktopWindowController = widget.desktopWindowController ??
         const PlatformDesktopWindowController();
     unawaited(_initializeDesktopIntegration());
-    _restoreSession();
+    unawaited(_restoreSession());
   }
 
   Future<void> _initializeDesktopIntegration() async {
@@ -126,6 +127,18 @@ class _MagicChatAppState extends State<MagicChatApp> {
   }
 
   Future<void> _restoreSession() async {
+    try {
+      await _restoreSessionData();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = true;
+        _restoreError = '初始化失败：${userFacingError(error)}';
+      });
+    }
+  }
+
+  Future<void> _restoreSessionData() async {
     final prefs = await SharedPreferences.getInstance();
     const serverStore = ServerStore();
     await serverStore
@@ -172,10 +185,17 @@ class _MagicChatAppState extends State<MagicChatApp> {
       _notificationPrivacy = notificationPrivacy;
       _interfaceFontScale = interfaceFontScale;
       _desktopCloseBehavior = desktopCloseBehavior;
+      _restoreError = null;
     });
     if (token != null) {
       unawaited(_registerPush(server, token));
     }
+  }
+
+  Future<void> _retryRestoreSession() async {
+    if (_restoreError == null) return;
+    setState(() => _restoreError = null);
+    await _restoreSession();
   }
 
   Future<void> _login(String server, String email, String password) async {
@@ -553,7 +573,11 @@ class _MagicChatAppState extends State<MagicChatApp> {
           );
         },
         home: _loading
-            ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+            ? _restoreError == null
+                ? const BrandLoadingView()
+                : AppInitializationErrorView(
+                    message: _restoreError!,
+                    onRetry: () => unawaited(_retryRestoreSession()))
             : _repository == null
                 ? LoginPage(
                     onLogin: _login,
@@ -1813,7 +1837,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
             : null;
     final pages = <Widget>[
       !_identityReady
-          ? const Center(child: CircularProgressIndicator())
+          ? const BrandLoadingView(message: '正在准备工作空间', detail: '正在加载账户与会话数据')
           : MessagesPage(
               repository: _repository,
               serverUrl: widget.serverUrl,
