@@ -3,10 +3,10 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import 'qr_content.dart';
+import 'shared/external_link_launcher.dart';
 
 bool get supportsEmbeddedQrWebView =>
     !kIsWeb &&
@@ -89,7 +89,7 @@ class _QrWebViewPageState extends State<QrWebViewPage> {
     if (uri == null) return;
     var opened = false;
     try {
-      opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      opened = await launchExternalWebLink(context, uri) ?? true;
     } catch (_) {
       opened = false;
     }

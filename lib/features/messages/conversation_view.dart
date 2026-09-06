@@ -3471,7 +3471,7 @@ class _MessageBubble extends StatelessWidget {
             onTapLink: (text, href, title) {
               final uri = parseMarkdownLink(href);
               if (uri != null) {
-                unawaited(launchUrl(uri, mode: LaunchMode.externalApplication));
+                unawaited(launchExternalWebLink(context, uri));
               }
             },
           ),
@@ -3696,9 +3696,8 @@ class _MessageBubble extends StatelessWidget {
                                         semanticLabel:
                                             '${message.contentType == 'card' ? '卡片' : '链接'}：${linkTitle.isNotEmpty ? linkTitle : linkUrl}',
                                         onOpen: (uri) {
-                                          unawaited(launchUrl(uri,
-                                              mode: LaunchMode
-                                                  .externalApplication));
+                                          unawaited(launchExternalWebLink(
+                                              context, uri));
                                         },
                                         onOpenInternal: onOpenInternalLink,
                                       )
@@ -3812,9 +3811,8 @@ class _MessageBubble extends StatelessWidget {
                                                 as String,
                                             uri);
                                         if (!context.mounted) return;
-                                        await launchUrl(uri,
-                                            mode:
-                                                LaunchMode.externalApplication);
+                                        await launchExternalWebLink(
+                                            context, uri);
                                       } catch (error) {
                                         if (context.mounted) {
                                           ScaffoldMessenger.of(context)
@@ -3848,8 +3846,8 @@ class _MessageBubble extends StatelessWidget {
                               onTapLink: (text, href, title) {
                                 final uri = parseMarkdownLink(href);
                                 if (uri != null) {
-                                  unawaited(launchUrl(uri,
-                                      mode: LaunchMode.externalApplication));
+                                  unawaited(
+                                      launchExternalWebLink(context, uri));
                                 }
                               })
                           : FutureBuilder<List<Contact>>(
