@@ -209,16 +209,25 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
     final resolved = <Contact>[];
     for (var start = 0; start < chunks.length; start += 4) {
       final wave = chunks.sublist(start, (start + 4).clamp(0, chunks.length));
-      final values = await Future.wait(wave.map((chunk) async {
-        try {
-          return await widget.repository.resolveUsers(chunk);
-        } catch (_) {
-          return const <Contact>[];
-        }
-      }));
+      final values = await Future.wait(wave.map(_resolveMemberProfileChunk));
       resolved.addAll(values.expand((items) => items));
     }
     return resolved;
+  }
+
+  Future<List<Contact>> _resolveMemberProfileChunk(List<String> userIds) async {
+    try {
+      return await widget.repository.resolveUsers(userIds);
+    } on MagicChatRequestException catch (error) {
+      if (error.statusCode != 400 || userIds.length == 1) return const [];
+      final middle = userIds.length ~/ 2;
+      return [
+        ...await _resolveMemberProfileChunk(userIds.sublist(0, middle)),
+        ...await _resolveMemberProfileChunk(userIds.sublist(middle)),
+      ];
+    } catch (_) {
+      return const [];
+    }
   }
 
   void _reload() => setState(() {

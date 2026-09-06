@@ -79,13 +79,19 @@ void main() {
     expect(find.text('小爱'), findsNothing);
   });
 
-  testWidgets('大群分块补齐时单个失败不影响其他成员', (tester) async {
+  testWidgets('大群批量补齐遇到无效成员时隔离该成员并继续加载', (tester) async {
     final repository = _DetailsRepository.partiallyResolvableGroup();
 
     await _pumpDetails(tester, repository);
 
-    expect(repository.resolvedUserBatches.map((ids) => ids.length), [100, 1]);
-    expect(find.text('最后一位成员'), findsOneWidget);
+    expect(repository.resolvedUserBatches.first, hasLength(100));
+    expect(
+        repository.resolvedUserBatches,
+        contains(predicate<List<String>>(
+            (ids) => ids.length == 1 && ids.single == 'invalid-member')));
+    expect(find.text('已解析 member-0'), findsOneWidget);
+    expect(find.text('已解析 member-99'), findsOneWidget);
+    expect(find.text('成员'), findsOneWidget);
   });
 
   testWidgets('群主可以在聊天详情关联和解除项目', (tester) async {
@@ -323,9 +329,15 @@ class _DetailsRepository extends DemoRepository {
           title: '大群',
           type: 'group',
           members: [
-            const Contact(id: 'me', name: '当前用户', role: 'owner'),
-            for (var index = 0; index < 100; index++)
-              Contact(id: 'member-$index', name: ''),
+            const Contact(
+                id: 'me',
+                name: '当前用户',
+                avatar: '/avatars/me.webp',
+                role: 'owner'),
+            for (var index = 0; index < 101; index++)
+              Contact(
+                  id: index == 50 ? 'invalid-member' : 'member-$index',
+                  name: ''),
           ],
         ),
         failFullResolutionBatch: true,
@@ -395,12 +407,14 @@ class _DetailsRepository extends DemoRepository {
   Future<List<Contact>> resolveUsers(List<String> userIds) async {
     resolvedUserIds = List.of(userIds);
     resolvedUserBatches.add(List.of(userIds));
-    if (failFullResolutionBatch && userIds.length == 100) {
-      throw StateError('该分块资料加载失败');
+    if (failFullResolutionBatch && userIds.contains('invalid-member')) {
+      throw const MagicChatRequestException(
+          statusCode: 400, message: '用户 ID 格式错误', code: 'invalid_request');
     }
     if (failFullResolutionBatch) {
       return [
-        for (final id in userIds) Contact(id: id, name: '最后一位成员'),
+        for (final id in userIds)
+          Contact(id: id, name: '已解析 $id', avatar: '/avatars/$id.webp'),
       ];
     }
     if (conversation.id != 'group-incomplete') return const [];
