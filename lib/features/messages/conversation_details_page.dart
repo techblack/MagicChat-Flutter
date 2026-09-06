@@ -52,11 +52,9 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
     final results = await Future.wait([
       widget.repository.conversations(),
       widget.repository.currentUser(),
-      widget.repository.contacts(),
     ]);
     final conversations = results[0] as List<ChatConversation>;
     final currentUser = results[1] as CurrentUser;
-    final contacts = results[2] as List<Contact>;
     ChatConversation? conversation =
         widget.realtimeStore?.conversations[widget.conversationId] ??
             widget.initialConversation;
@@ -69,6 +67,12 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
     if (conversation == null) {
       throw StateError('会话不存在或已不可用');
     }
+    final contacts = <String, Contact>{
+      for (final contact
+          in widget.realtimeStore?.contacts.values ?? const <Contact>[])
+        contact.id: contact,
+      for (final member in conversation.members) member.id: member,
+    }.values.toList(growable: false);
     TopicDetail? topicDetail;
     if (conversation.type == 'topic') {
       topicDetail = await widget.repository.topicDetail(conversation.id);
@@ -658,13 +662,17 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
       {required String title,
       Set<String> initiallySelected = const {},
       Set<String> excluded = const {}}) async {
-    final contacts = <String, Contact>{
+    final availableDirectory = <String, Contact>{
+      // 只有用户明确打开“添加成员”时才读取完整通讯录；详情首屏只依赖
+      // 当前会话成员，避免 2000 人组织打开详情时产生额外请求。
+      for (final contact in await widget.repository.contacts())
+        if (contact.type == 'user') contact.id: contact,
       for (final contact in data.contacts)
         if (contact.type == 'user') contact.id: contact,
       for (final member in data.conversation.members)
         if (member.type == 'user') member.id: member,
-    }
-        .values
+    };
+    final contacts = availableDirectory.values
         .where((contact) =>
             !_sameId(contact.id, data.currentUser.id) &&
             !excluded.any((id) => _sameId(id, contact.id)))
