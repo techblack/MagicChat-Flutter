@@ -272,6 +272,9 @@ class _ConversationViewState extends State<ConversationView>
   Timer? _fallbackPollTimer;
   bool _fallbackPollInFlight = false;
   bool _applyingDraft = false;
+  ComposerMentionTrigger? _mentionTrigger;
+  List<Contact> _resolvedMentionContacts = const [];
+  int _selectedMentionIndex = 0;
 
   bool get _topicArchived =>
       _conversation?.topic?.archived == true ||
@@ -337,10 +340,10 @@ class _ConversationViewState extends State<ConversationView>
     if (id != null) _conversation = widget.realtimeStore?.conversations[id];
     _historyMode = widget.focusMessageId != null;
     _messagesFuture = _loadMessages();
-    _contactsFuture = _loadConversationContacts();
+    _contactsFuture = _startConversationContactLoad();
     _seenRealtimeMessageIds.addAll(_realtimeConversationMessages());
     _scrollController.addListener(_onScroll);
-    _controller.addListener(_persistDraft);
+    _controller.addListener(_onComposerChanged);
     _composerFocusNode.addListener(_onComposerFocusChanged);
     widget.realtimeStore?.addListener(_onRealtimeChanged);
     if (widget.realtimeSession != null) {
@@ -442,7 +445,30 @@ class _ConversationViewState extends State<ConversationView>
         selection: TextSelection.collapsed(offset: draft?.text.length ?? 0));
     _markdownMode = draft?.markdownMode ?? false;
     _replyTo = draft?.replyTo;
+    _mentionTrigger = null;
+    _selectedMentionIndex = 0;
     _applyingDraft = false;
+  }
+
+  void _onComposerChanged() {
+    if (_applyingDraft) {
+      return;
+    }
+    _persistDraft();
+    final value = _controller.value;
+    final next = _conversationKind == 'group'
+        ? composerMentionTrigger(
+            value.text, value.selection.start, value.selection.end)
+        : null;
+    if (_mentionTrigger?.start == next?.start &&
+        _mentionTrigger?.end == next?.end &&
+        _mentionTrigger?.query == next?.query) {
+      return;
+    }
+    setState(() {
+      _mentionTrigger = next;
+      _selectedMentionIndex = 0;
+    });
   }
 
   void _persistDraft() {
@@ -458,6 +484,69 @@ class _ConversationViewState extends State<ConversationView>
       markdownMode: _markdownMode,
       replyTo: _replyTo,
     );
+  }
+
+  Future<List<Contact>> _startConversationContactLoad() {
+    final conversationId = widget.conversationId;
+    _resolvedMentionContacts = const [];
+    final future = _loadConversationContacts();
+    unawaited(future.then((contacts) {
+      if (!mounted || widget.conversationId != conversationId) return;
+      setState(() {
+        _resolvedMentionContacts = contacts;
+        _selectedMentionIndex = 0;
+      });
+    }, onError: (_) {
+      // 成员资料加载失败不阻断正文输入，仍可使用会话内已有名称。
+    }));
+    return future;
+  }
+
+  Iterable<Contact> get _currentMentionMembers {
+    var conversation = _conversation ??
+        (widget.conversationId == null
+            ? null
+            : widget.realtimeStore?.conversations[widget.conversationId]);
+    if (conversation?.type == 'topic') {
+      final parentId = conversation?.topic?.parentConversationId;
+      conversation = parentId == null
+          ? conversation
+          : widget.realtimeStore?.conversations[parentId] ?? conversation;
+    }
+    final resolved = <String, Contact>{
+      for (final contact in _resolvedMentionContacts)
+        contact.id.toLowerCase(): contact,
+    };
+    return (conversation?.members ?? const <Contact>[]).map((member) {
+      final profile = resolved[member.id.toLowerCase()];
+      if (profile == null) return member;
+      return member.copyWith(
+        name: profile.name.trim().isEmpty ? null : profile.name,
+        nickname: profile.nickname.trim().isEmpty ? null : profile.nickname,
+        email: profile.email.trim().isEmpty ? null : profile.email,
+        phone: profile.phone.trim().isEmpty ? null : profile.phone,
+        avatar: profile.avatar.trim().isEmpty ? null : profile.avatar,
+        online: profile.online,
+      );
+    });
+  }
+
+  List<ComposerMentionCandidate> get _visibleMentionCandidates {
+    final trigger = _mentionTrigger;
+    if (trigger == null || _conversationKind != 'group') return const [];
+    return composerMentionCandidates(_currentMentionMembers, trigger.query);
+  }
+
+  void _selectMentionCandidate(ComposerMentionCandidate candidate) {
+    final trigger = _mentionTrigger;
+    if (trigger == null) return;
+    final inserted =
+        insertComposerMention(_controller.text, trigger, candidate);
+    _controller.value = TextEditingValue(
+      text: inserted.text,
+      selection: TextSelection.collapsed(offset: inserted.cursor),
+    );
+    _composerFocusNode.requestFocus();
   }
 
   Future<List<Contact>> _loadConversationContacts() async {
@@ -1456,7 +1545,7 @@ class _ConversationViewState extends State<ConversationView>
       _messagePage = null;
       _canSend = true;
       _messagesFuture = _loadMessages();
-      _contactsFuture = _loadConversationContacts();
+      _contactsFuture = _startConversationContactLoad();
       _restoreDraft();
     }
     if (oldWidget.messagesReselectToken != widget.messagesReselectToken &&
@@ -1504,7 +1593,7 @@ class _ConversationViewState extends State<ConversationView>
       _seenRealtimeMessageIds
         ..clear()
         ..addAll(_realtimeConversationMessages());
-      _contactsFuture = _loadConversationContacts();
+      _contactsFuture = _startConversationContactLoad();
       _allContactsFuture = null;
     }
     if (oldWidget.conversationId == widget.conversationId &&
@@ -1535,7 +1624,7 @@ class _ConversationViewState extends State<ConversationView>
     _highlightTimer?.cancel();
     _persistDraft();
     widget.draftStore?.flushNotifications();
-    _controller.removeListener(_persistDraft);
+    _controller.removeListener(_onComposerChanged);
     _composerFocusNode.removeListener(_onComposerFocusChanged);
     _controller.dispose();
     _composerFocusNode.dispose();
@@ -1565,13 +1654,37 @@ class _ConversationViewState extends State<ConversationView>
 
   KeyEventResult _handleComposerKeyEvent(
       KeyEvent event, String conversationId) {
-    if (event is! KeyDownEvent ||
-        (event.logicalKey != LogicalKeyboardKey.enter &&
-            event.logicalKey != LogicalKeyboardKey.numpadEnter)) {
-      return KeyEventResult.ignored;
-    }
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
     final composing = _controller.value.composing;
     if (composing.isValid && !composing.isCollapsed) {
+      return KeyEventResult.ignored;
+    }
+    final candidates = _visibleMentionCandidates;
+    if (_mentionTrigger != null && candidates.isNotEmpty) {
+      if (event.logicalKey == LogicalKeyboardKey.arrowDown ||
+          event.logicalKey == LogicalKeyboardKey.arrowUp) {
+        final direction =
+            event.logicalKey == LogicalKeyboardKey.arrowDown ? 1 : -1;
+        setState(() => _selectedMentionIndex =
+            (_selectedMentionIndex + direction) % candidates.length);
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.escape) {
+        setState(() {
+          _mentionTrigger = null;
+          _selectedMentionIndex = 0;
+        });
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.tab ||
+          event.logicalKey == LogicalKeyboardKey.enter ||
+          event.logicalKey == LogicalKeyboardKey.numpadEnter) {
+        _selectMentionCandidate(candidates[_selectedMentionIndex]);
+        return KeyEventResult.handled;
+      }
+    }
+    if (event.logicalKey != LogicalKeyboardKey.enter &&
+        event.logicalKey != LogicalKeyboardKey.numpadEnter) {
       return KeyEventResult.ignored;
     }
     final keyboard = HardwareKeyboard.instance;
@@ -1986,6 +2099,7 @@ class _ConversationViewState extends State<ConversationView>
     final conversationId = widget.conversationId;
     if (conversationId == null) return const _ConversationEmptyState();
     final canSend = _conversationCanSend(conversationId);
+    final mentionCandidates = _visibleMentionCandidates;
     final conversationDecoration = _conversationBackground(context);
     final activeConversation =
         _conversation ?? widget.realtimeStore?.conversations[conversationId];
@@ -2307,6 +2421,44 @@ class _ConversationViewState extends State<ConversationView>
                           },
                           icon: const Icon(Icons.close, size: 18)),
                     ]),
+                  ),
+                if (canSend && mentionCandidates.isNotEmpty)
+                  Material(
+                    key: const ValueKey('composer-mention-candidates'),
+                    color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                    clipBehavior: Clip.antiAlias,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(
+                          color: Theme.of(context).colorScheme.outlineVariant),
+                    ),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 240),
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: mentionCandidates.length,
+                        itemBuilder: (context, index) {
+                          final candidate = mentionCandidates[index];
+                          return ListTile(
+                            key: ValueKey('composer-mention-${candidate.id}'),
+                            dense: true,
+                            selected: index == _selectedMentionIndex,
+                            leading: CircleAvatar(
+                              radius: 15,
+                              child: candidate.targetType == 'all'
+                                  ? const Icon(Icons.campaign_outlined,
+                                      size: 17)
+                                  : Text(candidate.label.characters.first),
+                            ),
+                            title: Text(candidate.label,
+                                maxLines: 1, overflow: TextOverflow.ellipsis),
+                            subtitle: Text(candidate.description,
+                                maxLines: 1, overflow: TextOverflow.ellipsis),
+                            onTap: () => _selectMentionCandidate(candidate),
+                          );
+                        },
+                      ),
+                    ),
                   ),
                 // 输入框单独占一行，操作按钮放到下一行，窄屏不会再被挤压。
                 Row(children: [
