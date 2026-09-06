@@ -23,6 +23,7 @@ import 'data/realtime_store.dart';
 import 'data/realtime_message_pipeline.dart';
 import 'data/message_cache_store.dart';
 import 'data/contact_cache_store.dart';
+import 'data/last_conversation_store.dart';
 import 'data/asset_cache_store.dart';
 import 'data/document_collaboration.dart';
 import 'data/desktop_system_tray.dart';
