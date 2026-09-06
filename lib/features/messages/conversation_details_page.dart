@@ -23,6 +23,7 @@ class ConversationDetailsPage extends StatefulWidget {
     this.cacheScope,
     this.realtimeStore,
     this.onOpenConversation,
+    this.onOpenProject,
     this.onConversationRemoved,
     this.chatAppearance = const ChatAppearance(),
     this.conversationAppearance,
@@ -37,6 +38,7 @@ class ConversationDetailsPage extends StatefulWidget {
   final MessageCacheScope? cacheScope;
   final RealtimeStore? realtimeStore;
   final ValueChanged<String>? onOpenConversation;
+  final ValueChanged<String>? onOpenProject;
   final VoidCallback? onConversationRemoved;
   final ChatAppearance chatAppearance;
   final ChatConversationAppearance? conversationAppearance;
@@ -598,11 +600,23 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
                           onPressed: () =>
                               _confirmUnbindProject(conversation, project),
                           icon: const Icon(Icons.link_off_outlined))
-                      : null,
+                      : widget.onOpenProject == null
+                          ? null
+                          : const Icon(Icons.chevron_right),
+                  onTap: widget.onOpenProject == null
+                      ? null
+                      : () => _openProject(project.id),
                 ),
               ]),
       ]),
     );
+  }
+
+  void _openProject(String projectId) {
+    final onOpenProject = widget.onOpenProject;
+    if (onOpenProject == null) return;
+    Navigator.pop(context);
+    onOpenProject(projectId);
   }
 
   Future<void> _showProjectPicker(

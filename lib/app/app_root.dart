@@ -1932,6 +1932,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
               onBack: _backConversation,
               onOpenMessage: _openMessageFromSearch,
               onOpenInternalLink: _openInternalMessageLink,
+              onOpenProject: _openProjectTarget,
               onUnreadChanged: _setUnreadCount,
               messagesReselectToken: _messagesReselectToken,
               onMessageFocused: () {
