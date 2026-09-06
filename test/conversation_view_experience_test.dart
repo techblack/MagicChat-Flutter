@@ -33,6 +33,15 @@ void main() {
         isFalse);
   });
 
+  test('整条 URL 规范化为链接消息，普通正文保持文本', () {
+    expect(normalizeSingleLinkMessageUrl('www.example.com'),
+        'https://www.example.com/');
+    expect(normalizeSingleLinkMessageUrl('https://example.com/docs'),
+        'https://example.com/docs');
+    expect(normalizeSingleLinkMessageUrl('查看 https://example.com'), isNull);
+    expect(normalizeSingleLinkMessageUrl('javascript:alert(1)'), isNull);
+  });
+
   testWidgets('相册图片发送前预览并携带说明', (tester) async {
     final repository = _PickedImageRepository();
     ImageSource? pickedSource;
@@ -184,6 +193,20 @@ void main() {
     expect(repository.markdown, '# 发布计划');
     expect(repository.clientMessageId, isNotEmpty);
     expect(find.text('发布计划'), findsOneWidget);
+  });
+
+  testWidgets('单个 URL 在 Markdown 模式下仍优先发送结构化链接', (tester) async {
+    final repository = _LinkSendRepository();
+    await _pumpConversation(tester, repository);
+
+    await tester.tap(find.byKey(const ValueKey('markdown-mode-toggle')));
+    await tester.enterText(find.byType(TextField).first, 'www.example.com');
+    await tester.tap(find.byTooltip('发送'));
+    await tester.pumpAndSettle();
+
+    expect(repository.url, 'https://www.example.com/');
+    expect(repository.markdownCalls, 0);
+    expect(find.text('https://www.example.com/'), findsOneWidget);
   });
 
   testWidgets('窄屏附件工具栏保持单行并可横向滚动', (tester) async {
@@ -469,6 +492,23 @@ class _MarkdownSendRepository extends _ExperienceRepository {
       {String? replyToMessageId, String? clientMessageId}) async {
     markdown = text;
     this.clientMessageId = clientMessageId;
+  }
+}
+
+class _LinkSendRepository extends _ExperienceRepository {
+  String? url;
+  var markdownCalls = 0;
+
+  @override
+  Future<void> sendLink(String conversationId, String url,
+      {String? replyToMessageId, String? clientMessageId}) async {
+    this.url = url;
+  }
+
+  @override
+  Future<void> sendMarkdown(String conversationId, String text,
+      {String? replyToMessageId, String? clientMessageId}) async {
+    markdownCalls++;
   }
 }
 

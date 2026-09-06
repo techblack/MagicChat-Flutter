@@ -24,6 +24,18 @@ bool supportsMobileImagePicker({
     !isWeb &&
     (platform == TargetPlatform.android || platform == TargetPlatform.iOS);
 
+String? normalizeSingleLinkMessageUrl(String content) {
+  final value = content.trim();
+  if (value.isEmpty || RegExp(r'\s').hasMatch(value)) return null;
+  final candidate =
+      value.toLowerCase().startsWith('www.') ? 'https://$value' : value;
+  final uri = Uri.tryParse(candidate);
+  if (uri == null ||
+      (uri.scheme != 'http' && uri.scheme != 'https') ||
+      uri.host.isEmpty) return null;
+  return uri.path.isEmpty ? uri.replace(path: '/').toString() : uri.toString();
+}
+
 typedef MobileImagePicker = Future<XFile?> Function(ImageSource source);
 typedef MobileGalleryImagePicker = Future<List<XFile>> Function();
 typedef MobileLostImageRetriever = Future<List<XFile>> Function();
@@ -31,7 +43,7 @@ typedef MobileLostImageRetriever = Future<List<XFile>> Function();
 const mobileImageRecoveryConversationKey =
     'magicchat.mobile-image-picker.recovery-conversation.v1';
 
-enum _OptimisticMessageKind { text, markdown, image, file, voice }
+enum _OptimisticMessageKind { text, markdown, link, image, file, voice }
 
 enum _OptimisticMessageStatus { sending, sent, failed }
 
@@ -66,6 +78,10 @@ class _OptimisticSendDescriptor {
           'type': 'markdown',
           'content': text
         },
+      _OptimisticMessageKind.link => <String, dynamic>{
+          'type': 'link',
+          'url': text,
+        },
       _OptimisticMessageKind.image => <String, dynamic>{
           'type': 'image',
           'file_id': localFileId,
@@ -97,6 +113,7 @@ class _OptimisticSendDescriptor {
       text: switch (kind) {
         _OptimisticMessageKind.text => text,
         _OptimisticMessageKind.markdown => text,
+        _OptimisticMessageKind.link => text,
         _OptimisticMessageKind.image => text.isEmpty ? '[图片]' : '[图片] $text',
         _OptimisticMessageKind.file => '[文件] ${upload?.name ?? ''}'.trim(),
         _OptimisticMessageKind.voice => '[语音]',
@@ -1621,6 +1638,14 @@ class _ConversationViewState extends State<ConversationView>
             clientMessageId: clientMessageId,
           );
           break;
+        case _OptimisticMessageKind.link:
+          await widget.repository.sendLink(
+            conversationId,
+            descriptor.text,
+            replyToMessageId: descriptor.replyTo?.id,
+            clientMessageId: clientMessageId,
+          );
+          break;
         case _OptimisticMessageKind.image:
           await widget.repository.sendImage(
             conversationId,
@@ -3097,12 +3122,15 @@ class _ConversationViewState extends State<ConversationView>
   Future<void> _sendMessage(String conversationId) async {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
+    final link = normalizeSingleLinkMessageUrl(text);
     final descriptor = _OptimisticSendDescriptor(
       clientMessageId: newMessageClientId(),
-      kind: _markdownMode
-          ? _OptimisticMessageKind.markdown
-          : _OptimisticMessageKind.text,
-      text: text,
+      kind: link != null
+          ? _OptimisticMessageKind.link
+          : _markdownMode
+              ? _OptimisticMessageKind.markdown
+              : _OptimisticMessageKind.text,
+      text: link ?? text,
       replyTo: _replyTo,
     );
     _controller.clear();
@@ -3654,6 +3682,16 @@ class _OptimisticMessageBubble extends StatelessWidget {
                 .bodyMedium
                 ?.copyWith(color: color, decoration: TextDecoration.underline),
           ),
+        );
+      case _OptimisticMessageKind.link:
+        return MessageLinkCard(
+          title: descriptor.text,
+          description: '',
+          url: descriptor.text,
+          textColor: color,
+          accentColor: color,
+          backgroundColor: color.withValues(alpha: .1),
+          semanticLabel: '链接：${descriptor.text}',
         );
       case _OptimisticMessageKind.image:
         final bytes = descriptor.upload?.bytes;
