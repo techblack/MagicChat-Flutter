@@ -101,24 +101,21 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
     final missingUserIds = conversation.members
         .where((member) =>
             member.type == 'user' &&
-            !_hasReadableMemberName(contactsById[member.id.toLowerCase()]!))
+            _needsMemberProfile(contactsById[member.id.toLowerCase()]!))
         .map((member) => member.id)
+        .toSet()
         .toList(growable: false);
     if (missingUserIds.isNotEmpty) {
-      try {
-        final resolved = await widget.repository.resolveUsers(missingUserIds);
-        for (final contact in resolved) {
-          final key = contact.id.toLowerCase();
-          final current = contactsById[key];
-          if (current == null) continue;
-          final merged = _mergeContact(current, contact);
-          contactsById[key] = merged;
-          widget.realtimeStore?.contacts[merged.id] = merged;
-        }
-        unawaited(_rememberResolvedContacts(resolved));
-      } catch (_) {
-        // 资料服务不可用时仍展示服务端会话中已有的成员信息。
+      final resolved = await _resolveMemberProfiles(missingUserIds);
+      for (final contact in resolved) {
+        final key = contact.id.toLowerCase();
+        final current = contactsById[key];
+        if (current == null) continue;
+        final merged = _mergeContact(current, contact);
+        contactsById[key] = merged;
+        widget.realtimeStore?.contacts[merged.id] = merged;
       }
+      unawaited(_rememberResolvedContacts(resolved));
     }
     final contacts = contactsById.values.toList(growable: false);
     var availableProjects = const <Project>[];
@@ -145,6 +142,26 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
     } catch (_) {
       // 缓存失败不影响本次群成员资料展示。
     }
+  }
+
+  Future<List<Contact>> _resolveMemberProfiles(List<String> userIds) async {
+    final chunks = <List<String>>[
+      for (var start = 0; start < userIds.length; start += 100)
+        userIds.sublist(start, (start + 100).clamp(0, userIds.length)),
+    ];
+    final resolved = <Contact>[];
+    for (var start = 0; start < chunks.length; start += 4) {
+      final wave = chunks.sublist(start, (start + 4).clamp(0, chunks.length));
+      final values = await Future.wait(wave.map((chunk) async {
+        try {
+          return await widget.repository.resolveUsers(chunk);
+        } catch (_) {
+          return const <Contact>[];
+        }
+      }));
+      resolved.addAll(values.expand((items) => items));
+    }
+    return resolved;
   }
 
   void _reload() => setState(() {
@@ -1025,9 +1042,10 @@ ChatConversation _hydrateConversation(
   );
 }
 
-bool _hasReadableMemberName(Contact contact) =>
-    !_isPlaceholderMemberValue(contact.nickname, contact.id) ||
-    !_isPlaceholderMemberValue(contact.name, contact.id);
+bool _needsMemberProfile(Contact contact) =>
+    contact.avatar.trim().isEmpty ||
+    ![contact.nickname, contact.name, contact.email, contact.phone]
+        .any((value) => !_isPlaceholderMemberValue(value, contact.id));
 
 bool _isPlaceholderMemberValue(String value, String id) {
   final normalized = value.trim();

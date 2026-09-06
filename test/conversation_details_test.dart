@@ -15,7 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  testWidgets('群聊详情只批量补齐当前群缺失的成员名称和头像', (tester) async {
+  testWidgets('群聊详情补齐当前群缺失的成员资料并使用可读备选名称', (tester) async {
     final repository = _DetailsRepository.incompleteMembers();
     const scope =
         MessageCacheScope(serverUrl: 'https://chat.example.com', userId: 'me');
@@ -43,14 +43,24 @@ void main() {
     )));
     await tester.pumpAndSettle();
 
-    expect(repository.resolvedUserIds, ['bob']);
+    expect(repository.resolvedUserIds, ['me', 'bob', 'charlie']);
     expect(repository.contactRequests, 0);
     expect(find.text('小爱'), findsOneWidget);
     expect(find.text('Bob'), findsOneWidget);
+    expect(find.text('charlie@example.com'), findsOneWidget);
     expect(find.text('成员'), findsNothing);
     final alice = tester.widget<CachedAvatar>(find.byWidgetPredicate(
         (widget) => widget is CachedAvatar && widget.name == '小爱'));
     expect(alice.avatarUri, avatarUri);
+  });
+
+  testWidgets('大群分块补齐时单个失败不影响其他成员', (tester) async {
+    final repository = _DetailsRepository.partiallyResolvableGroup();
+
+    await _pumpDetails(tester, repository);
+
+    expect(repository.resolvedUserBatches.map((ids) => ids.length), [100, 1]);
+    expect(find.text('最后一位成员'), findsOneWidget);
   });
 
   testWidgets('群主可以在聊天详情关联和解除项目', (tester) async {
@@ -227,7 +237,8 @@ Future<void> _pumpDetails(WidgetTester tester, _DetailsRepository repository,
 }
 
 class _DetailsRepository extends DemoRepository {
-  _DetailsRepository._(this.conversation);
+  _DetailsRepository._(this.conversation,
+      {this.failFullResolutionBatch = false});
 
   factory _DetailsRepository.group(String role,
           {List<Project> projects = const []}) =>
@@ -269,8 +280,23 @@ class _DetailsRepository extends DemoRepository {
             Contact(id: 'me', name: '当前用户', role: 'owner'),
             Contact(id: 'alice', name: ''),
             Contact(id: 'bob', name: '成员'),
+            Contact(id: 'charlie', name: ''),
           ],
         ),
+      );
+
+  factory _DetailsRepository.partiallyResolvableGroup() => _DetailsRepository._(
+        ChatConversation(
+          id: 'group-partial-resolution',
+          title: '大群',
+          type: 'group',
+          members: [
+            const Contact(id: 'me', name: '当前用户', role: 'owner'),
+            for (var index = 0; index < 100; index++)
+              Contact(id: 'member-$index', name: ''),
+          ],
+        ),
+        failFullResolutionBatch: true,
       );
 
   factory _DetailsRepository.topic() => _DetailsRepository._(
@@ -296,6 +322,8 @@ class _DetailsRepository extends DemoRepository {
   String? createdName;
   List<String> createdMemberIds = const [];
   List<String> resolvedUserIds = const [];
+  final List<List<String>> resolvedUserBatches = [];
+  final bool failFullResolutionBatch;
   int contactRequests = 0;
 
   @override
@@ -334,6 +362,16 @@ class _DetailsRepository extends DemoRepository {
   @override
   Future<List<Contact>> resolveUsers(List<String> userIds) async {
     resolvedUserIds = List.of(userIds);
+    resolvedUserBatches.add(List.of(userIds));
+    if (failFullResolutionBatch && userIds.length == 100) {
+      throw StateError('该分块资料加载失败');
+    }
+    if (failFullResolutionBatch) {
+      return [
+        for (final id in userIds) Contact(id: id, name: '最后一位成员'),
+      ];
+    }
+    if (conversation.id != 'group-incomplete') return const [];
     return [
       if (userIds.contains('alice'))
         const Contact(
@@ -342,6 +380,8 @@ class _DetailsRepository extends DemoRepository {
             nickname: '小爱',
             avatar: '/avatars/alice.webp'),
       if (userIds.contains('bob')) const Contact(id: 'bob', name: 'Bob'),
+      if (userIds.contains('charlie'))
+        const Contact(id: 'charlie', name: '', email: 'charlie@example.com'),
     ];
   }
 
