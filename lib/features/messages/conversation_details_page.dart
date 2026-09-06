@@ -51,7 +51,64 @@ class ConversationDetailsPage extends StatefulWidget {
 class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
   late Future<_ConversationDetailsData> _future = _load();
   final _contactCacheStore = ContactCacheStore();
+  int _observedUserProfileRevision = 0;
   bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _observedUserProfileRevision =
+        widget.realtimeStore?.userProfileRevision ?? 0;
+    widget.realtimeStore?.addListener(_onRealtimeProfileChanged);
+  }
+
+  void _onRealtimeProfileChanged() {
+    final store = widget.realtimeStore;
+    if (!mounted ||
+        store == null ||
+        store.userProfileRevision == _observedUserProfileRevision) return;
+    _observedUserProfileRevision = store.userProfileRevision;
+    final profile = store.lastResolvedUserProfile;
+    if (profile == null) return;
+    final next = _future.then((data) {
+      final profileId = profile.id.trim().toLowerCase();
+      if (!data.conversation.members.any((member) =>
+          member.type == 'user' && member.id.trim().toLowerCase() == profileId))
+        return data;
+      final contacts = <String, Contact>{
+        for (final contact in data.contacts)
+          contact.id.trim().toLowerCase(): contact,
+        profileId: profile,
+      }.values.toList(growable: false);
+      return _ConversationDetailsData(
+          conversation: store.conversations[widget.conversationId] ??
+              _hydrateConversation(data.conversation, contacts),
+          currentUser: data.currentUser,
+          contacts: contacts,
+          availableProjects: data.availableProjects,
+          topicDetail: data.topicDetail);
+    });
+    setState(() {
+      _future = next;
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant ConversationDetailsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.realtimeStore != widget.realtimeStore) {
+      oldWidget.realtimeStore?.removeListener(_onRealtimeProfileChanged);
+      _observedUserProfileRevision =
+          widget.realtimeStore?.userProfileRevision ?? 0;
+      widget.realtimeStore?.addListener(_onRealtimeProfileChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.realtimeStore?.removeListener(_onRealtimeProfileChanged);
+    super.dispose();
+  }
 
   Future<_ConversationDetailsData> _load() async {
     final results = await Future.wait([

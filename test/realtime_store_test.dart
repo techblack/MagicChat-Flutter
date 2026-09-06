@@ -122,6 +122,47 @@ void main() {
     expect(store.contacts['u1']?.avatar, '/avatar.webp');
   });
 
+  test('记录有效的用户资料更新目标', () {
+    final store = RealtimeStore();
+    store.apply({
+      'event': 'user.profile.updated',
+      'cursor': 1,
+      'payload': {'user_id': 'user-1', 'updated_at': '2026-09-07T12:00:00Z'}
+    });
+    expect(store.lastProfileUpdatedUserId, 'user-1');
+  });
+
+  test('刷新用户资料会同步联系人、会话成员和私聊标题头像', () {
+    final store = RealtimeStore()
+      ..setCurrentUserId('me')
+      ..contacts['user-1'] = const Contact(
+          id: 'user-1', name: '旧名称', nickname: '旧昵称', avatar: '/old.webp')
+      ..conversations['direct'] = const ChatConversation(
+          id: 'direct',
+          title: '旧昵称',
+          avatar: '/old.webp',
+          type: 'direct',
+          members: [
+            Contact(id: 'me', name: '我'),
+            Contact(id: 'user-1', name: '旧名称', role: 'admin'),
+          ]);
+
+    store.replaceUserProfile(const Contact(
+        id: 'user-1',
+        name: '新名称',
+        nickname: '',
+        email: 'new@example.com',
+        avatar: '/new.webp'));
+
+    expect(store.contacts['user-1']?.displayName, '新名称');
+    expect(store.contacts['user-1']?.nickname, isEmpty);
+    expect(store.conversations['direct']?.displayTitle, '新名称');
+    expect(store.conversations['direct']?.avatar, '/new.webp');
+    expect(store.conversations['direct']?.members.last.role, 'admin');
+    expect(store.lastResolvedUserProfile?.id, 'user-1');
+    expect(store.userProfileRevision, 1);
+  });
+
   test('按当前用户 ID 标记实时消息归属', () {
     final store = RealtimeStore()..setCurrentUserId('me');
     store.apply({

@@ -22,6 +22,7 @@ import 'data/platform_connector_selector.dart';
 import 'data/realtime.dart';
 import 'data/realtime_store.dart';
 import 'data/realtime_message_pipeline.dart';
+import 'data/realtime_user_profile_sync.dart';
 import 'data/message_cache_store.dart';
 import 'data/conversation_draft_store.dart';
 import 'data/contact_cache_store.dart';

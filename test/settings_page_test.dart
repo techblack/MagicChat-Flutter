@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magicchat_client/data/repository.dart';
+import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/data/chat_preferences.dart';
 import 'package:magicchat_client/data/desktop_auto_launch.dart';
 import 'package:magicchat_client/data/desktop_window_controller.dart';
@@ -421,6 +422,46 @@ void main() {
     expect(find.text('即应官方服务器'), findsOneWidget);
     expect(find.text('chat.example.com'), findsOneWidget);
   });
+
+  testWidgets('设置页只在当前用户资料变更时刷新账户资料', (tester) async {
+    final repository = _CountingProfileRepository();
+    final store = RealtimeStore()..setCurrentUserId('user-me');
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SettingsPage(
+                repository: repository,
+                serverUrl: 'https://chat.example.com',
+                realtimeStore: store))));
+    await tester.pumpAndSettle();
+    expect(repository.requests, 1);
+
+    store.apply({
+      'event': 'user.profile.updated',
+      'cursor': 1,
+      'payload': {'user_id': 'user-other', 'updated_at': '2026-09-07T12:00:00Z'}
+    });
+    await tester.pump();
+    expect(repository.requests, 1);
+
+    store.apply({
+      'event': 'user.profile.updated',
+      'cursor': 2,
+      'payload': {'user_id': 'user-me', 'updated_at': '2026-09-07T12:01:00Z'}
+    });
+    await tester.pumpAndSettle();
+    expect(repository.requests, 2);
+  });
+}
+
+class _CountingProfileRepository extends DemoRepository {
+  int requests = 0;
+
+  @override
+  Future<CurrentUser> currentUser() async {
+    requests++;
+    return const CurrentUser(
+        id: 'user-me', name: '当前用户', email: 'me@example.com');
+  }
 }
 
 class _RetryProfileRepository extends DemoRepository {

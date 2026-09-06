@@ -1344,6 +1344,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   final _navigationHistory = <_AppNavigationLocation>[];
   final _contactCacheStore = ContactCacheStore();
   StreamSubscription<Map<String, dynamic>>? _realtimeSubscription;
+  RealtimeUserProfileSync? _realtimeUserProfileSync;
   final _notifications = const LocalNotificationService();
   final _pushTokenProvider = const PushTokenProvider();
   final _appBadge = const AppBadgeService();
@@ -1458,6 +1459,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   void _listenRealtime(RealtimeSession realtime, RealtimeStore store) {
     try {
+      _realtimeUserProfileSync ??= RealtimeUserProfileSync(
+          repository: _repository,
+          store: store,
+          cacheScope: () => _messageCacheScope,
+          contactCacheStore: _contactCacheStore);
       _realtimeSubscription ??= realtime.events.asyncMap((event) async {
         await applyRealtimeEventAfterPersistence(
             store: store,
@@ -1476,6 +1482,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
             _realtimeReconnecting) {
           setState(() => _realtimeReconnecting = false);
         }
+        unawaited(_realtimeUserProfileSync!.handle(event));
         unawaited(_notifyIncomingMessage(event));
       });
       realtime.connect();
@@ -1758,6 +1765,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _pushTokenProvider.setRouteOpenedHandler(null);
     _realtimeSubscription?.cancel();
+    _realtimeUserProfileSync?.dispose();
     widget.realtime?.close();
     unawaited(_messageCacheStore.close());
     _conversationDraftStore.dispose();

@@ -218,6 +218,7 @@ class _ConversationViewState extends State<ConversationView>
   bool _capturingScreenshot = false;
   bool _markdownMode = false;
   Future<List<Contact>>? _contactsFuture;
+  int _observedUserProfileRevision = 0;
   Future<List<Contact>>? _allContactsFuture;
   final _olderMessages = <ChatMessage>[];
   bool _loadingOlder = false;
@@ -341,6 +342,8 @@ class _ConversationViewState extends State<ConversationView>
     _historyMode = widget.focusMessageId != null;
     _messagesFuture = _loadMessages();
     _contactsFuture = _startConversationContactLoad();
+    _observedUserProfileRevision =
+        widget.realtimeStore?.userProfileRevision ?? 0;
     _seenRealtimeMessageIds.addAll(_realtimeConversationMessages());
     _scrollController.addListener(_onScroll);
     _controller.addListener(_onComposerChanged);
@@ -1137,8 +1140,37 @@ class _ConversationViewState extends State<ConversationView>
 
   void _onRealtimeChanged() {
     final id = widget.conversationId;
-    final current = id == null ? null : widget.realtimeStore?.conversations[id];
+    final store = widget.realtimeStore;
+    final current = id == null ? null : store?.conversations[id];
     if (!mounted) return;
+    if (store?.lastEvent == 'user.profile.updated') {
+      if (store!.userProfileRevision == _observedUserProfileRevision) return;
+      _observedUserProfileRevision = store.userProfileRevision;
+      final profile = store.lastResolvedUserProfile;
+      final relevant = profile != null &&
+          current?.members.any((member) =>
+                  member.type == 'user' &&
+                  member.id.trim().toLowerCase() ==
+                      profile.id.trim().toLowerCase()) ==
+              true;
+      if (!relevant) return;
+      final previous = _contactsFuture ?? Future.value(const <Contact>[]);
+      _contactsFuture = previous.then((contacts) {
+        final values = <String, Contact>{
+          for (final contact in contacts)
+            contact.id.trim().toLowerCase(): contact,
+        };
+        values[profile.id.trim().toLowerCase()] = profile;
+        return values.values.toList(growable: false);
+      });
+      setState(() {
+        if (current != null) {
+          _conversation = current;
+          _canSend = current.canSend;
+        }
+      });
+      return;
+    }
     final realtimeMessages = id == null
         ? const <ChatMessage>[]
         : widget.realtimeStore?.messages.values
@@ -1508,6 +1540,8 @@ class _ConversationViewState extends State<ConversationView>
     if (oldWidget.realtimeStore != widget.realtimeStore) {
       oldWidget.realtimeStore?.removeListener(_onRealtimeChanged);
       widget.realtimeStore?.addListener(_onRealtimeChanged);
+      _observedUserProfileRevision =
+          widget.realtimeStore?.userProfileRevision ?? 0;
     }
     if (oldWidget.conversationId != widget.conversationId) {
       _persistDraftFor(oldWidget.conversationId);
