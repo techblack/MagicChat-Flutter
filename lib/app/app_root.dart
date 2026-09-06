@@ -12,13 +12,17 @@ bool shouldShowLocalMessageNotification({
   required String conversationId,
   String? selectedConversationId,
   bool muted = false,
+  bool eventMuted = false,
   String? senderId,
+  String? senderType,
   String? currentUserId,
 }) =>
     conversationId.isNotEmpty &&
     conversationId != selectedConversationId &&
     (senderId == null || currentUserId == null || senderId != currentUserId) &&
-    !muted;
+    senderType != 'system' &&
+    !muted &&
+    !eventMuted;
 
 double effectiveInterfaceTextScale(
         TextScaler system, InterfaceFontScale interfaceScale) =>
@@ -1379,7 +1383,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   int _screenshotRequestToken = 0;
   final _navigationHistory = <_AppNavigationLocation>[];
   final _contactCacheStore = ContactCacheStore();
-  StreamSubscription<Map<String, dynamic>>? _realtimeSubscription;
+  StreamSubscription<({Map<String, dynamic> event, bool shouldNotify})>?
+      _realtimeSubscription;
   RealtimeUserProfileSync? _realtimeUserProfileSync;
   final _notifications = const LocalNotificationService();
   final _pushTokenProvider = const PushTokenProvider();
@@ -1547,12 +1552,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           cacheScope: () => _messageCacheScope,
           contactCacheStore: _contactCacheStore);
       _realtimeSubscription ??= realtime.events.asyncMap((event) async {
-        await applyRealtimeEventAfterPersistence(
+        final shouldNotify = await applyRealtimeEventAfterPersistence(
             store: store,
             event: event,
             persist: (message) => _persistRealtimeMessage(store, message));
-        return event;
-      }).listen((event) {
+        return (event: event, shouldNotify: shouldNotify);
+      }).listen((result) {
+        final event = result.event;
         final eventName = event['event'];
         if (eventName == 'system.connection_lost' ||
             eventName == 'system.connection_error') {
@@ -1565,7 +1571,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           setState(() => _realtimeReconnecting = false);
         }
         unawaited(_realtimeUserProfileSync!.handle(event));
-        unawaited(_notifyIncomingMessage(event));
+        if (result.shouldNotify) unawaited(_notifyIncomingMessage(event));
       });
       realtime.connect();
     } catch (_) {
@@ -1751,11 +1757,14 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     final conversationId = data['conversation_id'];
     final sender = data['sender'];
     final senderId = sender is Map<String, dynamic> ? sender['id'] : null;
+    final senderType = sender is Map<String, dynamic> ? sender['type'] : null;
     if (conversationId is! String ||
         !shouldShowLocalMessageNotification(
             conversationId: conversationId,
             selectedConversationId: _selectedConversation,
+            eventMuted: payload['notification_muted'] == true,
             senderId: senderId is String ? senderId : null,
+            senderType: senderType is String ? senderType : null,
             currentUserId: widget.realtimeStore?.currentUserId,
             muted: widget.realtimeStore?.conversations[conversationId]?.muted ==
                 true)) {

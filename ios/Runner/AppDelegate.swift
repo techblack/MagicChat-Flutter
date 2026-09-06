@@ -113,7 +113,7 @@ import UserNotifications
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.sound = .default
+        content.sound = nil
         content.userInfo = [
           "conversation_id": conversationID,
           "message_id": messageID,
