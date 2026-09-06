@@ -1207,9 +1207,17 @@ class _ProjectsPageState extends State<ProjectsPage> {
               ...snapshot.data!
             ]..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
             return Stack(children: [
-              ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: _documentNodes(context, project, documents, null)),
+              ListView(padding: const EdgeInsets.all(16), children: [
+                _LazyDocumentTree(
+                    project: project,
+                    documents: documents,
+                    repository: repository,
+                    parentId: null,
+                    documentCollaborationFactory:
+                        widget.documentCollaborationFactory,
+                    onDocumentActions: (document) =>
+                        _documentActions(context, project, document)),
+              ]),
               Positioned(
                   right: 16,
                   bottom: 16,
@@ -1220,39 +1228,6 @@ class _ProjectsPageState extends State<ProjectsPage> {
                       child: const Icon(Icons.note_add_outlined))),
             ]);
           });
-
-  List<Widget> _documentNodes(BuildContext context, Project project,
-          List<ProjectDocument> documents, String? parentId) =>
-      documents.where((item) => item.parentId == parentId).map((document) {
-        if (document.kind == 'folder') {
-          return InkWell(
-              onLongPress: () => _documentActions(context, project, document),
-              child: ExpansionTile(
-                  key: PageStorageKey(document.id),
-                  leading: const Icon(Icons.folder_outlined),
-                  title: Text(document.title),
-                  subtitle: const Text('目录'),
-                  children: _documentNodes(
-                      context, project, documents, document.id)));
-        }
-        return ListTile(
-            leading: Icon(document.documentType == 'markdown'
-                ? Icons.code_outlined
-                : Icons.description_outlined),
-            title: Text(document.title),
-            subtitle: Text(
-                document.documentType == 'markdown' ? 'Markdown 文档' : '富文本文档'),
-            onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                    builder: (_) => DocumentEditorPage(
-                        repository: repository,
-                        document: document,
-                        projectName: project.name,
-                        collaboration: widget.documentCollaborationFactory
-                            ?.call(document)))),
-            onLongPress: () => _documentActions(context, project, document));
-      }).toList();
 
   Future<void> _createDocument(BuildContext context, Project project,
       {String? parentId}) async {
@@ -1732,6 +1707,125 @@ class _ProjectsPageState extends State<ProjectsPage> {
         3 => '高',
         _ => '中',
       };
+}
+
+class _LazyDocumentTree extends StatelessWidget {
+  const _LazyDocumentTree({
+    required this.project,
+    required this.documents,
+    required this.repository,
+    required this.parentId,
+    required this.documentCollaborationFactory,
+    required this.onDocumentActions,
+  });
+
+  final Project project;
+  final List<ProjectDocument> documents;
+  final MagicChatRepository repository;
+  final String? parentId;
+  final DocumentCollaborationFactory? documentCollaborationFactory;
+  final Future<void> Function(ProjectDocument document) onDocumentActions;
+
+  @override
+  Widget build(BuildContext context) {
+    final children = documents.where((item) => item.parentId == parentId);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final document in children)
+          _LazyDocumentNode(
+            key: ValueKey('lazy-document-${document.id}'),
+            project: project,
+            documents: documents,
+            repository: repository,
+            document: document,
+            documentCollaborationFactory: documentCollaborationFactory,
+            onDocumentActions: onDocumentActions,
+          ),
+      ],
+    );
+  }
+}
+
+class _LazyDocumentNode extends StatefulWidget {
+  const _LazyDocumentNode({
+    required this.project,
+    required this.documents,
+    required this.repository,
+    required this.document,
+    required this.documentCollaborationFactory,
+    required this.onDocumentActions,
+    super.key,
+  });
+
+  final Project project;
+  final List<ProjectDocument> documents;
+  final MagicChatRepository repository;
+  final ProjectDocument document;
+  final DocumentCollaborationFactory? documentCollaborationFactory;
+  final Future<void> Function(ProjectDocument document) onDocumentActions;
+
+  @override
+  State<_LazyDocumentNode> createState() => _LazyDocumentNodeState();
+}
+
+class _LazyDocumentNodeState extends State<_LazyDocumentNode> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final document = widget.document;
+    if (document.kind == 'folder') {
+      return InkWell(
+        onLongPress: () => widget.onDocumentActions(document),
+        child: ExpansionTile(
+          key: PageStorageKey(document.id),
+          leading: const Icon(Icons.folder_outlined),
+          title: Text(document.title),
+          subtitle: const Text('目录'),
+          onExpansionChanged: (expanded) =>
+              setState(() => _expanded = expanded),
+          // 后代树仅在用户展开目录后挂载，避免目录页首屏递归构建全部节点。
+          children: _expanded
+              ? [
+                  Padding(
+                    padding: const EdgeInsets.only(left: 16),
+                    child: _LazyDocumentTree(
+                      project: widget.project,
+                      documents: widget.documents,
+                      repository: widget.repository,
+                      parentId: document.id,
+                      documentCollaborationFactory:
+                          widget.documentCollaborationFactory,
+                      onDocumentActions: widget.onDocumentActions,
+                    ),
+                  ),
+                ]
+              : const [],
+        ),
+      );
+    }
+    return ListTile(
+      leading: Icon(document.documentType == 'markdown'
+          ? Icons.code_outlined
+          : Icons.description_outlined),
+      title: Text(document.title),
+      subtitle:
+          Text(document.documentType == 'markdown' ? 'Markdown 文档' : '富文本文档'),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DocumentEditorPage(
+            repository: widget.repository,
+            document: document,
+            projectName: widget.project.name,
+            collaboration: widget.documentCollaborationFactory?.call(document),
+          ),
+        ),
+      ),
+      onLongPress: () => widget.onDocumentActions(document),
+    );
+  }
 }
 
 String _projectSearchText(Project project) {
