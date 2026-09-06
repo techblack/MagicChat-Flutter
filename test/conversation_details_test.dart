@@ -88,6 +88,26 @@ void main() {
     expect(find.text('最后一位成员'), findsOneWidget);
   });
 
+  testWidgets('服务端未返回群成员资料时明确提示并可重试', (tester) async {
+    final repository = _DetailsRepository.unavailableMember();
+
+    await _pumpDetails(tester, repository);
+
+    expect(repository.resolvedUserBatches, [
+      ['user-disabled']
+    ]);
+    expect(find.text('资料不可用'), findsOneWidget);
+    expect(find.text('1 位成员已停用或资料暂不可用'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(TextButton, '重试'));
+    await tester.pumpAndSettle();
+    expect(repository.resolvedUserBatches, hasLength(2));
+
+    await tester.tap(find.text('资料不可用'));
+    await tester.pumpAndSettle();
+    expect(find.text('该成员可能已停用，或资料暂时无法加载。'), findsOneWidget);
+  });
+
   testWidgets('群主可以在聊天详情关联和解除项目', (tester) async {
     final repository = _DetailsRepository.group('owner', projects: const [
       Project(id: '1', name: 'MagicChat Flutter 重构'),
@@ -331,6 +351,22 @@ class _DetailsRepository extends DemoRepository {
         failFullResolutionBatch: true,
       );
 
+  factory _DetailsRepository.unavailableMember() => _DetailsRepository._(
+        const ChatConversation(
+          id: 'group-unavailable-member',
+          title: '历史项目群',
+          type: 'group',
+          members: [
+            Contact(
+                id: 'me',
+                name: '当前用户',
+                avatar: '/avatars/me.webp',
+                role: 'owner'),
+            Contact(id: 'user-disabled', name: ''),
+          ],
+        ),
+      );
+
   factory _DetailsRepository.topic() => _DetailsRepository._(
         const ChatConversation(
           id: 'topic',
@@ -403,6 +439,7 @@ class _DetailsRepository extends DemoRepository {
         for (final id in userIds) Contact(id: id, name: '最后一位成员'),
       ];
     }
+    if (conversation.id == 'group-unavailable-member') return const [];
     if (conversation.id != 'group-incomplete') return const [];
     return [
       if (userIds.contains('user-alice'))
