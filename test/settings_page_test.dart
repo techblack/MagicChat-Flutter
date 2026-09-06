@@ -98,6 +98,8 @@ void main() {
 
   testWidgets('新消息提示音开关即时回调', (tester) async {
     bool? enabled = true;
+    await tester.binding.setSurfaceSize(const Size(800, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(MaterialApp(
         home: Scaffold(
             body: SettingsPage(
@@ -132,6 +134,28 @@ void main() {
     await tester.tap(find.text('仅显示来源').last);
     await tester.pumpAndSettle();
     expect(privacy, MessageNotificationPrivacy.metadata);
+  });
+
+  testWidgets('界面字体大小选择即时回调', (tester) async {
+    InterfaceFontScale? selected;
+    await tester.binding.setSurfaceSize(const Size(800, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SettingsPage(
+                repository: DemoRepository(),
+                serverUrl: 'https://chat.example.com',
+                onInterfaceFontScaleChanged: (value) => selected = value))));
+    await tester.pumpAndSettle();
+
+    final dropdown = find.byType(DropdownButton<InterfaceFontScale>);
+    await tester.ensureVisible(dropdown);
+    await tester.tap(dropdown);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('中等 120%').last);
+    await tester.pumpAndSettle();
+
+    expect(selected, InterfaceFontScale.medium);
   });
 
   testWidgets('退出登录需要二次确认', (tester) async {

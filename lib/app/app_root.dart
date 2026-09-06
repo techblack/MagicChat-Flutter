@@ -20,6 +20,10 @@ bool shouldShowLocalMessageNotification({
     (senderId == null || currentUserId == null || senderId != currentUserId) &&
     !muted;
 
+double effectiveInterfaceTextScale(
+        TextScaler system, InterfaceFontScale interfaceScale) =>
+    system.scale(16) / 16 * interfaceScale.ratio;
+
 Uri buildThirdPartyLoginUri(String serverUrl, String providerKey) {
   final base = Uri.parse('${normalizeServerUrl(serverUrl)}/');
   return base.resolve(
@@ -61,6 +65,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
   bool _messageSoundEnabled = true;
   MessageNotificationPrivacy _notificationPrivacy =
       MessageNotificationPrivacy.preview;
+  InterfaceFontScale _interfaceFontScale = InterfaceFontScale.normal;
   String? _serverUrl;
   String? _loginError;
   bool _loading = true;
@@ -134,6 +139,8 @@ class _MagicChatAppState extends State<MagicChatApp> {
         await const ChatPreferences().readMessageSoundEnabled();
     final notificationPrivacy =
         await const ChatPreferences().readNotificationPrivacy();
+    final interfaceFontScale =
+        await const ChatPreferences().readInterfaceFontScale();
     if (!mounted) return;
     setState(() {
       _serverUrl = server;
@@ -154,6 +161,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
       _chatAppearance = chatAppearance;
       _messageSoundEnabled = messageSoundEnabled;
       _notificationPrivacy = notificationPrivacy;
+      _interfaceFontScale = interfaceFontScale;
     });
     if (token != null) {
       unawaited(_registerPush(server, token));
@@ -325,6 +333,11 @@ class _MagicChatAppState extends State<MagicChatApp> {
       MessageNotificationPrivacy privacy) async {
     await const ChatPreferences().writeNotificationPrivacy(privacy);
     if (mounted) setState(() => _notificationPrivacy = privacy);
+  }
+
+  Future<void> _setInterfaceFontScale(InterfaceFontScale scale) async {
+    await const ChatPreferences().writeInterfaceFontScale(scale);
+    if (mounted) setState(() => _interfaceFontScale = scale);
   }
 
   Future<void> _setConversationAppearance(
@@ -513,6 +526,16 @@ class _MagicChatAppState extends State<MagicChatApp> {
                     borderRadius: BorderRadius.all(Radius.circular(16)))),
             useMaterial3: true),
         themeMode: _themeMode,
+        builder: (context, child) {
+          final media = MediaQuery.of(context);
+          return MediaQuery(
+            data: media.copyWith(
+              textScaler: TextScaler.linear(effectiveInterfaceTextScale(
+                  media.textScaler, _interfaceFontScale)),
+            ),
+            child: child ?? const SizedBox.shrink(),
+          );
+        },
         home: _loading
             ? const Scaffold(body: Center(child: CircularProgressIndicator()))
             : _repository == null
@@ -540,6 +563,8 @@ class _MagicChatAppState extends State<MagicChatApp> {
                     onMessageSoundChanged: _setMessageSoundEnabled,
                     notificationPrivacy: _notificationPrivacy,
                     onNotificationPrivacyChanged: _setNotificationPrivacy,
+                    interfaceFontScale: _interfaceFontScale,
+                    onInterfaceFontScaleChanged: _setInterfaceFontScale,
                     desktopTray: _desktopTray,
                     trayConversationId: _trayConversationId,
                     trayOpenRequest: _trayOpenRequest,
@@ -1221,6 +1246,8 @@ class AppShell extends StatefulWidget {
       this.onMessageSoundChanged,
       this.notificationPrivacy = MessageNotificationPrivacy.preview,
       this.onNotificationPrivacyChanged,
+      this.interfaceFontScale = InterfaceFontScale.normal,
+      this.onInterfaceFontScaleChanged,
       this.desktopTray,
       this.trayConversationId,
       this.trayOpenRequest = 0,
@@ -1245,6 +1272,8 @@ class AppShell extends StatefulWidget {
   final ValueChanged<bool>? onMessageSoundChanged;
   final MessageNotificationPrivacy notificationPrivacy;
   final ValueChanged<MessageNotificationPrivacy>? onNotificationPrivacyChanged;
+  final InterfaceFontScale interfaceFontScale;
+  final ValueChanged<InterfaceFontScale>? onInterfaceFontScaleChanged;
   final DesktopSystemTrayController? desktopTray;
   final String? trayConversationId;
   final int trayOpenRequest;
@@ -1752,6 +1781,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           onMessageSoundChanged: widget.onMessageSoundChanged,
           notificationPrivacy: widget.notificationPrivacy,
           onNotificationPrivacyChanged: widget.onNotificationPrivacyChanged,
+          interfaceFontScale: widget.interfaceFontScale,
+          onInterfaceFontScaleChanged: widget.onInterfaceFontScaleChanged,
           themeMode: widget.themeMode,
           sendMessageShortcut: _sendMessageShortcut),
     ];
