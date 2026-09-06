@@ -48,6 +48,11 @@ void main() {
     await controller.update(state);
     expect(platform.updates, [(title: '(4) 项目 - MagicChat', alert: true)]);
 
+    await controller.update(
+      const AppWindowTitleState(moduleTitle: '项目'),
+    );
+    expect(platform.updates.last, (title: '项目 - MagicChat', alert: false));
+
     await controller.dispose();
     expect(platform.updates.last, (title: 'MagicChat', alert: false));
     expect(platform.disposeCount, 1);
