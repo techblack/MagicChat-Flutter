@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/avatar_processor.dart';
 import '../../data/chat_appearance_preferences.dart';
+import '../../data/contact_cache_store.dart';
 import '../../data/message_cache_store.dart';
 import '../../data/realtime_store.dart';
 import '../../data/repository.dart';
@@ -47,6 +50,7 @@ class ConversationDetailsPage extends StatefulWidget {
 
 class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
   late Future<_ConversationDetailsData> _future = _load();
+  final _contactCacheStore = ContactCacheStore();
   bool _busy = false;
 
   Future<_ConversationDetailsData> _load() async {
@@ -68,17 +72,55 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
     if (conversation == null) {
       throw StateError('会话不存在或已不可用');
     }
-    final contacts = <String, Contact>{
-      for (final contact
-          in widget.realtimeStore?.contacts.values ?? const <Contact>[])
-        contact.id: contact,
-      for (final member in conversation.members) member.id: member,
-    }.values.toList(growable: false);
     TopicDetail? topicDetail;
     if (conversation.type == 'topic') {
       topicDetail = await widget.repository.topicDetail(conversation.id);
       conversation = topicDetail.conversation;
     }
+    final contactsById = <String, Contact>{};
+    for (final member in conversation.members) {
+      contactsById[member.id.toLowerCase()] = member;
+    }
+    var cached = const <Contact>[];
+    try {
+      cached = await _contactCacheStore.read(widget.cacheScope);
+    } catch (_) {
+      // 可选的本地资料缓存不可用时继续从当前群成员解析。
+    }
+    for (final contact in cached) {
+      final key = contact.id.toLowerCase();
+      final current = contactsById[key];
+      if (current != null) contactsById[key] = _mergeContact(current, contact);
+    }
+    for (final contact
+        in widget.realtimeStore?.contacts.values ?? const <Contact>[]) {
+      final key = contact.id.toLowerCase();
+      final current = contactsById[key];
+      if (current != null) contactsById[key] = _mergeContact(current, contact);
+    }
+    final missingUserIds = conversation.members
+        .where((member) =>
+            member.type == 'user' &&
+            !_hasReadableMemberName(contactsById[member.id.toLowerCase()]!))
+        .map((member) => member.id)
+        .toList(growable: false);
+    if (missingUserIds.isNotEmpty) {
+      try {
+        final resolved = await widget.repository.resolveUsers(missingUserIds);
+        for (final contact in resolved) {
+          final key = contact.id.toLowerCase();
+          final current = contactsById[key];
+          if (current == null) continue;
+          final merged = _mergeContact(current, contact);
+          contactsById[key] = merged;
+          widget.realtimeStore?.contacts[merged.id] = merged;
+        }
+        unawaited(_rememberResolvedContacts(resolved));
+      } catch (_) {
+        // 资料服务不可用时仍展示服务端会话中已有的成员信息。
+      }
+    }
+    final contacts = contactsById.values.toList(growable: false);
     var availableProjects = const <Project>[];
     if (conversation.type == 'group') {
       try {
@@ -95,6 +137,14 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
         contacts: contacts,
         availableProjects: availableProjects,
         topicDetail: topicDetail);
+  }
+
+  Future<void> _rememberResolvedContacts(List<Contact> contacts) async {
+    try {
+      await _contactCacheStore.remember(widget.cacheScope, contacts);
+    } catch (_) {
+      // 缓存失败不影响本次群成员资料展示。
+    }
   }
 
   void _reload() => setState(() {
@@ -933,16 +983,17 @@ class _ConversationDetailsData {
 
 ChatConversation _hydrateConversation(
     ChatConversation conversation, List<Contact> contacts) {
-  final contactsById = {for (final contact in contacts) contact.id: contact};
+  final contactsById = {
+    for (final contact in contacts) contact.id.toLowerCase(): contact
+  };
   final members = conversation.members.map((member) {
-    final contact = contactsById[member.id];
+    final contact = contactsById[member.id.toLowerCase()];
     if (contact == null) return member;
     return contact.copyWith(
-        name: member.name.trim().isEmpty || member.name.trim() == member.id
+        name: _isPlaceholderMemberValue(member.name, member.id)
             ? null
             : member.name,
-        nickname: member.nickname.trim().isEmpty ||
-                member.nickname.trim() == member.id
+        nickname: _isPlaceholderMemberValue(member.nickname, member.id)
             ? null
             : member.nickname,
         avatar: member.avatar.trim().isEmpty ? null : member.avatar,
@@ -973,6 +1024,28 @@ ChatConversation _hydrateConversation(
     topic: conversation.topic,
   );
 }
+
+bool _hasReadableMemberName(Contact contact) =>
+    !_isPlaceholderMemberValue(contact.nickname, contact.id) ||
+    !_isPlaceholderMemberValue(contact.name, contact.id);
+
+bool _isPlaceholderMemberValue(String value, String id) {
+  final normalized = value.trim();
+  return normalized.isEmpty || normalized == id.trim() || normalized == '成员';
+}
+
+Contact _mergeContact(Contact member, Contact profile) => member.copyWith(
+      name: _isPlaceholderMemberValue(profile.name, profile.id)
+          ? null
+          : profile.name,
+      nickname: _isPlaceholderMemberValue(profile.nickname, profile.id)
+          ? null
+          : profile.nickname,
+      email: profile.email.trim().isEmpty ? null : profile.email,
+      phone: profile.phone.trim().isEmpty ? null : profile.phone,
+      avatar: profile.avatar.trim().isEmpty ? null : profile.avatar,
+      online: profile.online,
+    );
 
 class _MemberTile extends StatelessWidget {
   const _MemberTile({
