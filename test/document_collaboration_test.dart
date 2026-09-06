@@ -223,6 +223,66 @@ void main() {
     serverDocument.destroy();
   });
 
+  test('富文档块背景通过 Yjs 往返并拒绝未知色值', () async {
+    final channel = _FakeChannel();
+    final session = DocumentCollaborationSession(
+        serverUrl: 'https://chat.example.com',
+        token: 'session-token',
+        documentId: 'doc-block-background',
+        documentType: 'document',
+        connector: (_, __) => channel);
+    await session.connect();
+    channel.emit(encodeHocuspocusAuthenticatedFrame(
+        documentName: 'doc-block-background'));
+    await Future<void>.delayed(Duration.zero);
+
+    final serverDocument = yjs.Doc(yjs.DocOpts(guid: 'doc-block-background'));
+    final serverBody =
+        serverDocument.get<yjs.YXmlFragment>('body', yjs.YXmlFragment.new)!;
+    _insertParagraphs(serverBody, '背景正文');
+    final incoming = yjs.createEncoder();
+    yjs.writeVarString(incoming, 'doc-block-background');
+    yjs.writeVarUint(incoming, HocuspocusMessageType.sync);
+    yjs.writeSyncStep2(incoming, serverDocument);
+    channel.emit(yjs.toUint8Array(incoming));
+    await Future<void>.delayed(Duration.zero);
+
+    final text = session.body
+        .toArray()
+        .whereType<yjs.YXmlElement>()
+        .single
+        .toArray()
+        .whereType<yjs.YXmlText>()
+        .single;
+    const background = 'oklch(93.6% 0.032 17.717)';
+    expect(session.setXmlTextBlockBackground(text, background), isTrue);
+    _applySyncUpdate(channel.sent.last as Uint8List, serverDocument);
+    expect(
+        serverBody
+            .toArray()
+            .whereType<yjs.YXmlElement>()
+            .single
+            .getAttribute('blockBackgroundColor'),
+        background);
+
+    final sentBeforeInvalid = channel.sent.length;
+    expect(session.setXmlTextBlockBackground(text, 'red; position: fixed'),
+        isFalse);
+    expect(channel.sent, hasLength(sentBeforeInvalid));
+    expect(session.setXmlTextBlockBackground(text, null), isTrue);
+    _applySyncUpdate(channel.sent.last as Uint8List, serverDocument);
+    expect(
+        serverBody
+            .toArray()
+            .whereType<yjs.YXmlElement>()
+            .single
+            .getAttribute('blockBackgroundColor'),
+        isNull);
+
+    await session.close();
+    serverDocument.destroy();
+  });
+
   test('富文档可编辑已有文本块并同步到协作状态', () async {
     final channel = _FakeChannel();
     final session = DocumentCollaborationSession(
@@ -295,6 +355,14 @@ void main() {
     expect(session.xmlTextAlignment(markedText), 'left');
     expect(session.setXmlTextAlignment(markedText, 'center'), isTrue);
     expect(markedParagraph.getAttribute('textAlign'), 'center');
+    const background = 'oklch(93.6% 0.032 17.717)';
+    expect(session.setXmlTextBlockBackground(markedText, background), isTrue);
+    expect(markedParagraph.getAttribute('blockBackgroundColor'), background);
+    expect(session.xmlTextBlockBackground(markedText), background);
+    expect(
+        session.setXmlTextBlockBackground(markedText, 'red; position: fixed'),
+        isFalse);
+    expect(markedParagraph.getAttribute('blockBackgroundColor'), background);
 
     final heading = session.transformXmlTextBlock(
         markedText, RichDocumentBlockType.heading1);
@@ -304,9 +372,12 @@ void main() {
     expect(headingBlock.name, 'heading');
     expect(headingBlock.getAttribute('level'), 1);
     expect(headingBlock.getAttribute('textAlign'), 'center');
+    expect(headingBlock.getAttribute('blockBackgroundColor'), background);
     expect(heading.toString(), '编辑后的加粗正文');
     expect(session.setXmlTextAlignment(heading, 'left'), isTrue);
     expect(headingBlock.getAttribute('textAlign'), isNull);
+    expect(session.setXmlTextBlockBackground(heading, null), isTrue);
+    expect(headingBlock.getAttribute('blockBackgroundColor'), isNull);
 
     final before = session.insertParagraphNear(heading, after: false);
     final after = session.insertParagraphNear(heading, after: true);
@@ -466,6 +537,13 @@ String _xmlText(yjs.YXmlFragment body) => body.toArray().map((node) {
       }
       return '';
     }).join('\n');
+
+void _applySyncUpdate(Uint8List update, yjs.Doc document) {
+  final decoder = yjs.createDecoder(update);
+  yjs.readVarString(decoder);
+  yjs.readVarUint(decoder);
+  yjs.readSyncMessage(decoder, yjs.createEncoder(), document, 'server');
+}
 
 class _FakeChannel implements WebSocketChannel {
   final sent = <Object?>[];

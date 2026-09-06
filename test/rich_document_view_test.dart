@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:magicchat_client/features/projects/rich_document_block_background.dart';
 import 'package:magicchat_client/features/projects/rich_document_view.dart';
 import 'package:yjs_dart/yjs_dart.dart' as yjs;
 
@@ -81,6 +82,56 @@ void main() {
     document.destroy();
   });
 
+  testWidgets('渲染官方色板中的块背景并忽略未知色值', (tester) async {
+    final document = yjs.Doc(yjs.DocOpts(guid: 'rich-background-view-test'));
+    final body = document.get<yjs.YXmlFragment>('body', yjs.YXmlFragment.new)!;
+    final colored = yjs.YXmlElement('paragraph')
+      ..setAttribute('blockBackgroundColor', 'oklch(93.6% 0.032 17.717)');
+    colored.insert(0, [yjs.YXmlText()..insert(0, '带背景正文')]);
+    final invalid = yjs.YXmlElement('paragraph')
+      ..setAttribute('blockBackgroundColor', 'red; position: fixed');
+    invalid.insert(0, [yjs.YXmlText()..insert(0, '普通正文')]);
+    body.insert(0, [colored, invalid]);
+
+    await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: RichDocumentView(body: body))));
+
+    final background = tester.widget<RichDocumentBlockBackground>(
+        find.byType(RichDocumentBlockBackground));
+    expect(background.color,
+        richDocumentBlockBackgroundDisplayColor('oklch(93.6% 0.032 17.717)'));
+    expect(find.byType(RichDocumentBlockBackground), findsOneWidget);
+    expect(find.text('普通正文'), findsOneWidget);
+    document.destroy();
+  });
+
+  testWidgets('深浅主题均按块背景亮度提供可读前景', (tester) async {
+    final document = yjs.Doc(yjs.DocOpts(guid: 'rich-background-theme-test'));
+    final body = document.get<yjs.YXmlFragment>('body', yjs.YXmlFragment.new)!;
+    const value = 'oklch(39.6% 0.141 25.723)';
+    final colored = yjs.YXmlElement('paragraph')
+      ..setAttribute('blockBackgroundColor', value);
+    colored.insert(0, [yjs.YXmlText()..insert(0, '深色背景正文')]);
+    body.insert(0, [colored]);
+
+    for (final mode in [ThemeMode.light, ThemeMode.dark]) {
+      await tester.pumpWidget(MaterialApp(
+          themeMode: mode,
+          theme: ThemeData.light(),
+          darkTheme: ThemeData.dark(),
+          home: Scaffold(body: RichDocumentView(body: body))));
+      final background = tester.widget<RichDocumentBlockBackground>(
+          find.byType(RichDocumentBlockBackground));
+      expect(background.foregroundColor, Colors.white);
+      expect(
+          DefaultTextStyle.of(tester.element(find.text('深色背景正文'))).style.color,
+          Colors.white);
+      expect(_contrastRatio(background.color, background.foregroundColor),
+          greaterThanOrEqualTo(4.5));
+    }
+    document.destroy();
+  });
+
   testWidgets('文档图片解析文件地址并按百分比宽度和方向展示', (tester) async {
     await tester.binding.setSurfaceSize(const Size(400, 500));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -117,6 +168,12 @@ void main() {
     expect(edited, same(image));
     document.destroy();
   });
+}
+
+double _contrastRatio(Color background, Color foreground) {
+  final values = [background.computeLuminance(), foreground.computeLuminance()]
+    ..sort();
+  return (values.last + .05) / (values.first + .05);
 }
 
 void _addHeading(yjs.YXmlFragment body, String value) {

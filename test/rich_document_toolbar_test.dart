@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magicchat_client/data/document_collaboration.dart';
+import 'package:magicchat_client/domain/rich_document_format.dart';
 import 'package:magicchat_client/features/projects/rich_document_toolbar.dart';
 
 void main() {
@@ -44,5 +45,57 @@ void main() {
 
     await tester.tap(find.byTooltip('段落'));
     expect(called, isFalse);
+  });
+
+  testWidgets('原位工具栏可设置并清除段落背景', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(320, 520));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    String? selected = 'unchanged';
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: RichDocumentInlineToolbar(
+                blockType: RichDocumentBlockType.paragraph,
+                marks: const {},
+                alignment: 'left',
+                blockBackground: richDocumentBlockBackgroundColors.first.value,
+                onToggleMark: (_) {},
+                onTextColor: (_) {},
+                onHighlight: (_) {},
+                onAlignment: (_) {},
+                onBlockBackground: (value) => selected = value,
+                onEditLink: () {},
+                onClearFormatting: () {},
+                onTransform: (_) {},
+                onInsertBefore: () {},
+                onInsertAfter: () {},
+                onDelete: () {},
+                onDone: () {}))));
+
+    await tester.ensureVisible(find.byTooltip('段落背景'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('段落背景'));
+    await tester.pumpAndSettle();
+    final grid = tester.widget<GridView>(
+        find.byKey(const ValueKey('rich-document-block-background-grid')));
+    expect(
+        (grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount)
+            .crossAxisCount,
+        10);
+    expect(grid.childrenDelegate.estimatedChildCount, 50);
+    final selectedSwatch = tester.widget<Semantics>(
+        find.byKey(const ValueKey('rich-document-block-background-swatch-0')));
+    expect(selectedSwatch.properties.label, '段落背景：红色 100');
+    expect(selectedSwatch.properties.selected, isTrue);
+    expect(tester.takeException(), isNull);
+    await tester.tap(
+        find.byKey(const ValueKey('rich-document-block-background-swatch-0')));
+    await tester.pumpAndSettle();
+    expect(selected, richDocumentBlockBackgroundColors.first.value);
+
+    await tester.tap(find.byTooltip('段落背景'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('无段落背景'));
+    await tester.pumpAndSettle();
+    expect(selected, isNull);
   });
 }

@@ -47,6 +47,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
   yjs.YXmlText? _selectedRichText;
   Map<String, Object?>? _formatPainterMarks;
   String? _formatPainterAlignment;
+  String? _formatPainterBlockBackground;
   yjs.YXmlText? _formatPainterSource;
   final Map<String, Future<Uri?>> _documentImageUrls = {};
 
@@ -68,6 +69,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
       _selectedRichText = null;
       _formatPainterMarks = null;
       _formatPainterAlignment = null;
+      _formatPainterBlockBackground = null;
       _formatPainterSource = null;
     }
     if (session.status == DocumentCollaborationStatus.synced &&
@@ -286,6 +288,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     final session = widget.collaboration;
     final painterMarks = _formatPainterMarks;
     final painterAlignment = _formatPainterAlignment;
+    final painterBlockBackground = _formatPainterBlockBackground;
     if (node != null &&
         painterMarks != null &&
         painterAlignment != null &&
@@ -293,10 +296,12 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
         !identical(node, _formatPainterSource)) {
       session.replaceXmlText(node, node.toString(), marks: painterMarks);
       session.setXmlTextAlignment(node, painterAlignment);
+      session.setXmlTextBlockBackground(node, painterBlockBackground);
       setState(() {
         _selectedRichText = node;
         _formatPainterMarks = null;
         _formatPainterAlignment = null;
+        _formatPainterBlockBackground = null;
         _formatPainterSource = null;
       });
       return;
@@ -317,6 +322,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
       setState(() {
         _formatPainterMarks = null;
         _formatPainterAlignment = null;
+        _formatPainterBlockBackground = null;
         _formatPainterSource = null;
       });
       return;
@@ -330,6 +336,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
       _formatPainterMarks =
           Map<String, Object?>.from(session.xmlTextMarks(source));
       _formatPainterAlignment = session.xmlTextAlignment(source);
+      _formatPainterBlockBackground = session.xmlTextBlockBackground(source);
       _formatPainterSource = source;
     });
   }
@@ -339,6 +346,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     setState(() {
       _formatPainterMarks = null;
       _formatPainterAlignment = null;
+      _formatPainterBlockBackground = null;
       _formatPainterSource = null;
     });
   }
@@ -390,6 +398,13 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     final node = _selectedRichText;
     if (session == null || node == null) return;
     if (session.setXmlTextAlignment(node, alignment)) setState(() {});
+  }
+
+  void _setRichBlockBackground(String? color) {
+    final session = widget.collaboration;
+    final node = _selectedRichText;
+    if (session == null || node == null) return;
+    if (session.setXmlTextBlockBackground(node, color)) setState(() {});
   }
 
   Future<void> _editRichTextLink() async {
@@ -474,6 +489,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
       _selectedRichText = null;
       _formatPainterMarks = null;
       _formatPainterAlignment = null;
+      _formatPainterBlockBackground = null;
       _formatPainterSource = null;
     });
   }
@@ -485,6 +501,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
       _selectedRichText = null;
       _formatPainterMarks = null;
       _formatPainterAlignment = null;
+      _formatPainterBlockBackground = null;
       _formatPainterSource = null;
     });
   }
@@ -669,10 +686,13 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                           marks: widget.collaboration!.xmlTextMarks(selected),
                           alignment:
                               widget.collaboration!.xmlTextAlignment(selected),
+                          blockBackground: widget.collaboration!
+                              .xmlTextBlockBackground(selected),
                           onToggleMark: _toggleRichTextMark,
                           onTextColor: _setRichTextColor,
                           onHighlight: _setRichTextHighlight,
                           onAlignment: _setRichTextAlignment,
+                          onBlockBackground: _setRichBlockBackground,
                           onEditLink: _editRichTextLink,
                           onClearFormatting: _clearRichTextFormatting,
                           onTransform: _transformRichTextBlock,

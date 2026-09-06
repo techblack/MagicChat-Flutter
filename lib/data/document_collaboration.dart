@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:yjs_dart/yjs_dart.dart' as yjs;
 
+import '../domain/rich_document_format.dart';
 import 'document_realtime.dart';
 
 enum DocumentCollaborationStatus { disconnected, connecting, synced, error }
@@ -232,6 +233,36 @@ class DocumentCollaborationSession extends ChangeNotifier {
     return true;
   }
 
+  /// 返回文本所在顶层块的官方背景色；未知色值不进入 Flutter 展示与编辑。
+  String? xmlTextBlockBackground(yjs.YXmlText node) {
+    final block = _topLevelBlock(node);
+    if (block == null || !_supportsBlockBackground(block)) return null;
+    return normalizeRichDocumentBlockBackground(
+        block.getAttribute('blockBackgroundColor'));
+  }
+
+  /// 设置或清除文本所在顶层块的背景，写入 Web/Desktop 共用的 Yjs 属性。
+  bool setXmlTextBlockBackground(yjs.YXmlText node, String? color) {
+    if (documentType != 'document' ||
+        status != DocumentCollaborationStatus.synced ||
+        (color != null &&
+            normalizeRichDocumentBlockBackground(color) != color)) {
+      return false;
+    }
+    final block = _topLevelBlock(node);
+    if (block == null || !_supportsBlockBackground(block)) return false;
+    final current = block.getAttribute('blockBackgroundColor');
+    if (current == color) return false;
+    _undoManager?.stopCapturing();
+    if (color == null) {
+      block.removeAttribute('blockBackgroundColor');
+    } else {
+      block.setAttribute('blockBackgroundColor', color);
+    }
+    notifyListeners();
+    return true;
+  }
+
   /// 将顶层段落、标题或代码块转换为另一种文本块，保留正文和 marks。
   yjs.YXmlText? transformXmlTextBlock(
       yjs.YXmlText node, RichDocumentBlockType type) {
@@ -254,8 +285,12 @@ class DocumentCollaborationSession extends ChangeNotifier {
     final replacement = _createTextBlock(type, node.toString(),
         type == RichDocumentBlockType.codeBlock ? const {} : _marksFor(node));
     final alignment = xmlTextAlignment(node);
+    final background = xmlTextBlockBackground(node);
     if (type != RichDocumentBlockType.codeBlock && alignment != 'left') {
       replacement.block.setAttribute('textAlign', alignment);
+    }
+    if (background != null) {
+      replacement.block.setAttribute('blockBackgroundColor', background);
     }
     _document.transact((_) {
       _body.delete(index);
@@ -548,6 +583,9 @@ class DocumentCollaborationSession extends ChangeNotifier {
     }
     return null;
   }
+
+  bool _supportsBlockBackground(yjs.YXmlElement block) =>
+      richDocumentBlockBackgroundTypes.contains(block.name);
 
   yjs.YXmlElement? _textAlignmentBlock(yjs.YXmlText node) {
     yjs.AbstractType<dynamic>? current = node.parent;

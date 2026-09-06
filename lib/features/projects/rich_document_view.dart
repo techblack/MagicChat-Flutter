@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:yjs_dart/yjs_dart.dart' as yjs;
 
 import '../../domain/message_content.dart';
+import 'rich_document_block_background.dart';
 
 /// 将 Tiptap 协作正文的 XML block tree 渲染为 Flutter 原生控件。
 ///
@@ -56,24 +57,24 @@ class RichDocumentView extends StatelessWidget {
     if (node is! yjs.YXmlElement) return null;
     switch (node.name) {
       case 'paragraph':
-        return _paragraph(context, node);
+        return _withBlockBackground(node, _paragraph(context, node));
       case 'heading':
-        return _heading(context, node);
+        return _withBlockBackground(node, _heading(context, node));
       case 'bulletList':
-        return _list(context, node, ordered: false);
+        return _withBlockBackground(node, _list(context, node, ordered: false));
       case 'orderedList':
-        return _list(context, node, ordered: true);
+        return _withBlockBackground(node, _list(context, node, ordered: true));
       case 'taskList':
-        return _list(context, node, task: true);
+        return _withBlockBackground(node, _list(context, node, task: true));
       case 'blockquote':
-        return _blockquote(context, node);
+        return _withBlockBackground(node, _blockquote(context, node));
       case 'codeBlock':
-        return _codeBlock(context, node);
+        return _withBlockBackground(node, _codeBlock(context, node));
       case 'horizontalRule':
         return const Padding(
             padding: EdgeInsets.symmetric(vertical: 8), child: Divider());
       case 'table':
-        return _table(context, node);
+        return _withBlockBackground(node, _table(context, node));
       case 'documentImage':
       case 'image':
         return _image(context, node);
@@ -88,6 +89,14 @@ class RichDocumentView extends StatelessWidget {
       default:
         return _fallback(context, node);
     }
+  }
+
+  Widget _withBlockBackground(yjs.YXmlElement node, Widget child) {
+    final color = richDocumentBlockBackgroundDisplayColor(
+        node.getAttribute('blockBackgroundColor'));
+    return color == null
+        ? child
+        : RichDocumentBlockBackground(color: color, child: child);
   }
 
   Widget _paragraph(BuildContext context, yjs.YXmlElement node) {
