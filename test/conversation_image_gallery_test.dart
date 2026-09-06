@@ -179,7 +179,9 @@ Future<void> _pumpGallery(
 }
 
 Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
-  for (var index = 0; index < 40 && finder.evaluate().isEmpty; index++) {
+  // 画廊会同时执行图片解码和相邻资源预取；完整测试套件在共享 CI
+  // runner 上负载更高，保留足够的异步窗口避免把正常加载误判为失败。
+  for (var index = 0; index < 120 && finder.evaluate().isEmpty; index++) {
     await tester
         .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 5)));
     await tester.pump(const Duration(milliseconds: 50));

@@ -2100,6 +2100,7 @@ class _ConversationViewState extends State<ConversationView>
                                             onOpenInternalLink: widget.onOpenInternalLink,
                                             onForwardMessage: (id) => _showForwardDialog(conversationId, [id]),
                                             contactsFuture: _contactsFuture,
+                                            loadAllContacts: _loadAllContactsOnDemand,
                                             onReeditMessage: _reeditMessage,
                                             cacheScope: widget.cacheScope,
                                             chatAppearance: widget.chatAppearance,
@@ -3602,6 +3603,7 @@ class _MessageBubble extends StatelessWidget {
       this.onOpenInternalLink,
       this.onForwardMessage,
       this.contactsFuture,
+      this.loadAllContacts,
       this.onReeditMessage,
       this.cacheScope,
       this.chatAppearance = const ChatAppearance(),
@@ -3620,6 +3622,7 @@ class _MessageBubble extends StatelessWidget {
   final ValueChanged<String>? onOpenInternalLink;
   final Future<void> Function(String messageId)? onForwardMessage;
   final Future<List<Contact>>? contactsFuture;
+  final Future<List<Contact>> Function()? loadAllContacts;
   final ValueChanged<ChatMessage>? onReeditMessage;
   final MessageCacheScope? cacheScope;
   final ChatAppearance chatAppearance;
@@ -4288,8 +4291,11 @@ class _MessageBubble extends StatelessWidget {
       final users = await repository
           .listReactionUsers(conversationId, message.id, text: reaction.text);
       if (!context.mounted) return;
-      final contacts =
-          contactsFuture == null ? const <Contact>[] : await contactsFuture!;
+      // 参与者可能不是当前消息窗口里的成员；用户明确打开参与者列表时
+      // 才补齐完整通讯录，首屏仍保持会话范围的轻量联系人集合。
+      final contacts = await (loadAllContacts?.call() ??
+          contactsFuture ??
+          Future.value(const <Contact>[]));
       if (!context.mounted) return;
       final names = {
         for (final contact in contacts) contact.id: contact.displayName
