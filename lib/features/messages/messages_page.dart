@@ -235,6 +235,7 @@ class MessagesPage extends StatelessWidget {
     final contacts = await repository.contacts();
     if (!context.mounted) return null;
     final selected = <String>{};
+    var query = '';
     return showDialog<List<String>>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -243,13 +244,30 @@ class MessagesPage extends StatelessWidget {
             title: const Text('选择群成员'),
             content: SizedBox(
                 width: 360,
-                height: 320,
-                child: contacts.isEmpty
-                    ? const Center(child: Text('暂无联系人'))
-                    : ListView.builder(
-                        itemCount: contacts.length,
+                height: 380,
+                child: Column(children: [
+                  TextField(
+                    decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.search), hintText: '搜索联系人'),
+                    onChanged: (value) => setDialogState(
+                        () => query = value.trim().toLowerCase()),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: Builder(builder: (context) {
+                      final visible = contacts
+                          .where((contact) =>
+                              query.isEmpty ||
+                              contact.displayName.toLowerCase().contains(query))
+                          .toList(growable: false);
+                      if (visible.isEmpty) {
+                        return Center(
+                            child: Text(query.isEmpty ? '暂无联系人' : '没有匹配的联系人'));
+                      }
+                      return ListView.builder(
+                        itemCount: visible.length,
                         itemBuilder: (context, index) {
-                          final contact = contacts[index];
+                          final contact = visible[index];
                           return CheckboxListTile(
                             key: ValueKey(contact.id),
                             value: selected.contains(contact.id),
@@ -262,7 +280,11 @@ class MessagesPage extends StatelessWidget {
                               }
                             }),
                           );
-                        })),
+                        },
+                      );
+                    }),
+                  ),
+                ])),
             actions: [
               TextButton(
                   onPressed: () => Navigator.pop(dialogContext),
