@@ -58,7 +58,8 @@ class ContactDirectorySection {
 }
 
 List<ContactDirectorySection> buildContactSections(Iterable<Contact> contacts) {
-  final users = contacts.where((item) => item.type == 'user').toList(growable: false);
+  final users =
+      contacts.where((item) => item.type == 'user').toList(growable: false);
   final grouped = <String, List<Contact>>{};
   for (final contact in users) {
     grouped

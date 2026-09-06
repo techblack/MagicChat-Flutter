@@ -304,17 +304,13 @@ class _ContactsPageState extends State<ContactsPage> {
         const ContactDirectoryHomeEntry(
             category: ContactDirectoryCategory.newFriends, count: 0),
       ContactDirectoryHomeEntry(
-          category: ContactDirectoryCategory.myApps,
-          count: myApps),
+          category: ContactDirectoryCategory.myApps, count: myApps),
       ContactDirectoryHomeEntry(
-          category: ContactDirectoryCategory.allApps,
-          count: allApps),
+          category: ContactDirectoryCategory.allApps, count: allApps),
       ContactDirectoryHomeEntry(
-          category: ContactDirectoryCategory.joinedGroups,
-          count: joinedGroups),
+          category: ContactDirectoryCategory.joinedGroups, count: joinedGroups),
       ContactDirectoryHomeEntry(
-          category: ContactDirectoryCategory.publicGroups,
-          count: publicGroups),
+          category: ContactDirectoryCategory.publicGroups, count: publicGroups),
     ];
     final rows = <_ContactDirectoryRow>[
       const _ContactDirectoryRow.header(),
