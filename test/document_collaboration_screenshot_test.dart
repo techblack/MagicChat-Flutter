@@ -360,6 +360,78 @@ void main() {
     expect(find.byType(Image), findsOneWidget);
     serverDocument.destroy();
   });
+
+  testWidgets('富文档工具栏从真实富剪贴板入口粘贴结构内容', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(700, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final channel = _FakeChannel();
+    final session = DocumentCollaborationSession(
+        serverUrl: 'https://chat.example.com',
+        token: 'session-token',
+        documentId: 'document-rich-paste',
+        documentType: 'document',
+        connector: (_, __) => channel);
+    addTearDown(session.close);
+    var clipboardReads = 0;
+    var denyClipboard = true;
+    await tester.pumpWidget(MaterialApp(
+        home: DocumentEditorPage(
+            repository: DemoRepository(),
+            document: const ProjectDocument(
+                id: 'document-rich-paste',
+                projectId: 'project-1',
+                title: '粘贴测试',
+                documentType: 'document'),
+            collaboration: session,
+            readRichClipboard: () async {
+              clipboardReads++;
+              if (denyClipboard) throw StateError('剪贴板权限被拒绝');
+              return (
+                html: '<h2>粘贴标题</h2><ul><li>列表正文</li></ul>',
+                text: '纯文本回退',
+              );
+            })));
+    await tester.pump();
+    channel.emit(encodeHocuspocusAuthenticatedFrame(
+        documentName: 'document-rich-paste'));
+    await tester.pump();
+    final serverDocument = yjs.Doc(yjs.DocOpts(guid: 'document-rich-paste'));
+    final body =
+        serverDocument.get<yjs.YXmlFragment>('body', yjs.YXmlFragment.new)!;
+    _insertParagraphs(body, '已有正文');
+    final incoming = yjs.createEncoder();
+    yjs.writeVarString(incoming, 'document-rich-paste');
+    yjs.writeVarUint(incoming, HocuspocusMessageType.sync);
+    yjs.writeSyncStep2(incoming, serverDocument);
+    channel.emit(yjs.toUint8Array(incoming));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.ensureVisible(find.byTooltip('粘贴富文本'));
+    await tester.tap(find.byTooltip('粘贴富文本'));
+    await tester.pumpAndSettle();
+
+    expect(clipboardReads, 1);
+    expect(find.textContaining('粘贴失败：'), findsOneWidget);
+    expect(
+        session.body.toArray().whereType<yjs.YXmlElement>().map((e) => e.name),
+        ['paragraph']);
+    expect(session.text, '已有正文');
+
+    denyClipboard = false;
+    await tester.tap(find.byTooltip('粘贴富文本'));
+    await tester.pumpAndSettle();
+    expect(clipboardReads, 2);
+    expect(
+        session.body.toArray().whereType<yjs.YXmlElement>().map((e) => e.name),
+        ['paragraph', 'heading', 'bulletList']);
+    expect(session.text, contains('粘贴标题'));
+    expect(session.text, contains('列表正文'));
+    expect(session.text, isNot(contains('纯文本回退')));
+    expect(find.byKey(const ValueKey('rich-document-inline-editor')),
+        findsOneWidget);
+    serverDocument.destroy();
+  });
 }
 
 Future<void> _selectInlineMenu(

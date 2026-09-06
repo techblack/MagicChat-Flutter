@@ -5,10 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:super_clipboard/super_clipboard.dart';
 import 'package:yjs_dart/yjs_dart.dart' as yjs;
 
 import '../../data/repository.dart';
 import '../../data/document_collaboration.dart';
+import '../../data/rich_document_paste.dart';
 import '../../domain/models.dart';
 import '../messages/send_card_dialog.dart';
 import '../shared/user_facing_error.dart';
@@ -26,11 +28,13 @@ class DocumentEditorPage extends StatefulWidget {
       required this.document,
       this.projectName = '',
       this.collaboration,
+      this.readRichClipboard,
       super.key});
   final MagicChatRepository repository;
   final ProjectDocument document;
   final String projectName;
   final DocumentCollaborationSession? collaboration;
+  final Future<RichDocumentClipboardContent?> Function()? readRichClipboard;
 
   @override
   State<DocumentEditorPage> createState() => _DocumentEditorPageState();
@@ -51,6 +55,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
   String? _formatPainterBlockBackground;
   yjs.YXmlText? _formatPainterSource;
   final Map<String, Future<Uri?>> _documentImageUrls = {};
+  ClipboardEvents? _clipboardEvents;
 
   @override
   void initState() {
@@ -59,8 +64,21 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
       _loadDraft();
     } else {
       widget.collaboration!.addListener(_onCollaborationChanged);
+      _clipboardEvents = ClipboardEvents.instance;
+      _clipboardEvents?.registerPasteEventListener(_onWebPaste);
       unawaited(widget.collaboration!.connect().catchError((_) {}));
     }
+  }
+
+  void _onWebPaste(ClipboardReadEvent event) {
+    if (_selectedRichText == null ||
+        widget.collaboration?.status != DocumentCollaborationStatus.synced) {
+      return;
+    }
+    unawaited(_pasteRichDocument(read: () async {
+      final reader = await event.getClipboardReader();
+      return readRichDocumentClipboardReader(reader);
+    }));
   }
 
   void _onCollaborationChanged() {
@@ -96,6 +114,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
 
   @override
   void dispose() {
+    _clipboardEvents?.unregisterPasteEventListener(_onWebPaste);
     widget.collaboration?.removeListener(_onCollaborationChanged);
     unawaited(widget.collaboration?.close());
     _title.dispose();
@@ -416,6 +435,35 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     if (result.changed) setState(() => _selectedRichText = result.selection);
   }
 
+  Future<void> _pasteRichDocument(
+      {Future<RichDocumentClipboardContent?> Function()? read}) async {
+    final session = widget.collaboration;
+    if (session == null ||
+        session.status != DocumentCollaborationStatus.synced) {
+      return;
+    }
+    try {
+      final content = await (read ??
+          widget.readRichClipboard ??
+          readRichDocumentClipboard)();
+      if (!mounted) return;
+      final result = content == null
+          ? (changed: false, selection: null)
+          : session.pasteRichDocument(content, near: _selectedRichText);
+      if (!result.changed) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('剪贴板中没有可粘贴的内容')));
+        return;
+      }
+      setState(() => _selectedRichText = result.selection);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('粘贴失败：${userFacingError(error)}')));
+      }
+    }
+  }
+
   Future<void> _editRichTextLink() async {
     final session = widget.collaboration;
     final node = _selectedRichText;
@@ -671,6 +719,15 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
           body: Focus(
             onKeyEvent: (_, event) {
               if (event is KeyDownEvent &&
+                  event.logicalKey == LogicalKeyboardKey.keyV &&
+                  _selectedRichText != null &&
+                  _clipboardEvents == null &&
+                  (HardwareKeyboard.instance.isControlPressed ||
+                      HardwareKeyboard.instance.isMetaPressed)) {
+                unawaited(_pasteRichDocument());
+                return KeyEventResult.handled;
+              }
+              if (event is KeyDownEvent &&
                   event.logicalKey == LogicalKeyboardKey.escape &&
                   _formatPainterMarks != null) {
                 _clearRichFormatPainter();
@@ -719,6 +776,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                           onRedo: _redoRichDocument,
                           onFormatPainter: _toggleRichFormatPainter,
                           onClearFormatting: _clearRichTextFormatting,
+                          onPaste: () => unawaited(_pasteRichDocument()),
                           onInsertHorizontalRule: _insertRichHorizontalRule,
                           onInsertTable: _insertRichTable,
                           onInsertImage: _insertRichImage,
