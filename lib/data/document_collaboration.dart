@@ -24,6 +24,21 @@ enum RichDocumentBlockType {
   codeBlock,
 }
 
+enum RichDocumentTableAction {
+  addRowBefore,
+  addRowAfter,
+  deleteRow,
+  addColumnBefore,
+  addColumnAfter,
+  deleteColumn,
+  deleteTable,
+}
+
+typedef RichDocumentTableEditResult = ({
+  bool changed,
+  yjs.YXmlText? selection,
+});
+
 typedef RichDocumentImageAttributes = ({
   String alignment,
   String alt,
@@ -569,6 +584,81 @@ class DocumentCollaborationSession extends ChangeNotifier {
     return firstText;
   }
 
+  bool isXmlTextInEditableTable(yjs.YXmlText node) =>
+      _editableTableSelection(node) != null;
+
+  /// 编辑当前单元格所在的标准 Tiptap 表格，并返回操作后的可编辑位置。
+  ///
+  /// 只接受 body 直属、行列等宽且没有合并单元格的表格。已有单元格的
+  /// attributes 和未知嵌套内容不会被重建。
+  RichDocumentTableEditResult editTable(
+      yjs.YXmlText node, RichDocumentTableAction action) {
+    if (documentType != 'document' ||
+        status != DocumentCollaborationStatus.synced) {
+      return (changed: false, selection: null);
+    }
+    final selected = _editableTableSelection(node);
+    if (selected == null) return (changed: false, selection: null);
+    _undoManager?.stopCapturing();
+    yjs.YXmlText? next;
+    switch (action) {
+      case RichDocumentTableAction.addRowBefore:
+      case RichDocumentTableAction.addRowAfter:
+        final insertAt = selected.rowIndex +
+            (action == RichDocumentTableAction.addRowAfter ? 1 : 0);
+        final created = _createTableRow(
+            selected.cells.map((cell) => cell.name!).toList(growable: false));
+        _document
+            .transact((_) => selected.table.insert(insertAt, [created.row]));
+        next = created.texts[selected.columnIndex];
+        break;
+      case RichDocumentTableAction.deleteRow:
+        if (selected.rows.length == 1) {
+          next = _deleteTable(selected.table);
+        } else {
+          _document.transact((_) => selected.table.delete(selected.rowIndex));
+          final rows = _tableRows(selected.table);
+          final nextRow =
+              rows[selected.rowIndex.clamp(0, rows.length - 1).toInt()];
+          next = _firstXmlText(_tableCells(nextRow)[selected.columnIndex]);
+        }
+        break;
+      case RichDocumentTableAction.addColumnBefore:
+      case RichDocumentTableAction.addColumnAfter:
+        final insertAt = selected.columnIndex +
+            (action == RichDocumentTableAction.addColumnAfter ? 1 : 0);
+        _document.transact((_) {
+          for (final row in selected.rows) {
+            final reference = _tableCells(row)[selected.columnIndex];
+            final created = _createTableCell(reference.name!);
+            row.insert(insertAt, [created.cell]);
+            if (identical(row, selected.row)) next = created.text;
+          }
+        });
+        break;
+      case RichDocumentTableAction.deleteColumn:
+        if (selected.cells.length == 1) {
+          next = _deleteTable(selected.table);
+        } else {
+          _document.transact((_) {
+            for (final row in selected.rows) {
+              row.delete(selected.columnIndex);
+            }
+          });
+          final cells = _tableCells(selected.row);
+          next = _firstXmlText(
+              cells[selected.columnIndex.clamp(0, cells.length - 1).toInt()]);
+        }
+        break;
+      case RichDocumentTableAction.deleteTable:
+        next = _deleteTable(selected.table);
+        break;
+    }
+    _undoManager?.stopCapturing();
+    notifyListeners();
+    return (changed: true, selection: next);
+  }
+
   /// 在当前块之后插入标准 documentImage 占位节点。
   yjs.YXmlElement? insertDocumentImage({yjs.YXmlText? near}) {
     if (documentType != 'document' ||
@@ -1034,6 +1124,121 @@ class DocumentCollaborationSession extends ChangeNotifier {
     return null;
   }
 
+  _RichTableSelection? _editableTableSelection(yjs.YXmlText node) {
+    yjs.AbstractType<dynamic>? current = node.parent;
+    yjs.YXmlElement? cell;
+    while (current is yjs.YXmlElement) {
+      if (current.name == 'tableCell' || current.name == 'tableHeader') {
+        cell = current;
+        break;
+      }
+      current = current.parent;
+    }
+    final row = cell?.parent;
+    final table = row?.parent;
+    if (cell == null ||
+        row is! yjs.YXmlElement ||
+        row.name != 'tableRow' ||
+        table is! yjs.YXmlElement ||
+        table.name != 'table' ||
+        !identical(table.parent, _body)) {
+      return null;
+    }
+    final tableChildren = table.toArray();
+    final rows = _tableRows(table);
+    if (rows.isEmpty || rows.length != tableChildren.length) return null;
+    final columnCount = _tableCells(rows.first).length;
+    if (columnCount == 0) return null;
+    for (final currentRow in rows) {
+      final rowChildren = currentRow.toArray();
+      final cells = _tableCells(currentRow);
+      if (cells.length != columnCount || cells.length != rowChildren.length) {
+        return null;
+      }
+      if (cells.any((currentCell) =>
+          !_isSingleSpan(currentCell.getAttribute('colspan')) ||
+          !_isSingleSpan(currentCell.getAttribute('rowspan')))) {
+        return null;
+      }
+    }
+    final cells = _tableCells(row);
+    final rowIndex = rows.indexOf(row);
+    final columnIndex = cells.indexOf(cell);
+    if (rowIndex < 0 || columnIndex < 0) return null;
+    return _RichTableSelection(
+        table: table,
+        row: row,
+        rows: rows,
+        cells: cells,
+        rowIndex: rowIndex,
+        columnIndex: columnIndex);
+  }
+
+  bool _isSingleSpan(Object? value) =>
+      value == null || value == 1 || value == '1';
+
+  List<yjs.YXmlElement> _tableRows(yjs.YXmlElement table) => table
+      .toArray()
+      .whereType<yjs.YXmlElement>()
+      .where((row) => row.name == 'tableRow')
+      .toList(growable: false);
+
+  List<yjs.YXmlElement> _tableCells(yjs.YXmlElement row) => row
+      .toArray()
+      .whereType<yjs.YXmlElement>()
+      .where((cell) => cell.name == 'tableCell' || cell.name == 'tableHeader')
+      .toList(growable: false);
+
+  ({yjs.YXmlElement cell, yjs.YXmlText text}) _createTableCell(String name) {
+    final cell = yjs.YXmlElement(name == 'tableHeader' ? name : 'tableCell');
+    final paragraph = yjs.YXmlElement('paragraph');
+    final text = yjs.YXmlText();
+    paragraph.insert(0, [text]);
+    cell.insert(0, [paragraph]);
+    return (cell: cell, text: text);
+  }
+
+  ({yjs.YXmlElement row, List<yjs.YXmlText> texts}) _createTableRow(
+      List<String> cellTypes) {
+    final row = yjs.YXmlElement('tableRow');
+    final cells = cellTypes.map(_createTableCell).toList(growable: false);
+    row.insert(0, cells.map((value) => value.cell).toList(growable: false));
+    return (
+      row: row,
+      texts: cells.map((value) => value.text).toList(growable: false),
+    );
+  }
+
+  yjs.YXmlText? _deleteTable(yjs.YXmlElement table) {
+    if (!identical(table.parent, _body)) return null;
+    final index = _body.toArray().indexOf(table);
+    if (index < 0) return null;
+    yjs.YXmlText? selection;
+    _document.transact((_) {
+      _body.delete(index);
+      if (_body.length == 0) {
+        final paragraph = _createTextBlock(RichDocumentBlockType.paragraph, '');
+        _body.insert(0, [paragraph.block]);
+        selection = paragraph.text;
+      } else {
+        final blocks = _body.toArray();
+        selection =
+            _firstXmlText(blocks[index.clamp(0, blocks.length - 1).toInt()]);
+      }
+    });
+    return selection;
+  }
+
+  yjs.YXmlText? _firstXmlText(Object? node) {
+    if (node is yjs.YXmlText) return node;
+    if (node is! yjs.YXmlFragment) return null;
+    for (final child in node.toArray()) {
+      final text = _firstXmlText(child);
+      if (text != null) return text;
+    }
+    return null;
+  }
+
   bool _supportsBlockBackground(yjs.YXmlElement block) =>
       richDocumentBlockBackgroundTypes.contains(block.name);
 
@@ -1293,6 +1498,24 @@ class DocumentCollaborationSession extends ChangeNotifier {
     status = DocumentCollaborationStatus.error;
     notifyListeners();
   }
+}
+
+class _RichTableSelection {
+  const _RichTableSelection({
+    required this.table,
+    required this.row,
+    required this.rows,
+    required this.cells,
+    required this.rowIndex,
+    required this.columnIndex,
+  });
+
+  final yjs.YXmlElement table;
+  final yjs.YXmlElement row;
+  final List<yjs.YXmlElement> rows;
+  final List<yjs.YXmlElement> cells;
+  final int rowIndex;
+  final int columnIndex;
 }
 
 const yjsMessageSync = yjs.messageSyncStep1;

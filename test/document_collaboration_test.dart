@@ -514,7 +514,155 @@ void main() {
     await session.close();
     serverDocument.destroy();
   });
+
+  test('标准富文档表格支持安全增删行列、删除整表和撤销重做', () async {
+    final channel = _FakeChannel();
+    final session = DocumentCollaborationSession(
+        serverUrl: 'https://chat.example.com',
+        token: 'session-token',
+        documentId: 'doc-table-structure',
+        documentType: 'document',
+        connector: (_, __) => channel);
+    await session.connect();
+    channel.emit(encodeHocuspocusAuthenticatedFrame(
+        documentName: 'doc-table-structure'));
+    await Future<void>.delayed(Duration.zero);
+    final serverDocument = yjs.Doc(yjs.DocOpts(guid: 'doc-table-structure'));
+    final incoming = yjs.createEncoder();
+    yjs.writeVarString(incoming, 'doc-table-structure');
+    yjs.writeVarUint(incoming, HocuspocusMessageType.sync);
+    yjs.writeSyncStep2(incoming, serverDocument);
+    channel.emit(yjs.toUint8Array(incoming));
+    await Future<void>.delayed(Duration.zero);
+
+    final first = session.insertTable(rows: 2, columns: 2)!;
+    final table = session.body
+        .toArray()
+        .whereType<yjs.YXmlElement>()
+        .where((element) => element.name == 'table')
+        .single;
+    final originalCell = _tableCells(_tableRows(table).first).first;
+    final unknown = yjs.YXmlElement('customCellBlock');
+    final unknownText = yjs.YXmlText()..insert(0, '保留未知内容');
+    unknown.insert(0, [unknownText]);
+    originalCell.insert(originalCell.length, [unknown]);
+    expect(session.isXmlTextInEditableTable(first), isTrue);
+
+    var result = session.editTable(first, RichDocumentTableAction.addRowAfter);
+    expect(result.changed, isTrue);
+    expect(_tableRows(table), hasLength(3));
+    expect(_tableCells(_tableRows(table)[1]).map((cell) => cell.name),
+        ['tableHeader', 'tableHeader']);
+
+    result = session.editTable(
+        result.selection!, RichDocumentTableAction.addRowBefore);
+    expect(_tableRows(table), hasLength(4));
+    result = session.editTable(
+        result.selection!, RichDocumentTableAction.addColumnAfter);
+    expect(_tableRows(table).map((row) => _tableCells(row).length),
+        everyElement(3));
+    result = session.editTable(
+        result.selection!, RichDocumentTableAction.addColumnBefore);
+    expect(_tableRows(table).map((row) => _tableCells(row).length),
+        everyElement(4));
+    expect(identical(unknown.parent, originalCell), isTrue);
+    expect(unknownText.toString(), '保留未知内容');
+
+    result =
+        session.editTable(result.selection!, RichDocumentTableAction.deleteRow);
+    expect(_tableRows(table), hasLength(3));
+    result = session.editTable(
+        result.selection!, RichDocumentTableAction.deleteColumn);
+    expect(_tableRows(table).map((row) => _tableCells(row).length),
+        everyElement(3));
+    expect(session.undo(), isTrue);
+    expect(_tableRows(table).map((row) => _tableCells(row).length),
+        everyElement(4));
+    expect(session.redo(), isTrue);
+    expect(_tableRows(table).map((row) => _tableCells(row).length),
+        everyElement(3));
+
+    result = session.editTable(
+        result.selection!, RichDocumentTableAction.deleteTable);
+    expect(result.changed, isTrue);
+    expect(
+        session.body.toArray().whereType<yjs.YXmlElement>().map((e) => e.name),
+        ['paragraph']);
+    expect(result.selection, isNotNull);
+    expect(session.undo(), isTrue);
+    final restoredTable = session.body
+        .toArray()
+        .whereType<yjs.YXmlElement>()
+        .where((element) => element.name == 'table')
+        .single;
+    expect(_tableRows(restoredTable), hasLength(3));
+    final restoredCell = _tableCells(_tableRows(restoredTable).first).first;
+    final restoredParagraph = restoredCell
+        .toArray()
+        .whereType<yjs.YXmlElement>()
+        .where((element) => element.name == 'paragraph')
+        .first;
+    final restoredFirst =
+        restoredParagraph.toArray().whereType<yjs.YXmlText>().single;
+
+    restoredCell.setAttribute('colspan', 2);
+    expect(session.isXmlTextInEditableTable(restoredFirst), isFalse);
+    expect(
+        session
+            .editTable(restoredFirst, RichDocumentTableAction.deleteColumn)
+            .changed,
+        isFalse);
+    expect(_tableRows(restoredTable).map((row) => _tableCells(row).length),
+        everyElement(3));
+
+    restoredCell.removeAttribute('colspan');
+    result =
+        session.editTable(restoredFirst, RichDocumentTableAction.deleteTable);
+    final onlyCell =
+        session.insertTable(near: result.selection, rows: 1, columns: 1)!;
+    result = session.editTable(onlyCell, RichDocumentTableAction.deleteColumn);
+    expect(result.selection, isNotNull);
+    expect(
+        session.body.toArray().whereType<yjs.YXmlElement>().map((e) => e.name),
+        ['paragraph']);
+    expect(session.undo(), isTrue);
+    final restoredOnlyTable = session.body
+        .toArray()
+        .whereType<yjs.YXmlElement>()
+        .where((element) => element.name == 'table')
+        .single;
+    final restoredOnlyCell =
+        _tableCells(_tableRows(restoredOnlyTable).single).single;
+    final restoredOnlyParagraph = restoredOnlyCell
+        .toArray()
+        .whereType<yjs.YXmlElement>()
+        .where((element) => element.name == 'paragraph')
+        .single;
+    final restoredOnlyText =
+        restoredOnlyParagraph.toArray().whereType<yjs.YXmlText>().single;
+    result =
+        session.editTable(restoredOnlyText, RichDocumentTableAction.deleteRow);
+    expect(result.selection, isNotNull);
+    expect(
+        session.body.toArray().whereType<yjs.YXmlElement>().map((e) => e.name),
+        ['paragraph']);
+
+    await session.close();
+    serverDocument.destroy();
+  });
 }
+
+List<yjs.YXmlElement> _tableRows(yjs.YXmlElement table) => table
+    .toArray()
+    .whereType<yjs.YXmlElement>()
+    .where((row) => row.name == 'tableRow')
+    .toList(growable: false);
+
+List<yjs.YXmlElement> _tableCells(yjs.YXmlElement row) => row
+    .toArray()
+    .whereType<yjs.YXmlElement>()
+    .where((cell) => cell.name == 'tableCell' || cell.name == 'tableHeader')
+    .toList(growable: false);
 
 void _insertParagraphs(yjs.YXmlFragment body, String value) {
   for (final line in value.split('\n')) {

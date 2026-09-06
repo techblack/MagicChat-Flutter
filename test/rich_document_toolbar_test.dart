@@ -149,6 +149,51 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('表格单元格工具栏提供行列和整表结构操作', (tester) async {
+    RichDocumentTableAction? selected;
+    await tester.binding.setSurfaceSize(const Size(420, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: RichDocumentInlineToolbar(
+                blockType: RichDocumentBlockType.paragraph,
+                marks: const {},
+                alignment: 'left',
+                onToggleMark: (_) {},
+                onTextColor: (_) {},
+                onHighlight: (_) {},
+                onAlignment: (_) {},
+                onTableAction: (action) => selected = action,
+                onEditLink: () {},
+                onClearFormatting: () {},
+                onTransform: (_) {},
+                onInsertBefore: () {},
+                onInsertAfter: () {},
+                onDelete: () {},
+                onDone: () {}))));
+
+    await tester.ensureVisible(find.byTooltip('表格结构'));
+    await tester.tap(find.byTooltip('表格结构'));
+    await tester.pumpAndSettle();
+    for (final label in [
+      '在上方插入行',
+      '在下方插入行',
+      '删除当前行',
+      '仅剩一行时删除表格',
+      '在左侧插入列',
+      '在右侧插入列',
+      '删除当前列',
+      '仅剩一列时删除表格',
+      '删除表格',
+    ]) {
+      expect(find.text(label), findsOneWidget);
+    }
+    await tester.tap(find.text('删除表格'));
+    await tester.pumpAndSettle();
+    expect(selected, RichDocumentTableAction.deleteTable);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('小屏分割线设置支持四种样式和 1 到 6 像素粗细', (tester) async {
     RichDocumentHorizontalRuleDialogResult? result;
     await tester.binding.setSurfaceSize(const Size(320, 520));

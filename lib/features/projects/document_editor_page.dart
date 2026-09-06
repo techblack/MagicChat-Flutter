@@ -408,6 +408,14 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     if (session.setXmlTextBlockBackground(node, color)) setState(() {});
   }
 
+  void _editRichTable(RichDocumentTableAction action) {
+    final session = widget.collaboration;
+    final node = _selectedRichText;
+    if (session == null || node == null) return;
+    final result = session.editTable(node, action);
+    if (result.changed) setState(() => _selectedRichText = result.selection);
+  }
+
   Future<void> _editRichTextLink() async {
     final session = widget.collaboration;
     final node = _selectedRichText;
@@ -733,6 +741,10 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                           onHighlight: _setRichTextHighlight,
                           onAlignment: _setRichTextAlignment,
                           onBlockBackground: _setRichBlockBackground,
+                          onTableAction: widget.collaboration!
+                                  .isXmlTextInEditableTable(selected)
+                              ? _editRichTable
+                              : null,
                           onEditLink: _editRichTextLink,
                           onClearFormatting: _clearRichTextFormatting,
                           onTransform: _transformRichTextBlock,
