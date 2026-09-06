@@ -176,6 +176,24 @@ void main() {
     expect(find.text('Bob'), findsOneWidget);
   });
 
+  testWidgets('点击群成员可查看完整资料并发起私聊', (tester) async {
+    final repository = _DetailsRepository.group('owner');
+    String? openedConversationId;
+    await _pumpDetails(tester, repository,
+        onOpenConversation: (id) => openedConversationId = id);
+
+    await tester.tap(find.text('Alice'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('联系人详情'), findsOneWidget);
+    expect(find.text('用户资料'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '发消息'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, '发消息'));
+    await tester.pumpAndSettle();
+    expect(openedConversationId, 'user-alice');
+  });
+
   testWidgets('普通群成员只能添加成员并退出群聊', (tester) async {
     final repository = _DetailsRepository.group('member');
     var removed = false;
