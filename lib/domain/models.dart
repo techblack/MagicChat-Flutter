@@ -1214,6 +1214,10 @@ class Contact {
     if (preferred.isNotEmpty && preferred != id) return preferred;
     final fallback = name.trim();
     if (fallback.isNotEmpty && fallback != id) return fallback;
+    final emailLabel = email.trim();
+    if (emailLabel.isNotEmpty && emailLabel != id) return emailLabel;
+    final phoneLabel = phone.trim();
+    if (phoneLabel.isNotEmpty && phoneLabel != id) return phoneLabel;
     return switch (type) {
       'app' => '应用',
       'group' => '群组',
