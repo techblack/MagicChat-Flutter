@@ -915,13 +915,20 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                               ),
                               const SizedBox(height: 16),
-                              Text('登录 MagicChat',
+                              Text(
+                                  _appInfo == null
+                                      ? '登录 MagicChat'
+                                      : '${_appInfo!.appName} 智能协作平台',
+                                  textAlign: TextAlign.center,
                                   style: Theme.of(context)
                                       .textTheme
                                       .headlineSmall),
                               const SizedBox(height: 6),
                               Text(
-                                '连接你的团队工作空间',
+                                _appInfo == null
+                                    ? '连接你的团队工作空间'
+                                    : '${_appInfo!.organizationName} 的工作空间',
+                                textAlign: TextAlign.center,
                                 style: Theme.of(context)
                                     .textTheme
                                     .bodyMedium

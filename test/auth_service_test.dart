@@ -39,6 +39,9 @@ void main() {
     final service = AuthService(
         client: MockClient((_) async => _jsonResponse({
               'data': {
+                'app_name': '星环协作',
+                'organization_name': '长亭科技',
+                'authenticated': false,
                 'password_login_enabled': true,
                 'email_code_login_enabled': false,
                 'third_party_providers': [
@@ -52,6 +55,22 @@ void main() {
 
     expect(info.thirdPartyProviders.single.key, 'oidc');
     expect(info.thirdPartyProviders.single.name, '企业 SSO');
+    expect(info.appName, '星环协作');
+    expect(info.organizationName, '长亭科技');
+    expect(info.authenticated, isFalse);
+  });
+
+  test('服务器品牌字段缺失时拒绝响应', () async {
+    final service = AuthService(
+        client: MockClient((_) async => _jsonResponse({
+              'data': {
+                'password_login_enabled': true,
+                'email_code_login_enabled': false,
+              }
+            })));
+
+    expect(service.fetchClientInfo(serverUrl: 'https://chat.example.com'),
+        throwsFormatException);
   });
 
   test('密码登录声明 Native Session 能力并保存返回 Token', () async {
