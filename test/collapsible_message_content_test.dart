@@ -6,6 +6,43 @@ import 'package:magicchat_client/features/messages/collapsible_message_content.d
 import 'package:magicchat_client/main.dart';
 
 void main() {
+  testWidgets('长内容首帧直接使用最终折叠高度且不创建尺寸动画', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(500, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 320,
+            child: CollapsibleMessageContent(
+              key: const ValueKey('stable-long-content'),
+              variant: CollapsibleMessageVariant.text,
+              contentIdentity: 'stable-long',
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.blue,
+              builder: (_) => const SizedBox(height: 520),
+            ),
+          ),
+        ),
+      ),
+    ));
+
+    final firstFrameHeight = tester
+        .getSize(find.byKey(const ValueKey('stable-long-content')))
+        .height;
+    expect(firstFrameHeight, lessThan(520));
+    expect(find.byType(AnimatedSize), findsNothing);
+
+    await tester.pump();
+    expect(find.text('展开'), findsOneWidget);
+    expect(
+        tester
+            .getSize(find.byKey(const ValueKey('stable-long-content')))
+            .height,
+        firstFrameHeight);
+  });
+
   testWidgets('长内容按平台阈值折叠并可展开收起', (tester) async {
     await tester.binding.setSurfaceSize(const Size(500, 700));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -90,6 +127,32 @@ void main() {
     expect(richText, contains('@Alice'));
     expect(richText, isNot(contains('{(@user/alice)}')));
   });
+
+  testWidgets('复杂长消息页面上翻后不会被后续布局拉回底部', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(600, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ConversationView(
+          repository: _ScrollableLongMessageRepository(),
+          conversationId: 'conversation-1',
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    final scrollable = find.byType(Scrollable).first;
+    final position = tester.state<ScrollableState>(scrollable).position;
+    position.jumpTo(position.maxScrollExtent);
+    await tester.pump();
+
+    await tester.drag(find.byType(ListView).first, const Offset(0, 360));
+    await tester.pump();
+    final distanceFromBottom = position.maxScrollExtent - position.pixels;
+    expect(distanceFromBottom, greaterThan(100));
+
+    await tester.pump(const Duration(seconds: 1));
+    expect(position.maxScrollExtent - position.pixels, greaterThan(80));
+  });
 }
 
 class _LongMessageRepository extends DemoRepository {
@@ -127,4 +190,22 @@ class _LongMessageRepository extends DemoRepository {
   Future<List<ChatConversation>> conversations() async => const [
         ChatConversation(id: 'conversation-1', title: '项目群', type: 'group'),
       ];
+}
+
+class _ScrollableLongMessageRepository extends _LongMessageRepository {
+  @override
+  Future<List<ChatMessage>> messages(String conversationId,
+          {int? beforeSeq, int limit = 50}) async =>
+      List.generate(
+        16,
+        (index) => ChatMessage(
+          id: 'long-$index',
+          conversationId: conversationId,
+          sequence: index + 1,
+          author: 'Alice',
+          contentType: index.isEven ? 'markdown' : 'text',
+          text: List.generate(24, (line) => '${index + 1}-${line + 1} 复杂消息内容')
+              .join('\n'),
+        ),
+      );
 }

@@ -64,6 +64,7 @@
 
 ## 未发布
 
+- 修复 Android 特定长文本/Markdown 会话上翻后被拉回底部：复杂消息首帧直接按折叠高度裁剪，移除尺寸动画，并在用户触摸或滚动后取消所有异步底部校正。
 - Android、iOS、macOS、Windows、Linux 和 Web 统一使用 MagicChat 品牌气泡图标。
 - Windows、macOS 和 Linux 新增系统托盘；关闭窗口后可从托盘恢复或退出，Windows/Linux 托盘菜单按通知隐私展示并直达未读会话。
 - Android 检查到新版本后可在应用内下载 APK、查看进度、取消下载并直接打开系统安装器；其他平台继续使用下载页。

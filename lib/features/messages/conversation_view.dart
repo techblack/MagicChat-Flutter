@@ -212,6 +212,8 @@ class _ConversationViewState extends State<ConversationView>
   Offset? _messagePointerDownPosition;
   bool _messagePointerMoved = false;
   bool _messagePointerActive = false;
+  bool _listPointerActive = false;
+  int _scrollInteractionGeneration = 0;
   Timer? _typingHeartbeat;
   bool _typingStatusInFlight = false;
 
@@ -405,6 +407,7 @@ class _ConversationViewState extends State<ConversationView>
 
   Future<void> _refreshConversationContacts() async {
     final conversationId = widget.conversationId;
+    final expectedScrollGeneration = _scrollInteractionGeneration;
     try {
       final fresh = await _fetchConversationContacts();
       if (!mounted ||
@@ -412,8 +415,9 @@ class _ConversationViewState extends State<ConversationView>
           widget.conversationId != conversationId) {
         return;
       }
-      final keepBottom =
-          _positionedConversationId == conversationId && _isAtBottom();
+      final keepBottom = !_listPointerActive &&
+          _positionedConversationId == conversationId &&
+          _isAtBottom();
       final offset = _scrollController.hasClients
           ? _scrollController.position.pixels
           : 0.0;
@@ -422,7 +426,9 @@ class _ConversationViewState extends State<ConversationView>
       });
       if (keepBottom) {
         _correctLatestPosition(conversationId,
-            force: true, expectedOffset: offset);
+            force: true,
+            expectedOffset: offset,
+            expectedScrollGeneration: expectedScrollGeneration);
       }
     } catch (_) {
       // 保留本地资料，网络刷新失败不影响消息显示。
@@ -798,7 +804,9 @@ class _ConversationViewState extends State<ConversationView>
   }
 
   Future<void> _refreshMessages(String id) async {
-    final keepBottom = _positionedConversationId == id && _isAtBottom();
+    final expectedScrollGeneration = _scrollInteractionGeneration;
+    final keepBottom =
+        !_listPointerActive && _positionedConversationId == id && _isAtBottom();
     final offset =
         _scrollController.hasClients ? _scrollController.position.pixels : 0.0;
     final fresh = await widget.repository.messages(id);
@@ -826,7 +834,10 @@ class _ConversationViewState extends State<ConversationView>
       _messagesFuture = Future.value(merged);
     });
     if (keepBottom) {
-      _correctLatestPosition(id, force: true, expectedOffset: offset);
+      _correctLatestPosition(id,
+          force: true,
+          expectedOffset: offset,
+          expectedScrollGeneration: expectedScrollGeneration);
     }
     unawaited(_refreshMessageSnapshots(id, merged));
   }
@@ -909,8 +920,10 @@ class _ConversationViewState extends State<ConversationView>
 
   Future<void> _refreshMessageSnapshots(
       String conversationId, List<ChatMessage> messages) async {
-    final keepBottom =
-        _positionedConversationId == conversationId && _isAtBottom();
+    final expectedScrollGeneration = _scrollInteractionGeneration;
+    final keepBottom = !_listPointerActive &&
+        _positionedConversationId == conversationId &&
+        _isAtBottom();
     final offset =
         _scrollController.hasClients ? _scrollController.position.pixels : 0.0;
     final updated = await _applyMessageSnapshots(conversationId, messages);
@@ -928,7 +941,9 @@ class _ConversationViewState extends State<ConversationView>
     });
     if (keepBottom) {
       _correctLatestPosition(conversationId,
-          force: true, expectedOffset: offset);
+          force: true,
+          expectedOffset: offset,
+          expectedScrollGeneration: expectedScrollGeneration);
     }
   }
 
@@ -1134,6 +1149,7 @@ class _ConversationViewState extends State<ConversationView>
     _lastOlderBeforeSeq = first.sequence;
     final anchorOffset = _scrollController.position.pixels;
     final anchorMaxExtent = _scrollController.position.maxScrollExtent;
+    final anchorScrollGeneration = _scrollInteractionGeneration;
     setState(() => _loadingOlder = true);
     try {
       final olderPage = await widget.repository
@@ -1162,7 +1178,11 @@ class _ConversationViewState extends State<ConversationView>
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted ||
                 widget.conversationId != id ||
-                !_scrollController.hasClients) return;
+                !_scrollController.hasClients ||
+                _listPointerActive ||
+                anchorScrollGeneration != _scrollInteractionGeneration) {
+              return;
+            }
             final currentOffset = _scrollController.position.pixels;
             if ((currentOffset - anchorOffset).abs() > 24) return;
             final delta =
@@ -1189,6 +1209,7 @@ class _ConversationViewState extends State<ConversationView>
     if (messages.isEmpty) return;
     _positioningConversationId = conversationId;
     final generation = _positionGeneration;
+    final expectedScrollGeneration = _scrollInteractionGeneration;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
           widget.conversationId != conversationId ||
@@ -1196,7 +1217,12 @@ class _ConversationViewState extends State<ConversationView>
       _positioningConversationId = null;
       _initialPositionPending = false;
       _positionedConversationId = conversationId;
+      if (expectedScrollGeneration != _scrollInteractionGeneration) {
+        _requestLatestRead(conversationId, messages);
+        return;
+      }
       if (!_userScrolledDuringInitialPosition &&
+          !_listPointerActive &&
           !_messagePointerActive &&
           _scrollController.hasClients) {
         _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
@@ -1212,12 +1238,16 @@ class _ConversationViewState extends State<ConversationView>
           48;
 
   void _correctLatestPosition(String conversationId,
-      {bool force = false, double? expectedOffset}) {
+      {bool force = false,
+      double? expectedOffset,
+      required int expectedScrollGeneration}) {
     final generation = _positionGeneration;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
           widget.conversationId != conversationId ||
           generation != _positionGeneration ||
+          expectedScrollGeneration != _scrollInteractionGeneration ||
+          _listPointerActive ||
           _messagePointerActive) return;
       final unchanged = expectedOffset == null ||
           (_scrollController.hasClients &&
@@ -1769,6 +1799,38 @@ class _ConversationViewState extends State<ConversationView>
     _messagePointerMoved = false;
   }
 
+  void _onListPointerDown(PointerDownEvent event) {
+    _listPointerActive = true;
+    _scrollInteractionGeneration++;
+    if (_initialPositionPending) _userScrolledDuringInitialPosition = true;
+  }
+
+  void _onListPointerUp(PointerUpEvent event) {
+    _listPointerActive = false;
+  }
+
+  void _onListPointerCancel(PointerCancelEvent event) {
+    _listPointerActive = false;
+  }
+
+  void _onListPointerSignal(PointerSignalEvent event) {
+    _scrollInteractionGeneration++;
+    if (_initialPositionPending) _userScrolledDuringInitialPosition = true;
+  }
+
+  bool _onListScrollNotification(ScrollNotification notification) {
+    if (notification is ScrollUpdateNotification &&
+        notification.dragDetails != null) {
+      _scrollInteractionGeneration++;
+    }
+    if (_initialPositionPending &&
+        notification is UserScrollNotification &&
+        notification.direction != ScrollDirection.idle) {
+      _userScrolledDuringInitialPosition = true;
+    }
+    return false;
+  }
+
   BoxDecoration _conversationBackground(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final background = widget.conversationAppearance?.background ??
@@ -1863,138 +1925,141 @@ class _ConversationViewState extends State<ConversationView>
                     if (allMessages.isEmpty) {
                       return const _ConversationEmptyState();
                     }
-                    return NotificationListener<UserScrollNotification>(
-                      onNotification: (notification) {
-                        if (_initialPositionPending &&
-                            notification.direction != ScrollDirection.idle) {
-                          _userScrolledDuringInitialPosition = true;
-                        }
-                        return false;
-                      },
-                      child: ListView.builder(
-                        controller: _scrollController,
-                        cacheExtent: 480,
-                        addAutomaticKeepAlives: false,
-                        addRepaintBoundaries: true,
-                        padding: const EdgeInsets.fromLTRB(8, 16, 8, 12),
-                        itemCount: allMessages.length,
-                        itemBuilder: (context, index) {
-                          final message = allMessages[index];
-                          final optimistic =
-                              _timelineOptimisticById[message.id];
-                          if (optimistic != null) {
+                    return Listener(
+                      behavior: HitTestBehavior.translucent,
+                      onPointerDown: _onListPointerDown,
+                      onPointerUp: _onListPointerUp,
+                      onPointerCancel: _onListPointerCancel,
+                      onPointerSignal: _onListPointerSignal,
+                      child: NotificationListener<ScrollNotification>(
+                        onNotification: _onListScrollNotification,
+                        child: ListView.builder(
+                          controller: _scrollController,
+                          cacheExtent: 480,
+                          addAutomaticKeepAlives: false,
+                          addRepaintBoundaries: true,
+                          padding: const EdgeInsets.fromLTRB(8, 16, 8, 12),
+                          itemCount: allMessages.length,
+                          itemBuilder: (context, index) {
+                            final message = allMessages[index];
+                            final optimistic =
+                                _timelineOptimisticById[message.id];
+                            if (optimistic != null) {
+                              return Align(
+                                key: _messageKey(message.id),
+                                alignment: Alignment.centerRight,
+                                child: _OptimisticMessageBubble(
+                                  item: optimistic,
+                                  contactsFuture: _contactsFuture,
+                                  chatAppearance: widget.chatAppearance,
+                                  conversationAppearance:
+                                      widget.conversationAppearance,
+                                  onRetry: () => _retryOptimisticMessage(
+                                      optimistic.descriptor.clientMessageId),
+                                ),
+                              );
+                            }
                             return Align(
                               key: _messageKey(message.id),
-                              alignment: Alignment.centerRight,
-                              child: _OptimisticMessageBubble(
-                                item: optimistic,
-                                contactsFuture: _contactsFuture,
-                                chatAppearance: widget.chatAppearance,
-                                conversationAppearance:
-                                    widget.conversationAppearance,
-                                onRetry: () => _retryOptimisticMessage(
-                                    optimistic.descriptor.clientMessageId),
-                              ),
-                            );
-                          }
-                          return Align(
-                            key: _messageKey(message.id),
-                            alignment: message.contentType == 'system_event'
-                                ? Alignment.center
-                                : message.mine
-                                    ? Alignment.centerRight
-                                    : Alignment.centerLeft,
-                            child: GestureDetector(
-                              onTap: _selectedMessageIds.isEmpty ||
-                                      !_canForwardOrSelect(message)
-                                  ? null
-                                  : () => setState(() {
-                                        if (!_selectedMessageIds
-                                            .remove(message.id)) {
-                                          if (_selectedMessageIds.length >=
-                                              _maxSelectedMessages) return;
-                                          _selectedMessageIds.add(message.id);
-                                        }
-                                      }),
-                              onLongPress: () {
-                                if (_selectedMessageIds.isNotEmpty) {
-                                  if (!_canForwardOrSelect(message)) return;
-                                  if (_selectedMessageIds.length >=
-                                      _maxSelectedMessages) return;
-                                  setState(() =>
-                                      _selectedMessageIds.add(message.id));
-                                } else if (_hasMessageActions(message)) {
-                                  _showMessageActions(conversationId, message);
-                                }
-                              },
-                              child: Listener(
-                                onPointerDown: _onMessagePointerDown,
-                                onPointerMove: _onMessagePointerMove,
-                                onPointerUp: (event) =>
-                                    _onMessagePointerUp(event, message),
-                                onPointerCancel: _onMessagePointerCancel,
-                                child: Dismissible(
-                                  key: ValueKey('message-swipe-${message.id}'),
-                                  direction: _canReplyToMessage(
-                                          conversationId, message)
-                                      ? DismissDirection.endToStart
-                                      : DismissDirection.none,
-                                  resizeDuration: null,
-                                  dismissThresholds: const {
-                                    DismissDirection.endToStart: .25,
-                                  },
-                                  confirmDismiss: (_) async {
-                                    _replyToMessage(conversationId, message);
-                                    return false;
-                                  },
-                                  background: const SizedBox.shrink(),
-                                  secondaryBackground: Container(
-                                    alignment: Alignment.centerRight,
-                                    padding: const EdgeInsets.only(right: 18),
-                                    child: const Icon(Icons.reply),
+                              alignment: message.contentType == 'system_event'
+                                  ? Alignment.center
+                                  : message.mine
+                                      ? Alignment.centerRight
+                                      : Alignment.centerLeft,
+                              child: GestureDetector(
+                                onTap: _selectedMessageIds.isEmpty ||
+                                        !_canForwardOrSelect(message)
+                                    ? null
+                                    : () => setState(() {
+                                          if (!_selectedMessageIds
+                                              .remove(message.id)) {
+                                            if (_selectedMessageIds.length >=
+                                                _maxSelectedMessages) return;
+                                            _selectedMessageIds.add(message.id);
+                                          }
+                                        }),
+                                onLongPress: () {
+                                  if (_selectedMessageIds.isNotEmpty) {
+                                    if (!_canForwardOrSelect(message)) return;
+                                    if (_selectedMessageIds.length >=
+                                        _maxSelectedMessages) return;
+                                    setState(() =>
+                                        _selectedMessageIds.add(message.id));
+                                  } else if (_hasMessageActions(message)) {
+                                    _showMessageActions(
+                                        conversationId, message);
+                                  }
+                                },
+                                child: Listener(
+                                  onPointerDown: _onMessagePointerDown,
+                                  onPointerMove: _onMessagePointerMove,
+                                  onPointerUp: (event) =>
+                                      _onMessagePointerUp(event, message),
+                                  onPointerCancel: _onMessagePointerCancel,
+                                  child: Dismissible(
+                                    key:
+                                        ValueKey('message-swipe-${message.id}'),
+                                    direction: _canReplyToMessage(
+                                            conversationId, message)
+                                        ? DismissDirection.endToStart
+                                        : DismissDirection.none,
+                                    resizeDuration: null,
+                                    dismissThresholds: const {
+                                      DismissDirection.endToStart: .25,
+                                    },
+                                    confirmDismiss: (_) async {
+                                      _replyToMessage(conversationId, message);
+                                      return false;
+                                    },
+                                    background: const SizedBox.shrink(),
+                                    secondaryBackground: Container(
+                                      alignment: Alignment.centerRight,
+                                      padding: const EdgeInsets.only(right: 18),
+                                      child: const Icon(Icons.reply),
+                                    ),
+                                    child: Container(
+                                        padding: _highlightedMessageId == message.id
+                                            ? const EdgeInsets.all(2)
+                                            : EdgeInsets.zero,
+                                        decoration: _highlightedMessageId ==
+                                                message.id
+                                            ? BoxDecoration(
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .primaryContainer
+                                                    .withValues(alpha: .65),
+                                                borderRadius:
+                                                    BorderRadius.circular(18))
+                                            : null,
+                                        child: _MessageBubble(
+                                            message: message,
+                                            replyTarget: _confirmedTimelineById[
+                                                    message.replyTo?.id] ??
+                                                _replyTargetsById[
+                                                    message.replyTo?.id],
+                                            repository: widget.repository,
+                                            conversationId: conversationId,
+                                            galleryMessages:
+                                                _confirmedTimelineMessages,
+                                            galleryHasOlder: _hasMoreOlder,
+                                            canReact: _topicIsOpen(conversationId),
+                                            canRespond: canSend,
+                                            onOpenTopic: widget.onOpenConversation,
+                                            onOpenInternalLink: widget.onOpenInternalLink,
+                                            onForwardMessage: (id) => _showForwardDialog(conversationId, [id]),
+                                            contactsFuture: _contactsFuture,
+                                            onReeditMessage: _reeditMessage,
+                                            cacheScope: widget.cacheScope,
+                                            chatAppearance: widget.chatAppearance,
+                                            conversationAppearance: widget.conversationAppearance,
+                                            preloadedImages: _preloadedImages,
+                                            preloadedAttachmentUrls: _preloadedAttachmentUrls)),
                                   ),
-                                  child: Container(
-                                      padding: _highlightedMessageId == message.id
-                                          ? const EdgeInsets.all(2)
-                                          : EdgeInsets.zero,
-                                      decoration:
-                                          _highlightedMessageId == message.id
-                                              ? BoxDecoration(
-                                                  color: Theme.of(context)
-                                                      .colorScheme
-                                                      .primaryContainer
-                                                      .withValues(alpha: .65),
-                                                  borderRadius:
-                                                      BorderRadius.circular(18))
-                                              : null,
-                                      child: _MessageBubble(
-                                          message: message,
-                                          replyTarget: _confirmedTimelineById[
-                                                  message.replyTo?.id] ??
-                                              _replyTargetsById[
-                                                  message.replyTo?.id],
-                                          repository: widget.repository,
-                                          conversationId: conversationId,
-                                          galleryMessages:
-                                              _confirmedTimelineMessages,
-                                          galleryHasOlder: _hasMoreOlder,
-                                          canReact: _topicIsOpen(conversationId),
-                                          canRespond: canSend,
-                                          onOpenTopic: widget.onOpenConversation,
-                                          onOpenInternalLink: widget.onOpenInternalLink,
-                                          onForwardMessage: (id) => _showForwardDialog(conversationId, [id]),
-                                          contactsFuture: _contactsFuture,
-                                          onReeditMessage: _reeditMessage,
-                                          cacheScope: widget.cacheScope,
-                                          chatAppearance: widget.chatAppearance,
-                                          conversationAppearance: widget.conversationAppearance,
-                                          preloadedImages: _preloadedImages,
-                                          preloadedAttachmentUrls: _preloadedAttachmentUrls)),
                                 ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
                     );
                   },
