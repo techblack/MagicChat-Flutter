@@ -73,7 +73,8 @@ void main() {
     expect(session.xmlTextAlignment(sourceText), 'center');
     await tester.tap(find.byTooltip('段落背景'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('红色 100'));
+    await tester.tap(
+        find.byKey(const ValueKey('rich-document-block-background-swatch-0')));
     await tester.pumpAndSettle();
     const background = 'oklch(93.6% 0.032 17.717)';
     expect(session.xmlTextBlockBackground(sourceText), background);

@@ -98,10 +98,8 @@ void main() {
 
     final background = tester.widget<RichDocumentBlockBackground>(
         find.byType(RichDocumentBlockBackground));
-    expect(
-        background.color,
-        richDocumentBlockBackgroundDisplayColor(
-            'oklch(93.6% 0.032 17.717)'));
+    expect(background.color,
+        richDocumentBlockBackgroundDisplayColor('oklch(93.6% 0.032 17.717)'));
     expect(find.byType(RichDocumentBlockBackground), findsOneWidget);
     expect(find.text('普通正文'), findsOneWidget);
     document.destroy();
@@ -126,9 +124,7 @@ void main() {
           find.byType(RichDocumentBlockBackground));
       expect(background.foregroundColor, Colors.white);
       expect(
-          DefaultTextStyle.of(tester.element(find.text('深色背景正文')))
-              .style
-              .color,
+          DefaultTextStyle.of(tester.element(find.text('深色背景正文'))).style.color,
           Colors.white);
       expect(_contrastRatio(background.color, background.foregroundColor),
           greaterThanOrEqualTo(4.5));
@@ -175,10 +171,8 @@ void main() {
 }
 
 double _contrastRatio(Color background, Color foreground) {
-  final values = [
-    background.computeLuminance(),
-    foreground.computeLuminance()
-  ]..sort();
+  final values = [background.computeLuminance(), foreground.computeLuminance()]
+    ..sort();
   return (values.last + .05) / (values.first + .05);
 }
 

@@ -61,11 +61,9 @@ class RichDocumentView extends StatelessWidget {
       case 'heading':
         return _withBlockBackground(node, _heading(context, node));
       case 'bulletList':
-        return _withBlockBackground(
-            node, _list(context, node, ordered: false));
+        return _withBlockBackground(node, _list(context, node, ordered: false));
       case 'orderedList':
-        return _withBlockBackground(
-            node, _list(context, node, ordered: true));
+        return _withBlockBackground(node, _list(context, node, ordered: true));
       case 'taskList':
         return _withBlockBackground(node, _list(context, node, task: true));
       case 'blockquote':

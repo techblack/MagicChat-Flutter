@@ -266,8 +266,7 @@ void main() {
         background);
 
     final sentBeforeInvalid = channel.sent.length;
-    expect(
-        session.setXmlTextBlockBackground(text, 'red; position: fixed'),
+    expect(session.setXmlTextBlockBackground(text, 'red; position: fixed'),
         isFalse);
     expect(channel.sent, hasLength(sentBeforeInvalid));
     expect(session.setXmlTextBlockBackground(text, null), isTrue);
@@ -361,8 +360,7 @@ void main() {
     expect(markedParagraph.getAttribute('blockBackgroundColor'), background);
     expect(session.xmlTextBlockBackground(markedText), background);
     expect(
-        session.setXmlTextBlockBackground(
-            markedText, 'red; position: fixed'),
+        session.setXmlTextBlockBackground(markedText, 'red; position: fixed'),
         isFalse);
     expect(markedParagraph.getAttribute('blockBackgroundColor'), background);
 

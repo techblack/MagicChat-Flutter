@@ -285,46 +285,114 @@ class RichDocumentInlineToolbar extends StatelessWidget {
     );
   }
 
-  Widget _blockBackgroundTool(BuildContext context) => PopupMenuButton<String>(
+  Widget _blockBackgroundTool(BuildContext context) => IconButton(
         tooltip: '段落背景',
-        enabled: onBlockBackground != null,
-        onSelected: (value) =>
-            onBlockBackground?.call(value.isEmpty ? null : value),
-        itemBuilder: (_) => [
-          PopupMenuItem(
-            value: '',
-            child: Row(children: [
-              Icon(Icons.restart_alt,
-                  size: 18, color: Theme.of(context).colorScheme.onSurface),
-              const SizedBox(width: 10),
-              const Text('无段落背景'),
-            ]),
-          ),
-          for (final color in richDocumentBlockBackgroundColors)
-            PopupMenuItem(
-              value: color.value,
-              child: Row(children: [
-                Container(
-                  width: 18,
-                  height: 18,
-                  decoration: BoxDecoration(
-                      color: richDocumentBlockBackgroundDisplayColor(
-                          color.value),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.black12)),
-                ),
-                const SizedBox(width: 10),
-                Text(color.label),
-                if (blockBackground == color.value) ...[
-                  const Spacer(),
-                  const Icon(Icons.check, size: 18),
-                ],
-              ]),
-            ),
-        ],
+        onPressed: onBlockBackground == null
+            ? null
+            : () async {
+                final value = await _showBlockBackgroundPicker(context);
+                if (value != null) {
+                  onBlockBackground!(value.isEmpty ? null : value);
+                }
+              },
         icon: Icon(Icons.format_color_fill,
             size: 20,
             color: richDocumentBlockBackgroundDisplayColor(blockBackground)),
+      );
+
+  Future<String?> _showBlockBackgroundPicker(BuildContext context) =>
+      showDialog<String>(
+        context: context,
+        builder: (dialogContext) => Dialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 12),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 336),
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton.icon(
+                    onPressed: () => Navigator.pop(dialogContext, ''),
+                    icon: const Icon(Icons.restart_alt, size: 18),
+                    label: const Text('无段落背景'),
+                  ),
+                ),
+                const Divider(height: 8),
+                Semantics(
+                  label: '段落背景色板',
+                  child: SizedBox(
+                    width: 320,
+                    child: AspectRatio(
+                      aspectRatio: 2,
+                      child: GridView.builder(
+                        key: const ValueKey(
+                            'rich-document-block-background-grid'),
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 10,
+                          crossAxisSpacing: 2,
+                          mainAxisSpacing: 2,
+                        ),
+                        itemCount: richDocumentBlockBackgroundColors.length,
+                        itemBuilder: (context, index) {
+                          final color =
+                              richDocumentBlockBackgroundColors[index];
+                          final display =
+                              richDocumentBlockBackgroundDisplayColor(
+                                  color.value)!;
+                          final selected = blockBackground == color.value;
+                          return Tooltip(
+                            message: color.label,
+                            child: Semantics(
+                              key: ValueKey(
+                                  'rich-document-block-background-swatch-$index'),
+                              button: true,
+                              selected: selected,
+                              label: '段落背景：${color.label}',
+                              child: InkResponse(
+                                onTap: () =>
+                                    Navigator.pop(dialogContext, color.value),
+                                containedInkWell: true,
+                                customBorder: const CircleBorder(),
+                                child: Center(
+                                  child: Container(
+                                    width: 22,
+                                    height: 22,
+                                    decoration: BoxDecoration(
+                                      color: display,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: selected
+                                            ? Theme.of(context)
+                                                .colorScheme
+                                                .primary
+                                            : Colors.black12,
+                                        width: selected ? 3 : 1,
+                                      ),
+                                    ),
+                                    child: selected
+                                        ? Icon(Icons.check,
+                                            size: 14,
+                                            color:
+                                                richDocumentBlockForegroundColor(
+                                                    display))
+                                        : null,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+              ]),
+            ),
+          ),
+        ),
       );
 
   Widget _alignmentTool() => PopupMenuButton<String>(

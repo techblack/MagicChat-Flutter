@@ -60,12 +60,17 @@ Color? richDocumentBlockBackgroundDisplayColor(Object? value) {
   final l = lRoot * lRoot * lRoot;
   final m = mRoot * mRoot * mRoot;
   final s = sRoot * sRoot * sRoot;
-  return Color.from(
-    alpha: 1,
-    red: _linearSrgb(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
-    green: _linearSrgb(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
-    blue: _linearSrgb(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s),
-  );
+  return Color.fromARGB(
+      255,
+      (_linearSrgb(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s) *
+              255)
+          .round(),
+      (_linearSrgb(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s) *
+              255)
+          .round(),
+      (_linearSrgb(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s) *
+              255)
+          .round());
 }
 
 double _linearSrgb(double value) => (value <= 0.0031308

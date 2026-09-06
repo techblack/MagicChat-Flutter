@@ -336,8 +336,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
       _formatPainterMarks =
           Map<String, Object?>.from(session.xmlTextMarks(source));
       _formatPainterAlignment = session.xmlTextAlignment(source);
-      _formatPainterBlockBackground =
-          session.xmlTextBlockBackground(source);
+      _formatPainterBlockBackground = session.xmlTextBlockBackground(source);
       _formatPainterSource = source;
     });
   }
