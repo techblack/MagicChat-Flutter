@@ -13,13 +13,16 @@ struct _MyApplication {
   GtkWindow* window;
   FlMethodChannel* desktop_window_channel;
   gboolean tray_ready;
+  gboolean start_hidden;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
-  gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
+  if (!self->start_hidden) {
+    gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
+  }
 }
 
 static gboolean window_delete_cb(GtkWidget* widget, GdkEvent* event,
@@ -148,6 +151,13 @@ static gboolean my_application_local_command_line(GApplication* application,
                                                   gchar*** arguments,
                                                   int* exit_status) {
   MyApplication* self = MY_APPLICATION(application);
+  self->start_hidden = FALSE;
+  for (gchar** argument = *arguments + 1; *argument != nullptr; argument++) {
+    if (g_strcmp0(*argument, "--hidden") == 0) {
+      self->start_hidden = TRUE;
+      break;
+    }
+  }
   // Strip out the first argument as it is the binary name.
   self->dart_entrypoint_arguments = g_strdupv(*arguments + 1);
 
@@ -201,6 +211,7 @@ static void my_application_class_init(MyApplicationClass* klass) {
 
 static void my_application_init(MyApplication* self) {
   self->tray_ready = FALSE;
+  self->start_hidden = FALSE;
 }
 
 MyApplication* my_application_new() {

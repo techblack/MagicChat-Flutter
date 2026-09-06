@@ -6,9 +6,12 @@ import 'package:flutter/foundation.dart';
 import '../domain/models.dart';
 import 'chat_preferences.dart';
 import 'desktop_tray_model.dart';
+import 'desktop_system_tray_types.dart';
 import 'desktop_window_controller.dart';
 
-class DesktopSystemTray with DesktopTrayListener {
+class DesktopSystemTray
+    with DesktopTrayListener
+    implements DesktopSystemTrayController {
   DesktopSystemTray({
     DesktopWindowController? windowController,
     TargetPlatform? platform,
@@ -34,17 +37,18 @@ class DesktopSystemTray with DesktopTrayListener {
       _targetPlatform == TargetPlatform.macOS ||
       _targetPlatform == TargetPlatform.linux;
 
+  @override
   Future<bool> initialize({
     required void Function(String conversationId) onOpenConversation,
   }) async {
     if (!_isDesktop) return false;
-    if (_targetPlatform == TargetPlatform.linux &&
-        !await desktopTray.checkAvailable()) {
-      return false;
-    }
-    _onOpenConversation = onOpenConversation;
-    desktopTray.addListener(this);
     try {
+      if (_targetPlatform == TargetPlatform.linux &&
+          !await desktopTray.checkAvailable()) {
+        return false;
+      }
+      _onOpenConversation = onOpenConversation;
+      desktopTray.addListener(this);
       await desktopTray.setIcon(_iconAsset);
       _initialized = true;
       await _refresh();
@@ -53,20 +57,25 @@ class DesktopSystemTray with DesktopTrayListener {
     } catch (_) {
       _initialized = false;
       desktopTray.removeListener(this);
-      await desktopTray.destroy();
+      try {
+        await desktopTray.destroy();
+      } catch (_) {
+        // 托盘后端不可用时由启动流程恢复主窗口。
+      }
       return false;
     }
   }
 
+  @override
   Future<void> update({
     required int unreadCount,
     required Iterable<ChatConversation> conversations,
     required MessageNotificationPrivacy privacy,
     Iterable<Contact> contacts = const [],
   }) async {
-    if (!_initialized) return;
     _unreadCount = unreadCount.clamp(0, 9999).toInt();
     _messages = desktopTrayMessages(conversations, privacy, contacts: contacts);
+    if (!_initialized) return;
     _refreshQueue = _refreshQueue.then(
       (_) => _refresh(),
       onError: (_) => _refresh(),
@@ -110,6 +119,7 @@ class DesktopSystemTray with DesktopTrayListener {
   }
 
   @visibleForTesting
+  @override
   Future<void> handleMenuAction(String? key) async {
     if (key == 'show') {
       await _windowController.show();
@@ -127,6 +137,7 @@ class DesktopSystemTray with DesktopTrayListener {
     }
   }
 
+  @override
   Future<void> dispose() async {
     if (!_initialized) return;
     _initialized = false;

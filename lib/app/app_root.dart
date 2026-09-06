@@ -26,18 +26,27 @@ Uri buildThirdPartyLoginUri(String serverUrl, String providerKey) {
       'api/client/auth/third-party/${Uri.encodeComponent(providerKey)}/start?redirect=/init');
 }
 
-Future<void> main() async {
+Future<void> main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
   if (!kIsWeb &&
       kReleaseMode &&
       defaultTargetPlatform == TargetPlatform.macOS) {
     await FilePicker.skipEntitlementsChecks();
   }
-  runApp(const MagicChatApp());
+  runApp(MagicChatApp(launchArguments: arguments));
 }
 
 class MagicChatApp extends StatefulWidget {
-  const MagicChatApp({super.key});
+  const MagicChatApp(
+      {this.launchArguments = const [],
+      this.desktopAutoLaunch,
+      this.desktopTray,
+      this.desktopWindowController,
+      super.key});
+  final List<String> launchArguments;
+  final DesktopAutoLaunchController? desktopAutoLaunch;
+  final DesktopSystemTrayController? desktopTray;
+  final DesktopWindowController? desktopWindowController;
   @override
   State<MagicChatApp> createState() => _MagicChatAppState();
 }
@@ -56,11 +65,58 @@ class _MagicChatAppState extends State<MagicChatApp> {
   String? _loginError;
   bool _loading = true;
   bool _sessionExpiring = false;
+  late final DesktopAutoLaunchController _desktopAutoLaunch;
+  late final DesktopSystemTrayController _desktopTray;
+  late final DesktopWindowController _desktopWindowController;
+  String? _trayConversationId;
+  int _trayOpenRequest = 0;
 
   @override
   void initState() {
     super.initState();
+    _desktopAutoLaunch = widget.desktopAutoLaunch ?? DesktopAutoLaunchService();
+    _desktopTray = widget.desktopTray ?? DesktopSystemTray();
+    _desktopWindowController = widget.desktopWindowController ??
+        const PlatformDesktopWindowController();
+    unawaited(_initializeDesktopIntegration());
     _restoreSession();
+  }
+
+  Future<void> _initializeDesktopIntegration() async {
+    var trayReady = false;
+    try {
+      trayReady =
+          await _desktopTray.initialize(onOpenConversation: (conversationId) {
+        if (!mounted) return;
+        setState(() {
+          _trayConversationId = conversationId;
+          _trayOpenRequest++;
+        });
+      });
+    } catch (_) {
+      trayReady = false;
+    }
+    final hiddenRequested = isHiddenDesktopLaunch(widget.launchArguments);
+    if (!hiddenRequested) return;
+    var enabled = false;
+    try {
+      enabled = _desktopAutoLaunch.isSupported &&
+          await _desktopAutoLaunch.isEnabled();
+    } catch (_) {
+      enabled = false;
+    }
+    if (!shouldKeepDesktopLaunchHidden(
+        hiddenRequested: hiddenRequested,
+        autoLaunchEnabled: enabled,
+        trayReady: trayReady)) {
+      try {
+        await _desktopWindowController.show();
+      } on PlatformException {
+        // 非桌面平台不会收到系统自启动参数。
+      } on MissingPluginException {
+        // Runner 尚未提供窗口桥接时沿用平台默认显示行为。
+      }
+    }
   }
 
   Future<void> _restoreSession() async {
@@ -484,8 +540,17 @@ class _MagicChatAppState extends State<MagicChatApp> {
                     onMessageSoundChanged: _setMessageSoundEnabled,
                     notificationPrivacy: _notificationPrivacy,
                     onNotificationPrivacyChanged: _setNotificationPrivacy,
+                    desktopTray: _desktopTray,
+                    trayConversationId: _trayConversationId,
+                    trayOpenRequest: _trayOpenRequest,
                     themeMode: _themeMode),
       );
+
+  @override
+  void dispose() {
+    unawaited(_desktopTray.dispose());
+    super.dispose();
+  }
 }
 
 class LoginPage extends StatefulWidget {
@@ -1156,6 +1221,9 @@ class AppShell extends StatefulWidget {
       this.onMessageSoundChanged,
       this.notificationPrivacy = MessageNotificationPrivacy.preview,
       this.onNotificationPrivacyChanged,
+      this.desktopTray,
+      this.trayConversationId,
+      this.trayOpenRequest = 0,
       this.themeMode = ThemeMode.system,
       super.key});
   final MagicChatRepository repository;
@@ -1177,6 +1245,9 @@ class AppShell extends StatefulWidget {
   final ValueChanged<bool>? onMessageSoundChanged;
   final MessageNotificationPrivacy notificationPrivacy;
   final ValueChanged<MessageNotificationPrivacy>? onNotificationPrivacyChanged;
+  final DesktopSystemTrayController? desktopTray;
+  final String? trayConversationId;
+  final int trayOpenRequest;
   final ThemeMode themeMode;
   @override
   State<AppShell> createState() => _AppShellState();
@@ -1205,7 +1276,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   final _notifications = const LocalNotificationService();
   final _pushTokenProvider = const PushTokenProvider();
   final _appBadge = const AppBadgeService();
-  final _desktopTray = DesktopSystemTray();
   final _messageCacheStore = MessageCacheStore();
   final _handledNotificationRoutes = <String>{};
   final _loadedConversationAppearances = <String, ChatConversationAppearance>{};
@@ -1243,17 +1313,17 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       unawaited(_loadCurrentUser());
     }
     _resolveNotificationRoute();
-    unawaited(_initializeDesktopTray());
-  }
-
-  Future<void> _initializeDesktopTray() async {
-    final initialized =
-        await _desktopTray.initialize(onOpenConversation: _openConversation);
-    if (initialized && mounted) _syncDesktopTray();
+    if (widget.trayOpenRequest > 0 && widget.trayConversationId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openConversation(widget.trayConversationId!);
+      });
+    }
   }
 
   void _syncDesktopTray() {
-    unawaited(_desktopTray.update(
+    final tray = widget.desktopTray;
+    if (tray == null) return;
+    unawaited(tray.update(
       unreadCount: _unreadCount,
       conversations: widget.realtimeStore?.conversations.values ?? const [],
       contacts: widget.realtimeStore?.contacts.values ?? const [],
@@ -1266,6 +1336,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.notificationPrivacy != widget.notificationPrivacy) {
       _syncDesktopTray();
+    }
+    if (oldWidget.trayOpenRequest != widget.trayOpenRequest &&
+        widget.trayConversationId != null) {
+      _openConversation(widget.trayConversationId!);
     }
   }
 
@@ -1497,7 +1571,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     _realtimeSubscription?.cancel();
     widget.realtime?.close();
     unawaited(_messageCacheStore.close());
-    unawaited(_desktopTray.dispose());
     super.dispose();
   }
 

@@ -14,7 +14,7 @@ MagicChat 的跨平台 Flutter 客户端。一套代码覆盖 Android、iOS、Wi
 - 文档：Markdown 协作编辑、Yjs 富文档、在线协作者状态和文档目录树
 - 客户端：多账户、主题切换、SQLite WAL 消息缓存、会话高级检索、全局搜索、二维码、推送授权、通知提示音和隐私设置、跨平台版本检查
 - Android 更新：应用内下载官方 APK、显示进度并打开系统安装器
-- 桌面集成：Windows、macOS、Linux 系统托盘、未读会话快捷入口和关闭后后台运行
+- 桌面集成：Windows、macOS、Linux 系统托盘、开机静默自启动、未读会话快捷入口和关闭后后台运行
 - 实时同步：WebSocket 游标续传、断线重连、幂等事件投影，以及实时消息先落本地缓存再展示
 
 ## 快速开始
@@ -67,6 +67,8 @@ macOS Release 为方便未配置 Apple Developer 证书时测试，关闭了 App
 xattr -dr com.apple.quarantine /Applications/MagicChat.app
 open /Applications/MagicChat.app
 ```
+
+Windows、macOS 和 Linux 桌面版可在“设置”中开启“开机自动启动”。该选项默认关闭；开启后会注册当前用户的系统启动项，并在登录系统后使用 `--hidden` 参数静默启动。登录页同样保留系统托盘入口；若系统托盘不可用，应用会自动显示主窗口，避免后台运行后无法打开。
 
 Android 推送默认保持安全降级；发布包需要 JPush 时，在构建环境注入应用密钥（不要提交到仓库）：
 
