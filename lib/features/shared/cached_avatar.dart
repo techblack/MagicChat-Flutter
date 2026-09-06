@@ -38,6 +38,7 @@ class _CachedAvatarState extends State<CachedAvatar> {
   static final _inFlight = <String, Future<Uint8List?>>{};
   final _cache = LocalAssetCache();
   Uint8List? _bytes;
+  bool _imageFailed = false;
 
   String get _cacheKey {
     final scope = widget.cacheScope;
@@ -58,6 +59,7 @@ class _CachedAvatarState extends State<CachedAvatar> {
     if (oldWidget.avatarUri != widget.avatarUri ||
         oldWidget.cacheScope != widget.cacheScope) {
       _bytes = _cache.peek(_cacheKey);
+      _imageFailed = false;
       _startLoading();
     }
   }
@@ -75,7 +77,10 @@ class _CachedAvatarState extends State<CachedAvatar> {
     try {
       final bytes = await future;
       if (bytes != null && mounted && key == _cacheKey) {
-        setState(() => _bytes = bytes);
+        setState(() {
+          _bytes = bytes;
+          _imageFailed = false;
+        });
       }
     } finally {
       if (identical(_inFlight[key], future)) _inFlight.remove(key);
@@ -100,13 +105,17 @@ class _CachedAvatarState extends State<CachedAvatar> {
     }
   }
 
+  void _handleImageError(Object _, StackTrace? __) {
+    if (mounted && !_imageFailed) setState(() => _imageFailed = true);
+  }
+
   @override
   Widget build(BuildContext context) {
     final label = widget.name.trim();
     ImageProvider<Object>? image;
-    if (_bytes != null) {
+    if (!_imageFailed && _bytes != null) {
       image = MemoryImage(_bytes!);
-    } else if (widget.avatarUri != null) {
+    } else if (!_imageFailed && widget.avatarUri != null) {
       image = NetworkImage(widget.avatarUri.toString());
     }
     final backgroundColor = widget.backgroundColor ??
@@ -125,6 +134,7 @@ class _CachedAvatarState extends State<CachedAvatar> {
         backgroundColor: backgroundColor,
         foregroundColor: foregroundColor,
         backgroundImage: image,
+        onBackgroundImageError: image == null ? null : _handleImageError,
         child: fallback,
       );
     }
@@ -137,7 +147,8 @@ class _CachedAvatarState extends State<CachedAvatar> {
         borderRadius: borderRadius,
         image: image == null
             ? null
-            : DecorationImage(image: image, fit: BoxFit.cover),
+            : DecorationImage(
+                image: image, fit: BoxFit.cover, onError: _handleImageError),
       ),
       child: IconTheme(
         data: IconThemeData(color: foregroundColor),
