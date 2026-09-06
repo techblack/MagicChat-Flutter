@@ -7,6 +7,8 @@ export 'desktop_shortcut.dart';
 
 enum DesktopScreenshotMode { region, screen }
 
+const desktopScreenshotMaxImageBytes = 32 * 1024 * 1024;
+
 abstract interface class DesktopScreenshotCaptureBackend {
   Future<bool> isAccessAllowed();
 

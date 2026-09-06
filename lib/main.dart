@@ -56,6 +56,7 @@ import 'features/messages/message_link_card.dart';
 import 'features/messages/markdown_code_block.dart';
 import 'features/messages/message_mention_composer.dart';
 import 'features/messages/mobile_image_send_preview_dialog.dart';
+import 'features/messages/screenshot_annotation_dialog.dart';
 import 'features/messages/topic_reply_preview.dart';
 import 'features/messages/topics_dialog.dart';
 import 'features/messages/topic_source_banner.dart';

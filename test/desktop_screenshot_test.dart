@@ -25,6 +25,25 @@ void main() {
     expect(restored.keyCode, PhysicalKeyboardKey.keyA.usbHidUsage);
   });
 
+  test('系统截图入口仅在三个桌面平台开放', () {
+    for (final platform in [
+      TargetPlatform.windows,
+      TargetPlatform.macOS,
+      TargetPlatform.linux,
+    ]) {
+      expect(isDesktopScreenshotPlatform(platform), isTrue);
+    }
+    for (final platform in [
+      TargetPlatform.android,
+      TargetPlatform.iOS,
+      TargetPlatform.fuchsia,
+    ]) {
+      expect(isDesktopScreenshotPlatform(platform), isFalse);
+    }
+    expect(DesktopScreenshotController.maxImageBytes,
+        desktopScreenshotMaxImageBytes);
+  });
+
   test('损坏的快捷键配置回退到平台默认值', () async {
     SharedPreferences.setMockInitialValues({
       DesktopScreenshotPreferences.shortcutKey: '{invalid',

@@ -50,7 +50,7 @@ sudo apt-get install clang cmake ninja-build pkg-config \
 flutter build linux
 ```
 
-桌面端打开会话后可从输入区选择区域截图或全屏截图，确认预览后作为图片消息发送。默认全局快捷键为 Windows/Linux 的 `Ctrl+Shift+A`、macOS 的 `Command+Shift+A`，可在设置中重新录制或禁用。Linux KDE 会优先使用 Spectacle，其他桌面环境需要 `gnome-screenshot`；macOS 首次使用时需要授予“屏幕录制”权限。
+桌面端打开会话后可从输入区选择区域截图或全屏截图，发送前可使用矩形、箭头、画笔、五种颜色和撤销/重做进行基础标注，确认后作为 PNG 图片消息发送。默认全局快捷键为 Windows/Linux 的 `Ctrl+Shift+A`、macOS 的 `Command+Shift+A`，可在设置中重新录制或禁用。Linux KDE 会优先使用 Spectacle，其他桌面环境需要 `gnome-screenshot`；macOS 首次使用时需要授予“屏幕录制”权限。
 
 CI 会执行格式、静态检查、单元测试，并构建 Web Release 与 Linux Debug 产物。
 
