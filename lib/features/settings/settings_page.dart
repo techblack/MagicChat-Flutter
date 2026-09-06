@@ -70,6 +70,7 @@ class SettingsPage extends StatefulWidget {
       this.themeMode = ThemeMode.system,
       this.sendMessageShortcut = MessageSendShortcut.enter,
       this.desktopAutoLaunch,
+      this.updateService = const UpdateService(),
       super.key});
   final Future<void> Function()? onLogout;
   final Future<void> Function(String code)? onDeactivateAccount;
@@ -100,6 +101,7 @@ class SettingsPage extends StatefulWidget {
   final ThemeMode themeMode;
   final MessageSendShortcut sendMessageShortcut;
   final DesktopAutoLaunchController? desktopAutoLaunch;
+  final UpdateService updateService;
   @override
   State<SettingsPage> createState() => _SettingsPageState();
 }
@@ -113,6 +115,8 @@ class _SettingsPageState extends State<SettingsPage> {
   late final DesktopAutoLaunchController _desktopAutoLaunch;
   bool _autoLaunchEnabled = false;
   bool _autoLaunchLoading = true;
+  bool _checkingForUpdate = false;
+  String? _updateError;
   late DesktopScreenshotShortcut _screenshotShortcut;
   @override
   void initState() {
@@ -284,9 +288,15 @@ class _SettingsPageState extends State<SettingsPage> {
       };
 
   Future<void> _checkForUpdate() async {
+    if (_checkingForUpdate) return;
+    setState(() {
+      _checkingForUpdate = true;
+      _updateError = null;
+    });
     try {
-      final release = await const UpdateService().check();
+      final release = await widget.updateService.check();
       if (!mounted) return;
+      setState(() => _checkingForUpdate = false);
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => release == null
@@ -313,8 +323,10 @@ class _SettingsPageState extends State<SettingsPage> {
       );
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('检查更新失败：${userFacingError(error)}')));
+        setState(() {
+          _checkingForUpdate = false;
+          _updateError = userFacingError(error);
+        });
       }
     }
   }
@@ -810,9 +822,19 @@ class _SettingsPageState extends State<SettingsPage> {
           ListTile(
               leading: const Icon(Icons.system_update_outlined),
               title: const Text('检查更新'),
-              subtitle: const Text('检查 MagicChat 新版本'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: _checkForUpdate),
+              subtitle: Text(_checkingForUpdate
+                  ? '正在检查更新'
+                  : _updateError == null
+                      ? '当前版本 ${UpdateService.currentVersion}'
+                      : '检查失败：$_updateError，点击重试'),
+              trailing: _checkingForUpdate
+                  ? const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : Icon(_updateError == null
+                      ? Icons.chevron_right
+                      : Icons.refresh),
+              onTap: _checkingForUpdate ? null : _checkForUpdate),
           const ListTile(
               leading: Icon(Icons.info_outline), title: Text('关于 MagicChat')),
         ])),
