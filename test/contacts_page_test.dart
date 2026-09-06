@@ -485,10 +485,8 @@ class _SearchContactsRepository extends DemoRepository {
 class _LargeDirectoryRepository extends DemoRepository {
   @override
   Future<ContactDirectory> contactDirectory({String keyword = ''}) async =>
-      ContactDirectory(
-          contacts: [
-            for (var index = 0; index < 2000; index++)
-              Contact(id: 'user-$index', name: '成员 $index')
-          ],
-          mode: 'organization');
+      ContactDirectory(contacts: [
+        for (var index = 0; index < 2000; index++)
+          Contact(id: 'user-$index', name: '成员 $index')
+      ], mode: 'organization');
 }
