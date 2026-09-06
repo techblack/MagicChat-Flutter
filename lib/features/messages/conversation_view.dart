@@ -115,6 +115,7 @@ class ConversationView extends StatefulWidget {
       this.onOpenConversation,
       this.onOpenInternalLink,
       this.onMessageFocused,
+      this.messagesReselectToken = 0,
       super.key});
   final MagicChatRepository repository;
   final RealtimeSession? realtimeSession;
@@ -131,6 +132,7 @@ class ConversationView extends StatefulWidget {
   final ValueChanged<String>? onOpenConversation;
   final ValueChanged<String>? onOpenInternalLink;
   final VoidCallback? onMessageFocused;
+  final int messagesReselectToken;
   @override
   State<ConversationView> createState() => _ConversationViewState();
 }
@@ -1269,6 +1271,10 @@ class _ConversationViewState extends State<ConversationView>
       _contactsFuture = _loadConversationContacts();
       _controller.clear();
       unawaited(_restoreDraft());
+    }
+    if (oldWidget.messagesReselectToken != widget.messagesReselectToken &&
+        widget.conversationId != null) {
+      unawaited(_jumpToLatest(widget.conversationId!));
     }
     if (oldWidget.realtimeSession != widget.realtimeSession &&
         oldWidget.conversationId == widget.conversationId &&
