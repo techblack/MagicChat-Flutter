@@ -1,5 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'desktop_window_controller.dart';
+
 enum MessageSendShortcut {
   enter,
   commandOrControlEnter,
@@ -31,6 +33,7 @@ class ChatPreferences {
   static const notificationPrivacyKey =
       'magicchat.chat.notification-privacy.v1';
   static const interfaceFontScaleKey = 'magicchat.interface.font-scale.v1';
+  static const desktopCloseBehaviorKey = 'magicchat.desktop.close-behavior.v1';
 
   Future<MessageSendShortcut> readSendShortcut() async {
     final prefs = await SharedPreferences.getInstance();
@@ -80,5 +83,18 @@ class ChatPreferences {
   Future<void> writeInterfaceFontScale(InterfaceFontScale scale) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(interfaceFontScaleKey, scale.name);
+  }
+
+  Future<DesktopCloseBehavior> readDesktopCloseBehavior() async {
+    final prefs = await SharedPreferences.getInstance();
+    return DesktopCloseBehavior.values.firstWhere(
+      (value) => value.name == prefs.getString(desktopCloseBehaviorKey),
+      orElse: () => DesktopCloseBehavior.background,
+    );
+  }
+
+  Future<void> writeDesktopCloseBehavior(DesktopCloseBehavior behavior) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(desktopCloseBehaviorKey, behavior.name);
   }
 }

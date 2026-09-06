@@ -38,6 +38,10 @@ class MainFlutterWindow: NSWindow {
         result(true)
       case "setTrayReady":
         result(true)
+      case "setCloseBehavior":
+        let behavior = call.arguments as? String
+        (NSApplication.shared.delegate as? AppDelegate)?.quitOnClose = behavior == "quit"
+        result(true)
       case "quit":
         result(true)
         DispatchQueue.main.async {

@@ -34,6 +34,7 @@ class FlutterWindow : public Win32Window {
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       desktop_window_channel_;
   bool tray_ready_ = false;
+  bool quit_on_close_preference_ = false;
   bool start_hidden_ = false;
 };
 

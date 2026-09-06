@@ -66,6 +66,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
   MessageNotificationPrivacy _notificationPrivacy =
       MessageNotificationPrivacy.preview;
   InterfaceFontScale _interfaceFontScale = InterfaceFontScale.normal;
+  DesktopCloseBehavior _desktopCloseBehavior = DesktopCloseBehavior.background;
   String? _serverUrl;
   String? _loginError;
   bool _loading = true;
@@ -141,6 +142,14 @@ class _MagicChatAppState extends State<MagicChatApp> {
         await const ChatPreferences().readNotificationPrivacy();
     final interfaceFontScale =
         await const ChatPreferences().readInterfaceFontScale();
+    final desktopCloseBehavior =
+        await const ChatPreferences().readDesktopCloseBehavior();
+    if (!kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.macOS ||
+            defaultTargetPlatform == TargetPlatform.linux)) {
+      await _desktopWindowController.setCloseBehavior(desktopCloseBehavior);
+    }
     if (!mounted) return;
     setState(() {
       _serverUrl = server;
@@ -162,6 +171,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
       _messageSoundEnabled = messageSoundEnabled;
       _notificationPrivacy = notificationPrivacy;
       _interfaceFontScale = interfaceFontScale;
+      _desktopCloseBehavior = desktopCloseBehavior;
     });
     if (token != null) {
       unawaited(_registerPush(server, token));
@@ -338,6 +348,12 @@ class _MagicChatAppState extends State<MagicChatApp> {
   Future<void> _setInterfaceFontScale(InterfaceFontScale scale) async {
     await const ChatPreferences().writeInterfaceFontScale(scale);
     if (mounted) setState(() => _interfaceFontScale = scale);
+  }
+
+  Future<void> _setDesktopCloseBehavior(DesktopCloseBehavior behavior) async {
+    await _desktopWindowController.setCloseBehavior(behavior);
+    await const ChatPreferences().writeDesktopCloseBehavior(behavior);
+    if (mounted) setState(() => _desktopCloseBehavior = behavior);
   }
 
   Future<void> _setConversationAppearance(
@@ -565,6 +581,8 @@ class _MagicChatAppState extends State<MagicChatApp> {
                     onNotificationPrivacyChanged: _setNotificationPrivacy,
                     interfaceFontScale: _interfaceFontScale,
                     onInterfaceFontScaleChanged: _setInterfaceFontScale,
+                    desktopCloseBehavior: _desktopCloseBehavior,
+                    onDesktopCloseBehaviorChanged: _setDesktopCloseBehavior,
                     desktopTray: _desktopTray,
                     trayConversationId: _trayConversationId,
                     trayOpenRequest: _trayOpenRequest,
@@ -1248,6 +1266,8 @@ class AppShell extends StatefulWidget {
       this.onNotificationPrivacyChanged,
       this.interfaceFontScale = InterfaceFontScale.normal,
       this.onInterfaceFontScaleChanged,
+      this.desktopCloseBehavior = DesktopCloseBehavior.background,
+      this.onDesktopCloseBehaviorChanged,
       this.desktopTray,
       this.trayConversationId,
       this.trayOpenRequest = 0,
@@ -1274,6 +1294,8 @@ class AppShell extends StatefulWidget {
   final ValueChanged<MessageNotificationPrivacy>? onNotificationPrivacyChanged;
   final InterfaceFontScale interfaceFontScale;
   final ValueChanged<InterfaceFontScale>? onInterfaceFontScaleChanged;
+  final DesktopCloseBehavior desktopCloseBehavior;
+  final ValueChanged<DesktopCloseBehavior>? onDesktopCloseBehaviorChanged;
   final DesktopSystemTrayController? desktopTray;
   final String? trayConversationId;
   final int trayOpenRequest;
@@ -1793,6 +1815,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           onNotificationPrivacyChanged: widget.onNotificationPrivacyChanged,
           interfaceFontScale: widget.interfaceFontScale,
           onInterfaceFontScaleChanged: widget.onInterfaceFontScaleChanged,
+          desktopCloseBehavior: widget.desktopCloseBehavior,
+          onDesktopCloseBehaviorChanged: widget.onDesktopCloseBehaviorChanged,
           themeMode: widget.themeMode,
           sendMessageShortcut: _sendMessageShortcut),
     ];
