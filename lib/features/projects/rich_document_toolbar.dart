@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../data/document_collaboration.dart';
+import '../../domain/rich_document_format.dart';
+import 'rich_document_block_background.dart';
 
 /// 富文档的 block 工具栏。
 ///
@@ -115,10 +117,12 @@ class RichDocumentInlineToolbar extends StatelessWidget {
     required this.blockType,
     required this.marks,
     required this.alignment,
+    this.blockBackground,
     required this.onToggleMark,
     required this.onTextColor,
     required this.onHighlight,
     required this.onAlignment,
+    this.onBlockBackground,
     required this.onEditLink,
     required this.onClearFormatting,
     required this.onTransform,
@@ -132,10 +136,12 @@ class RichDocumentInlineToolbar extends StatelessWidget {
   final RichDocumentBlockType? blockType;
   final Map<String, Object?> marks;
   final String alignment;
+  final String? blockBackground;
   final ValueChanged<String> onToggleMark;
   final ValueChanged<String?> onTextColor;
   final ValueChanged<String?> onHighlight;
   final ValueChanged<String> onAlignment;
+  final ValueChanged<String?>? onBlockBackground;
   final VoidCallback onEditLink;
   final VoidCallback onClearFormatting;
   final ValueChanged<RichDocumentBlockType> onTransform;
@@ -191,6 +197,7 @@ class RichDocumentInlineToolbar extends StatelessWidget {
                     _nestedMarkValue('textStyle', 'color'), onTextColor),
                 _colorTool(context, Icons.format_color_fill, '文字背景色',
                     _nestedMarkValue('highlight', 'color'), onHighlight),
+                _blockBackgroundTool(context),
                 _alignmentTool(),
                 IconButton(
                     tooltip: '链接',
@@ -277,6 +284,48 @@ class RichDocumentInlineToolbar extends StatelessWidget {
               : Color(int.parse('FF${selected.substring(1)}', radix: 16))),
     );
   }
+
+  Widget _blockBackgroundTool(BuildContext context) => PopupMenuButton<String>(
+        tooltip: '段落背景',
+        enabled: onBlockBackground != null,
+        onSelected: (value) =>
+            onBlockBackground?.call(value.isEmpty ? null : value),
+        itemBuilder: (_) => [
+          PopupMenuItem(
+            value: '',
+            child: Row(children: [
+              Icon(Icons.restart_alt,
+                  size: 18, color: Theme.of(context).colorScheme.onSurface),
+              const SizedBox(width: 10),
+              const Text('无段落背景'),
+            ]),
+          ),
+          for (final color in richDocumentBlockBackgroundColors)
+            PopupMenuItem(
+              value: color.value,
+              child: Row(children: [
+                Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                      color: richDocumentBlockBackgroundDisplayColor(
+                          color.value),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.black12)),
+                ),
+                const SizedBox(width: 10),
+                Text(color.label),
+                if (blockBackground == color.value) ...[
+                  const Spacer(),
+                  const Icon(Icons.check, size: 18),
+                ],
+              ]),
+            ),
+        ],
+        icon: Icon(Icons.format_color_fill,
+            size: 20,
+            color: richDocumentBlockBackgroundDisplayColor(blockBackground)),
+      );
 
   Widget _alignmentTool() => PopupMenuButton<String>(
         tooltip: '文本对齐',

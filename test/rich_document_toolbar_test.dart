@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magicchat_client/data/document_collaboration.dart';
+import 'package:magicchat_client/domain/rich_document_format.dart';
 import 'package:magicchat_client/features/projects/rich_document_toolbar.dart';
 
 void main() {
@@ -44,5 +45,39 @@ void main() {
 
     await tester.tap(find.byTooltip('段落'));
     expect(called, isFalse);
+  });
+
+  testWidgets('原位工具栏可设置并清除段落背景', (tester) async {
+    String? selected = 'unchanged';
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: RichDocumentInlineToolbar(
+                blockType: RichDocumentBlockType.paragraph,
+                marks: const {},
+                alignment: 'left',
+                onToggleMark: (_) {},
+                onTextColor: (_) {},
+                onHighlight: (_) {},
+                onAlignment: (_) {},
+                onBlockBackground: (value) => selected = value,
+                onEditLink: () {},
+                onClearFormatting: () {},
+                onTransform: (_) {},
+                onInsertBefore: () {},
+                onInsertAfter: () {},
+                onDelete: () {},
+                onDone: () {}))));
+
+    await tester.tap(find.byTooltip('段落背景'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('红色 100'));
+    await tester.pumpAndSettle();
+    expect(selected, richDocumentBlockBackgroundColors.first.value);
+
+    await tester.tap(find.byTooltip('段落背景'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('无段落背景'));
+    await tester.pumpAndSettle();
+    expect(selected, isNull);
   });
 }
