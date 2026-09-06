@@ -271,7 +271,8 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, '创建'));
     await tester.pumpAndSettle();
 
-    expect(repository.memberIds, containsAll(<String>['alice', 'bob']));
+    expect(
+        repository.memberIds, containsAll(<String>['user-alice', 'user-bob']));
     expect(opened, 'group-created');
   });
 
@@ -357,7 +358,7 @@ class _DirectoryRepository extends DemoRepository {
   @override
   Future<ContactDirectory> contactDirectory({String keyword = ''}) async =>
       ContactDirectory(contacts: [
-        Contact(id: 'alice', name: 'Alice'),
+        Contact(id: 'user-alice', name: 'Alice'),
         Contact(
             id: 'owned-app', name: '我的机器人', type: 'app', creatorUserId: 'demo'),
         Contact(id: 'other-app', name: '智能助手', type: 'app'),
@@ -376,8 +377,8 @@ class _SelectionRepository extends DemoRepository {
   @override
   Future<ContactDirectory> contactDirectory({String keyword = ''}) async =>
       const ContactDirectory(contacts: [
-        Contact(id: 'alice', name: 'Alice'),
-        Contact(id: 'bob', name: 'Bob'),
+        Contact(id: 'user-alice', name: 'Alice'),
+        Contact(id: 'user-bob', name: 'Bob'),
       ], mode: 'organization');
 
   @override
@@ -396,7 +397,7 @@ class _AlphabetRepository extends DemoRepository {
       ContactDirectory(contacts: [
         for (var index = 0; index < 18; index++)
           Contact(id: 'alice-$index', name: 'Alice $index'),
-        const Contact(id: 'zoe', name: 'Zoe'),
+        const Contact(id: 'user-zoe', name: 'Zoe'),
       ], mode: 'organization');
 }
 
@@ -499,7 +500,7 @@ class _SearchContactsRepository extends DemoRepository {
     keywords.add(keyword);
     return ContactDirectory(contacts: [
       Contact(
-          id: keyword.isEmpty ? 'bob' : 'alice',
+          id: keyword.isEmpty ? 'user-bob' : 'user-alice',
           name: keyword.isEmpty ? 'Bob' : 'Alice')
     ], mode: 'organization');
   }

@@ -1044,12 +1044,14 @@ ChatConversation _hydrateConversation(
 
 bool _needsMemberProfile(Contact contact) =>
     contact.avatar.trim().isEmpty ||
-    ![contact.nickname, contact.name, contact.email, contact.phone]
+    ![contact.nickname, contact.name]
         .any((value) => !_isPlaceholderMemberValue(value, contact.id));
 
 bool _isPlaceholderMemberValue(String value, String id) {
   final normalized = value.trim();
-  return normalized.isEmpty || normalized == id.trim() || normalized == '成员';
+  return normalized.isEmpty ||
+      normalized.toLowerCase() == id.trim().toLowerCase() ||
+      normalized == '成员';
 }
 
 Contact _mergeContact(Contact member, Contact profile) => member.copyWith(

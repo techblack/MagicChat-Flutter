@@ -157,7 +157,7 @@ void main() {
         .map((widget) => widget.text.toPlainText())
         .join('\n');
     expect(richText, contains('@Alice'));
-    expect(richText, isNot(contains('{(@user/alice)}')));
+    expect(richText, isNot(contains('{(@user/user-alice)}')));
   });
 
   testWidgets('复杂长消息页面上翻后不会被后续布局拉回底部', (tester) async {
@@ -207,7 +207,7 @@ class _LongMessageRepository extends DemoRepository {
           author: 'Alice',
           contentType: 'markdown',
           text: [
-            '# 发布计划 {(@user/alice)}',
+            '# 发布计划 {(@user/user-alice)}',
             ...List.generate(24, (index) => '- 第 ${index + 1} 项任务'),
           ].join('\n'),
         ),
@@ -215,7 +215,7 @@ class _LongMessageRepository extends DemoRepository {
 
   @override
   Future<List<Contact>> contacts({String keyword = ''}) async => const [
-        Contact(id: 'alice', name: 'Alice'),
+        Contact(id: 'user-alice', name: 'Alice'),
       ];
 
   @override

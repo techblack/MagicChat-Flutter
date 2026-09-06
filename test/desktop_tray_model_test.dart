@@ -44,11 +44,11 @@ void main() {
         ChatConversation(
             id: 'mentions',
             title: '研发群',
-            preview: '{(@user/alice)} 请查看',
+            preview: '{(@user/user-alice)} 请查看',
             unread: 1),
       ],
       MessageNotificationPrivacy.preview,
-      contacts: const {'alice': Contact(id: 'alice', name: 'Alice')},
+      contacts: const {'user-alice': Contact(id: 'user-alice', name: 'Alice')},
     ).single;
 
     expect(item.label, '研发群  [1] — @Alice 请查看');

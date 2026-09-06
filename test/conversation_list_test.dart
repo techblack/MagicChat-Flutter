@@ -154,8 +154,8 @@ class _ConversationPreviewRepository extends DemoRepository {
         ChatConversation(
           id: 'preview-conversation',
           title: '预览会话',
-          preview: '你好 {(@user/alice)}',
-          members: [Contact(id: 'alice', name: 'Alice')],
+          preview: '你好 {(@user/user-alice)}',
+          members: [Contact(id: 'user-alice', name: 'Alice')],
         ),
       ];
 
@@ -333,7 +333,7 @@ void main() {
     const conversation = ChatConversation(
         id: 'conversation-id',
         title: 'conversation-id',
-        members: [Contact(id: 'alice', name: 'Alice')]);
+        members: [Contact(id: 'user-alice', name: 'Alice')]);
 
     expect(contact.displayName, '成员');
     expect(projectUser.displayName, '成员');
