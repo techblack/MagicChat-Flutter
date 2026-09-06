@@ -42,4 +42,16 @@ void main() {
     expect(await preferences.readNotificationPrivacy(),
         MessageNotificationPrivacy.metadata);
   });
+
+  test('界面字体缩放默认正常并可持久化', () async {
+    SharedPreferences.setMockInitialValues({});
+    const preferences = ChatPreferences();
+    expect(
+        await preferences.readInterfaceFontScale(), InterfaceFontScale.normal);
+    await preferences.writeInterfaceFontScale(InterfaceFontScale.large);
+    expect(
+        await preferences.readInterfaceFontScale(), InterfaceFontScale.large);
+    expect(InterfaceFontScale.medium.ratio, 1.2);
+    expect(InterfaceFontScale.large.label, '较大 130%');
+  });
 }

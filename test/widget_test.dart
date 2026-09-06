@@ -7,6 +7,7 @@ import 'package:magicchat_client/main.dart';
 import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/data/auth_service.dart';
+import 'package:magicchat_client/data/chat_preferences.dart';
 import 'package:magicchat_client/data/server_store.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/messages/conversation_details_page.dart';
@@ -91,6 +92,13 @@ class _RetrySendRepository extends DemoRepository {
 }
 
 void main() {
+  test('界面字号与系统字体缩放叠加', () {
+    expect(
+        effectiveInterfaceTextScale(
+            const TextScaler.linear(1.5), InterfaceFontScale.medium),
+        closeTo(1.8, 0.001));
+  });
+
   test('构造第三方登录授权地址并编码 provider key', () {
     expect(
         buildThirdPartyLoginUri('https://chat.example.com/base', 'company/sso'),

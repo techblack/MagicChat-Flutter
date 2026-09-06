@@ -63,6 +63,8 @@ class SettingsPage extends StatefulWidget {
       this.onMessageSoundChanged,
       this.notificationPrivacy = MessageNotificationPrivacy.preview,
       this.onNotificationPrivacyChanged,
+      this.interfaceFontScale = InterfaceFontScale.normal,
+      this.onInterfaceFontScaleChanged,
       this.themeMode = ThemeMode.system,
       this.sendMessageShortcut = MessageSendShortcut.enter,
       this.desktopAutoLaunch,
@@ -89,6 +91,8 @@ class SettingsPage extends StatefulWidget {
   final ValueChanged<bool>? onMessageSoundChanged;
   final MessageNotificationPrivacy notificationPrivacy;
   final ValueChanged<MessageNotificationPrivacy>? onNotificationPrivacyChanged;
+  final InterfaceFontScale interfaceFontScale;
+  final ValueChanged<InterfaceFontScale>? onInterfaceFontScaleChanged;
   final ThemeMode themeMode;
   final MessageSendShortcut sendMessageShortcut;
   final DesktopAutoLaunchController? desktopAutoLaunch;
@@ -665,6 +669,25 @@ class _SettingsPageState extends State<SettingsPage> {
                     DropdownMenuItem(value: ThemeMode.dark, child: Text('深色')),
                   ]),
               onTap: _editChatAppearance),
+          ListTile(
+            leading: const Icon(Icons.text_fields_outlined),
+            title: const Text('界面字体大小'),
+            subtitle: const Text('调整整个应用的文字大小，仅保存在本机'),
+            trailing: DropdownButton<InterfaceFontScale>(
+              value: widget.interfaceFontScale,
+              onChanged: (value) {
+                if (value != null) {
+                  widget.onInterfaceFontScaleChanged?.call(value);
+                }
+              },
+              items: InterfaceFontScale.values
+                  .map((value) => DropdownMenuItem(
+                        value: value,
+                        child: Text(value.label),
+                      ))
+                  .toList(growable: false),
+            ),
+          ),
           ListTile(
               leading: const Icon(Icons.keyboard_outlined),
               title: const Text('发送快捷键'),
