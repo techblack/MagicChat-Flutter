@@ -56,6 +56,39 @@ int totalConversationUnread(Iterable<ChatConversation> conversations) =>
     conversations.fold(
         0, (total, item) => total + conversationUnreadCount(item));
 
+class ConversationListRow {
+  const ConversationListRow({required this.conversation, this.nested = false});
+
+  final ChatConversation conversation;
+  final bool nested;
+}
+
+/// 将话题会话挂到父会话下面，保持父会话的置顶/活动排序，同时避免
+/// 话题在列表中看起来像一条完全独立的聊天。
+List<ConversationListRow> buildConversationRows(
+    Iterable<ChatConversation> conversations) {
+  final ordered = orderConversations(conversations);
+  final parents = <String, ChatConversation>{
+    for (final conversation in ordered)
+      if (conversation.type != 'topic') conversation.id: conversation,
+  };
+  final topicsByParent = <String, List<ChatConversation>>{};
+  for (final topic in ordered.where((item) => item.type == 'topic')) {
+    final parentId = topic.topic?.parentConversationId;
+    if (parentId == null || !parents.containsKey(parentId)) continue;
+    topicsByParent.putIfAbsent(parentId, () => []).add(topic);
+  }
+  final rows = <ConversationListRow>[];
+  for (final conversation in ordered) {
+    if (conversation.type == 'topic') continue;
+    rows.add(ConversationListRow(conversation: conversation));
+    for (final topic in topicsByParent[conversation.id] ?? const []) {
+      rows.add(ConversationListRow(conversation: topic, nested: true));
+    }
+  }
+  return rows;
+}
+
 bool matchesConversationQuery(ChatConversation conversation, String query) {
   final keyword = query.trim().toLowerCase();
   if (keyword.isEmpty) return true;
