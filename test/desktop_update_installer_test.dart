@@ -348,6 +348,45 @@ void main() {
           isTrue);
     });
 
+    test('Linux arm64 安装器只接受对应架构产物', () async {
+      var requests = 0;
+      final installer = DesktopUpdateInstaller(
+        platform: TargetPlatform.linux,
+        desktopArchitecture: 'arm64',
+        executablePath: '${directory.path}/MagicChat/magicchat_client',
+        temporaryDirectory: () async => directory,
+        client: MockClient((_) async {
+          requests++;
+          return http.Response('', 500);
+        }),
+      );
+      AppRelease release(String assetName) => AppRelease(
+            version: '0.3.25',
+            build: 3025,
+            url: 'https://example.com/$assetName',
+            assetName: assetName,
+            sha256: '0' * 64,
+          );
+
+      await expectLater(
+        installer.downloadAndInstall(
+          release('MagicChat-Linux-arm64.tar.gz'),
+          onProgress: (_) {},
+        ),
+        throwsA(predicate((error) => '$error'.contains('安装包下载失败（HTTP 500）'))),
+      );
+      expect(requests, 1);
+
+      await expectLater(
+        installer.downloadAndInstall(
+          release('MagicChat-Linux-x64.tar.gz'),
+          onProgress: (_) {},
+        ),
+        throwsFormatException,
+      );
+      expect(requests, 1);
+    });
+
     test('Linux 替换助手在新版本启动失败时恢复并重启旧版本', () async {
       if (!Platform.isLinux) return;
       final target = Directory('${directory.path}/app')

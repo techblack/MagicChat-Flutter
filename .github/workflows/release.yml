@@ -40,7 +40,7 @@ jobs:
           java-version: "17"
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: 3.47.2
           cache: true
       - run: flutter pub get
       - name: Configure stable Android release signing
@@ -96,14 +96,30 @@ jobs:
 
   linux:
     needs: validate
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
+        if: matrix.arch == 'x64'
         with:
-          channel: stable
+          flutter-version: 3.47.2
           cache: true
+      - name: Install Flutter arm64 SDK
+        if: matrix.arch == 'arm64'
+        working-directory: ${{ runner.temp }}
+        run: |
+          git clone --depth 1 --branch 3.47.2 https://github.com/flutter/flutter.git flutter
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" --version
       - name: Install Linux build dependencies
         run: >-
           sudo apt-get update && sudo apt-get install -y
@@ -115,12 +131,14 @@ jobs:
       - name: Build Linux release artifact
         shell: bash
         run: |
-          flutter build linux --release
+          flutter build linux --release \
+            --dart-define=MAGICCHAT_DESKTOP_ARCH=${{ matrix.arch }}
           mkdir -p dist
-          tar -C build/linux/x64/release/bundle -czf dist/MagicChat-Linux-x64.tar.gz .
+          tar -C build/linux/${{ matrix.arch }}/release/bundle \
+            -czf dist/MagicChat-Linux-${{ matrix.arch }}.tar.gz .
       - uses: actions/upload-artifact@v4
         with:
-          name: release-linux
+          name: release-linux-${{ matrix.arch }}
           path: dist/*
           if-no-files-found: error
 
@@ -132,7 +150,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: 3.47.2
           cache: true
       - run: flutter pub get
       - name: Build Windows release artifact
@@ -155,7 +173,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: 3.47.2
           cache: true
       - run: flutter pub get
       - name: Build macOS release artifact
@@ -206,7 +224,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: 3.47.2
           cache: true
       - run: flutter pub get
       - name: Build Web release artifact
@@ -231,10 +249,27 @@ jobs:
           pattern: release-*
           path: release-assets
           merge-multiple: true
-      - name: Generate checksums
+      - name: Validate assets and generate checksums
         shell: bash
         run: |
-          (cd release-assets && sha256sum -- * > ../SHA256SUMS.txt)
+          expected=(
+            MagicChat-Android-universal.apk
+            MagicChat-Android-armeabi-v7a.apk
+            MagicChat-Android-arm64-v8a.apk
+            MagicChat-Android-x86_64.apk
+            MagicChat-Android.aab
+            MagicChat-iOS-unsigned.ipa
+            MagicChat-macOS.zip
+            MagicChat-Windows-x64.zip
+            MagicChat-Linux-x64.tar.gz
+            MagicChat-Linux-arm64.tar.gz
+            MagicChat-Web.zip
+          )
+          for asset in "${expected[@]}"; do
+            test -f "release-assets/$asset"
+          done
+          test "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq "${#expected[@]}"
+          (cd release-assets && sha256sum -- "${expected[@]}" > ../SHA256SUMS.txt)
           mv SHA256SUMS.txt release-assets/
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2

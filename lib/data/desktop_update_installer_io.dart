@@ -52,6 +52,7 @@ class DesktopUpdateInstaller implements UpdateInstaller {
     DesktopReplacementLauncher? replacementLauncher,
     DesktopActiveTransferProbe? hasActiveTransfers,
     DesktopUpdateQuitter? quit,
+    this.desktopArchitecture = UpdateService.compiledDesktopArchitecture,
   })  : _client = client,
         _platform = platform,
         _executablePath = executablePath ?? Platform.resolvedExecutable,
@@ -74,6 +75,7 @@ class DesktopUpdateInstaller implements UpdateInstaller {
   final DesktopReplacementLauncher _replacementLauncher;
   final DesktopActiveTransferProbe _hasActiveTransfers;
   final DesktopUpdateQuitter _quit;
+  final String desktopArchitecture;
   StreamSubscription<List<int>>? _subscription;
   Completer<void>? _downloadCompleter;
   http.Client? _activeClient;
@@ -109,7 +111,7 @@ class DesktopUpdateInstaller implements UpdateInstaller {
       throw const FormatException('安装包下载地址必须使用 HTTPS');
     }
     final assetName = _releaseAssetName(release);
-    _validateAssetName(assetName, _targetPlatform);
+    _validateAssetName(assetName, _targetPlatform, desktopArchitecture);
 
     _running = true;
     _cancelled = false;
@@ -658,12 +660,15 @@ String _releaseAssetName(AppRelease release) {
   return segments.last;
 }
 
-void _validateAssetName(String assetName, TargetPlatform platform) {
+void _validateAssetName(
+    String assetName, TargetPlatform platform, String architecture) {
   final expected = platform == TargetPlatform.windows
       ? 'MagicChat-Windows-x64.zip'
       : platform == TargetPlatform.macOS
           ? 'MagicChat-macOS.zip'
-          : 'MagicChat-Linux-x64.tar.gz';
+          : architecture == 'arm64'
+              ? 'MagicChat-Linux-arm64.tar.gz'
+              : 'MagicChat-Linux-x64.tar.gz';
   if (assetName != expected) {
     throw FormatException('安装包与当前平台不匹配：$assetName');
   }

@@ -12,6 +12,7 @@ class DesktopUpdateInstaller implements UpdateInstaller {
     Object? replacementLauncher,
     Object? hasActiveTransfers,
     Object? quit,
+    String desktopArchitecture = UpdateService.compiledDesktopArchitecture,
   });
 
   @override
