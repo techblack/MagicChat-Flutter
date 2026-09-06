@@ -19,6 +19,7 @@ class MessagesPage extends StatelessWidget {
       this.focusMessageSequence,
       this.onMessageFocused,
       this.onUnreadChanged,
+      this.messagesReselectToken = 0,
       this.chatAppearance = const ChatAppearance(),
       this.conversationAppearance,
       this.onConversationAppearanceChanged,
@@ -42,6 +43,7 @@ class MessagesPage extends StatelessWidget {
   final int? focusMessageSequence;
   final VoidCallback? onMessageFocused;
   final ValueChanged<int>? onUnreadChanged;
+  final int messagesReselectToken;
   final ChatAppearance chatAppearance;
   final ChatConversationAppearance? conversationAppearance;
   final Future<void> Function(
@@ -87,6 +89,7 @@ class MessagesPage extends StatelessWidget {
                 onOpenConversation: onOpenConversation ?? onSelect,
                 onOpenInternalLink: onOpenInternalLink,
                 onMessageFocused: onMessageFocused,
+                messagesReselectToken: messagesReselectToken,
               );
         final conversationHeader = selectedId == null
             ? null

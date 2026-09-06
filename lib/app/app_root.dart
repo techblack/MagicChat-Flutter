@@ -1188,6 +1188,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   bool _identityReady = false;
   bool _realtimeReconnecting = false;
   int _index = 0;
+  int _messagesReselectToken = 0;
   String? _selectedConversation;
   String? _focusMessageId;
   int? _focusMessageSequence;
@@ -1515,6 +1516,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
               onOpenMessage: _openMessageFromSearch,
               onOpenInternalLink: _openInternalMessageLink,
               onUnreadChanged: _setUnreadCount,
+              messagesReselectToken: _messagesReselectToken,
               onMessageFocused: () {
                 if (mounted) {
                   setState(() {
@@ -1689,7 +1691,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                           Theme.of(context).scaffoldBackgroundColor,
                       useIndicator: true,
                       selectedIndex: _index,
-                      onDestinationSelected: (i) => setState(() => _index = i),
+                      onDestinationSelected: (i) => setState(() {
+                            if (i == _index && i == 0) {
+                              _messagesReselectToken++;
+                            } else {
+                              _index = i;
+                            }
+                          }),
                       labelType: NavigationRailLabelType.all,
                       destinations: destinations
                           .map((d) => NavigationRailDestination(
@@ -1707,7 +1715,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                   backgroundColor: Theme.of(context).colorScheme.surface,
                   elevation: 0,
                   selectedIndex: _index,
-                  onDestinationSelected: (i) => setState(() => _index = i),
+                  onDestinationSelected: (i) => setState(() {
+                        if (i == _index && i == 0) {
+                          _messagesReselectToken++;
+                        } else {
+                          _index = i;
+                        }
+                      }),
                   destinations: destinations),
         ),
       ),
