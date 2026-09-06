@@ -7,6 +7,7 @@ class MessagesPage extends StatelessWidget {
       this.realtimeSession,
       this.realtimeStore,
       this.cacheScope,
+      this.draftStore,
       required this.selectedId,
       required this.onSelect,
       this.onOpenConversation,
@@ -32,6 +33,7 @@ class MessagesPage extends StatelessWidget {
   final RealtimeSession? realtimeSession;
   final RealtimeStore? realtimeStore;
   final MessageCacheScope? cacheScope;
+  final ConversationDraftStore? draftStore;
   final String? selectedId;
   final ValueChanged<String> onSelect;
   final ValueChanged<String>? onOpenConversation;
@@ -66,6 +68,7 @@ class MessagesPage extends StatelessWidget {
                   realtimeSession: realtimeSession,
                   serverUrl: serverUrl,
                   cacheScope: cacheScope,
+                  draftStore: draftStore,
                   realtimeStore: realtimeStore,
                   selectedId: selectedId,
                   onSelect: onSelect,
@@ -87,6 +90,7 @@ class MessagesPage extends StatelessWidget {
                 realtimeSession: realtimeSession,
                 realtimeStore: realtimeStore,
                 cacheScope: cacheScope,
+                draftStore: draftStore,
                 sendMessageShortcut: sendMessageShortcut,
                 chatAppearance: chatAppearance,
                 conversationAppearance: conversationAppearance,
@@ -589,6 +593,7 @@ class _ConversationList extends StatefulWidget {
       this.realtimeSession,
       this.serverUrl,
       this.cacheScope,
+      this.draftStore,
       this.realtimeStore,
       required this.selectedId,
       required this.onSelect,
@@ -598,6 +603,7 @@ class _ConversationList extends StatefulWidget {
   final RealtimeSession? realtimeSession;
   final String? serverUrl;
   final MessageCacheScope? cacheScope;
+  final ConversationDraftStore? draftStore;
   final RealtimeStore? realtimeStore;
   final String? selectedId;
   final ValueChanged<String> onSelect;
@@ -621,6 +627,7 @@ class _ConversationListState extends State<_ConversationList> {
   void initState() {
     super.initState();
     _currentUserId = widget.realtimeStore?.currentUserId;
+    widget.draftStore?.addListener(_onDraftsChanged);
     widget.realtimeStore?.addListener(_onRealtimeChanged);
     if (widget.realtimeSession != null) {
       _fallbackPollTimer = Timer.periodic(
@@ -660,9 +667,23 @@ class _ConversationListState extends State<_ConversationList> {
     });
   }
 
+  void _onDraftsChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void didUpdateWidget(covariant _ConversationList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.draftStore != widget.draftStore) {
+      oldWidget.draftStore?.removeListener(_onDraftsChanged);
+      widget.draftStore?.addListener(_onDraftsChanged);
+    }
+  }
+
   @override
   void dispose() {
     _fallbackPollTimer?.cancel();
+    widget.draftStore?.removeListener(_onDraftsChanged);
     widget.realtimeStore?.removeListener(_onRealtimeChanged);
     super.dispose();
   }
@@ -796,16 +817,23 @@ class _ConversationListState extends State<_ConversationList> {
                 final subtitleStyle =
                     TextStyle(fontWeight: hasUnread ? FontWeight.w600 : null);
                 final messageTime = _conversationTime(c);
+                final draft = c.id == widget.selectedId ||
+                        mentionUnread ||
+                        choiceUnread ||
+                        c.topic?.archived == true
+                    ? null
+                    : widget.draftStore?.draftFor(c.id);
                 final previewContent = c.announcement.isNotEmpty
                     ? '公告：${c.announcement}'
                     : c.preview;
-                final preview = formatMentionText(
-                    previewContent,
-                    conversationPreviewMentionLabels(
-                        previewContent,
-                        c,
-                        widget.realtimeStore?.contacts ??
-                            const <String, Contact>{}));
+                final mentionLabels = conversationPreviewMentionLabels(
+                    draft?.preview ?? previewContent,
+                    c,
+                    widget.realtimeStore?.contacts ??
+                        const <String, Contact>{});
+                final preview = draft == null
+                    ? formatMentionText(previewContent, mentionLabels)
+                    : '[草稿] ${formatMentionText(draft.preview, mentionLabels)}';
                 final statusIcons = <Widget>[
                   if (c.pinned)
                     const Padding(
@@ -1105,6 +1133,7 @@ class _ConversationListState extends State<_ConversationList> {
           .setConversationMuted(conversation.id, action == 'mute');
     } else if (action == 'dismiss') {
       await widget.repository.dismissConversation(conversation.id);
+      widget.draftStore?.clear(conversation.id);
       await const LastConversationStore()
           .clearIfMatches(widget.cacheScope, conversation.id);
       widget.onConversationRemoved?.call(conversation.id);
@@ -1268,6 +1297,7 @@ class _ConversationListState extends State<_ConversationList> {
         } else {
           await widget.repository.dissolveGroupConversation(conversation.id);
         }
+        widget.draftStore?.clear(conversation.id);
         await const LastConversationStore()
             .clearIfMatches(widget.cacheScope, conversation.id);
         widget.onConversationRemoved?.call(conversation.id);

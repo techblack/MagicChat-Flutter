@@ -142,6 +142,7 @@ class ConversationView extends StatefulWidget {
       this.realtimeSession,
       this.realtimeStore,
       this.cacheScope,
+      this.draftStore,
       this.messageCacheStore,
       this.sendMessageShortcut = MessageSendShortcut.enter,
       this.chatAppearance = const ChatAppearance(),
@@ -164,6 +165,7 @@ class ConversationView extends StatefulWidget {
   final RealtimeSession? realtimeSession;
   final RealtimeStore? realtimeStore;
   final MessageCacheScope? cacheScope;
+  final ConversationDraftStore? draftStore;
   final MessageCacheStore? messageCacheStore;
   final MessageSendShortcut sendMessageShortcut;
   final ChatAppearance chatAppearance;
@@ -269,6 +271,7 @@ class _ConversationViewState extends State<ConversationView>
   bool _typingStatusInFlight = false;
   Timer? _fallbackPollTimer;
   bool _fallbackPollInFlight = false;
+  bool _applyingDraft = false;
 
   bool get _topicArchived =>
       _conversation?.topic?.archived == true ||
@@ -348,7 +351,7 @@ class _ConversationViewState extends State<ConversationView>
       final id = widget.conversationId;
       if (id != null && !_historyMode) _requestLatestRead(id);
     });
-    unawaited(_restoreDraft());
+    _restoreDraft();
     if (_supportsMobileImageRecovery) {
       WidgetsBinding.instance
           .addPostFrameCallback((_) => unawaited(_recoverLostMobileImages()));
@@ -428,33 +431,33 @@ class _ConversationViewState extends State<ConversationView>
     return bySequence != 0 ? bySequence : left.id.compareTo(right.id);
   }
 
-  String? get _draftKey => widget.conversationId == null
-      ? null
-      : 'magicchat.conversation.${widget.conversationId}.draft';
-
-  Future<void> _restoreDraft() async {
-    final key = _draftKey;
-    if (key == null) return;
-    final prefs = await SharedPreferences.getInstance();
-    final draft = prefs.getString(key);
-    if (draft != null && mounted && _controller.text.isEmpty) {
-      _controller.value = TextEditingValue(
-          text: draft,
-          selection: TextSelection.collapsed(offset: draft.length));
-    }
+  void _restoreDraft() {
+    final conversationId = widget.conversationId;
+    final draft = conversationId == null
+        ? null
+        : widget.draftStore?.draftFor(conversationId);
+    _applyingDraft = true;
+    _controller.value = TextEditingValue(
+        text: draft?.text ?? '',
+        selection: TextSelection.collapsed(offset: draft?.text.length ?? 0));
+    _markdownMode = draft?.markdownMode ?? false;
+    _replyTo = draft?.replyTo;
+    _applyingDraft = false;
   }
 
   void _persistDraft() {
-    final key = _draftKey;
-    if (key == null) return;
-    unawaited(SharedPreferences.getInstance().then((prefs) async {
-      final draft = _controller.text;
-      if (draft.trim().isEmpty) {
-        await prefs.remove(key);
-      } else {
-        await prefs.setString(key, draft);
-      }
-    }));
+    if (_applyingDraft) return;
+    _persistDraftFor(widget.conversationId);
+  }
+
+  void _persistDraftFor(String? conversationId) {
+    if (conversationId == null) return;
+    widget.draftStore?.update(
+      conversationId,
+      text: _controller.text,
+      markdownMode: _markdownMode,
+      replyTo: _replyTo,
+    );
   }
 
   Future<List<Contact>> _loadConversationContacts() async {
@@ -1092,6 +1095,7 @@ class _ConversationViewState extends State<ConversationView>
       }
       if (!canSend) _replyTo = null;
     });
+    if (!canSend) _persistDraft();
     if (!canSend) _stopTypingHeartbeat();
   }
 
@@ -1417,6 +1421,8 @@ class _ConversationViewState extends State<ConversationView>
       widget.realtimeStore?.addListener(_onRealtimeChanged);
     }
     if (oldWidget.conversationId != widget.conversationId) {
+      _persistDraftFor(oldWidget.conversationId);
+      widget.draftStore?.flushNotifications();
       _stopTypingHeartbeat();
       _composerFocusNode.unfocus();
       _highlightTimer?.cancel();
@@ -1451,8 +1457,7 @@ class _ConversationViewState extends State<ConversationView>
       _canSend = true;
       _messagesFuture = _loadMessages();
       _contactsFuture = _loadConversationContacts();
-      _controller.clear();
-      unawaited(_restoreDraft());
+      _restoreDraft();
     }
     if (oldWidget.messagesReselectToken != widget.messagesReselectToken &&
         widget.conversationId != null) {
@@ -1529,6 +1534,7 @@ class _ConversationViewState extends State<ConversationView>
     _fallbackPollTimer?.cancel();
     _highlightTimer?.cancel();
     _persistDraft();
+    widget.draftStore?.flushNotifications();
     _controller.removeListener(_persistDraft);
     _composerFocusNode.removeListener(_onComposerFocusChanged);
     _controller.dispose();
@@ -1597,6 +1603,7 @@ class _ConversationViewState extends State<ConversationView>
       _optimisticMessages[descriptor.clientMessageId] = item;
       _replyTo = null;
     });
+    _persistDraft();
     _scrollToLatest(conversationId);
     unawaited(_performOptimisticSend(conversationId, descriptor));
   }
@@ -1792,6 +1799,7 @@ class _ConversationViewState extends State<ConversationView>
         author: message.author,
         authorId: message.authorId,
         text: message.text));
+    _persistDraft();
     _composerFocusNode.requestFocus();
   }
 
@@ -2293,7 +2301,10 @@ class _ConversationViewState extends State<ConversationView>
                       ),
                       IconButton(
                           tooltip: '取消回复',
-                          onPressed: () => setState(() => _replyTo = null),
+                          onPressed: () {
+                            setState(() => _replyTo = null);
+                            _persistDraft();
+                          },
                           icon: const Icon(Icons.close, size: 18)),
                     ]),
                   ),
@@ -2388,8 +2399,10 @@ class _ConversationViewState extends State<ConversationView>
                             : null,
                         onPressed: !canSend || _sendingFile
                             ? null
-                            : () =>
-                                setState(() => _markdownMode = !_markdownMode),
+                            : () {
+                                setState(() => _markdownMode = !_markdownMode);
+                                _persistDraft();
+                              },
                       ),
                       IconButton(
                         icon: const Icon(Icons.attach_file),
@@ -2638,6 +2651,7 @@ class _ConversationViewState extends State<ConversationView>
     _controller.value = TextEditingValue(
         text: text, selection: TextSelection.collapsed(offset: text.length));
     setState(() => _markdownMode = message.editableContentType == 'markdown');
+    _persistDraft();
     _composerFocusNode.requestFocus();
   }
 
@@ -3140,11 +3154,7 @@ class _ConversationViewState extends State<ConversationView>
     );
     _controller.clear();
     _enqueueOptimisticMessage(conversationId, descriptor);
-    final key = _draftKey;
-    if (key != null) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(key);
-    }
+    widget.draftStore?.clear(conversationId);
   }
 
   String _mimeType(String? extension) {
@@ -3318,6 +3328,7 @@ class _ConversationViewState extends State<ConversationView>
             author: message.author,
             authorId: message.authorId,
             text: message.text));
+        _persistDraft();
       }
     } else if (action == 'revoke' && _topicIsOpen(conversationId)) {
       await _confirmRevoke(conversationId, message);
