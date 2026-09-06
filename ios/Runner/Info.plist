@@ -10,6 +10,8 @@
 	<string>用于连接您配置的自托管 MagicChat 服务器。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>MagicChat 需要访问照片以选择头像和图片</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>MagicChat 需要将图片保存到系统相册</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

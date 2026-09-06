@@ -19,6 +19,7 @@ dependencies:
   sqlite3_flutter_libs: ^0.5.24
   flutter_secure_storage: ^9.2.4
   file_picker: ^11.0.2
+  gal: ^2.3.3
   desktop_drop: ^0.8.4
   desktop_tray: ^2026.6.25
   cupertino_icons: ^1.0.8

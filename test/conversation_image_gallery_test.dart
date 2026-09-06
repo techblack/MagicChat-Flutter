@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as image;
 import 'package:magicchat_client/data/asset_cache_store.dart';
+import 'package:magicchat_client/data/image_save_service.dart';
 import 'package:magicchat_client/data/message_cache_store.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
@@ -149,6 +150,64 @@ void main() {
     expect(
         find.byKey(const ValueKey('gallery-image-retry-file')), findsOneWidget);
   });
+
+  testWidgets('保存操作使用当前图片字节并展示目标平台结果', (tester) async {
+    final repository = _GalleryRepository();
+    Uint8List? savedBytes;
+    String? suggestedName;
+    int? fallbackIndex;
+    await _pumpGallery(
+      tester,
+      repository,
+      messages: const [
+        ChatMessage(
+            id: 'save-image',
+            author: '成员',
+            text: '[图片]',
+            sequence: 7,
+            contentType: 'image',
+            rawBody: {'file_id': 'file-1', 'name': '现场照片.jpg'}),
+      ],
+      initialMessageId: 'save-image',
+      initialBytes: repository.bytes['file-1'],
+      imageSaver: (bytes, name, index) async {
+        savedBytes = bytes;
+        suggestedName = name;
+        fallbackIndex = index;
+        return const ImageSaveResult(
+          destination: ImageSaveDestination.photoLibrary,
+          saved: true,
+        );
+      },
+    );
+
+    await tester.tap(find.byTooltip(imageSaveActionLabel()));
+    await tester.pump();
+
+    expect(savedBytes, repository.bytes['file-1']);
+    expect(suggestedName, '现场照片.jpg');
+    expect(fallbackIndex, 7);
+    expect(find.text('图片已保存到系统相册'), findsOneWidget);
+  });
+
+  testWidgets('保存权限失败时展示可操作提示', (tester) async {
+    final repository = _GalleryRepository();
+    await _pumpGallery(
+      tester,
+      repository,
+      messages: _galleryMessages,
+      initialMessageId: 'image-1',
+      initialBytes: repository.bytes['file-1'],
+      imageSaver: (_, __, ___) async => throw const ImageSaveException(
+        ImageSaveFailure.permissionDenied,
+      ),
+    );
+
+    await tester.tap(find.byTooltip(imageSaveActionLabel()));
+    await tester.pump();
+
+    expect(find.textContaining('请在系统设置中允许访问'), findsOneWidget);
+  });
 }
 
 Future<void> _pumpGallery(
@@ -159,6 +218,7 @@ Future<void> _pumpGallery(
   bool hasOlder = false,
   Uint8List? initialBytes,
   Future<void> Function(String messageId)? onForward,
+  ConversationImageSaver? imageSaver,
 }) async {
   await tester.binding.setSurfaceSize(const Size(600, 800));
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -172,6 +232,7 @@ Future<void> _pumpGallery(
       cacheScope: repository.cacheScope,
       initialBytes: initialBytes,
       onForward: onForward,
+      imageSaver: imageSaver,
     ),
   ));
   await tester.pump();

@@ -337,6 +337,21 @@ void main() {
     expect(wide.height, lessThan(tall.height));
   });
 
+  testWidgets('图片消息操作菜单不提供文本复制', (tester) async {
+    final repository = _ImageRepository()..primeCache();
+    await _pumpConversation(tester, repository, settle: false);
+    final target = find.byKey(const ValueKey('conversation-image-image-wide'));
+    for (var i = 0; i < 20 && target.evaluate().isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    await tester.longPress(target);
+    await tester.pumpAndSettle();
+
+    expect(find.text('回复'), findsOneWidget);
+    expect(find.text('复制消息'), findsNothing);
+  });
+
   testWidgets('点击图片从当前消息进入同会话画廊', (tester) async {
     final repository = _ImageRepository()..primeCache();
     await _pumpConversation(tester, repository);
