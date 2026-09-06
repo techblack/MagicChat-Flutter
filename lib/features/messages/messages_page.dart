@@ -10,6 +10,7 @@ class MessagesPage extends StatelessWidget {
       this.draftStore,
       required this.selectedId,
       required this.onSelect,
+      this.onRestoreLastConversation,
       this.onOpenConversation,
       this.onConversationRemoved,
       this.onBack,
@@ -36,6 +37,7 @@ class MessagesPage extends StatelessWidget {
   final ConversationDraftStore? draftStore;
   final String? selectedId;
   final ValueChanged<String> onSelect;
+  final ValueChanged<String>? onRestoreLastConversation;
   final ValueChanged<String>? onOpenConversation;
   final ValueChanged<String>? onConversationRemoved;
   final VoidCallback? onBack;
@@ -72,6 +74,7 @@ class MessagesPage extends StatelessWidget {
                   realtimeStore: realtimeStore,
                   selectedId: selectedId,
                   onSelect: onSelect,
+                  onRestoreLastConversation: onRestoreLastConversation,
                   onConversationRemoved: onConversationRemoved,
                   onUnreadChanged: onUnreadChanged)),
           Positioned(
@@ -597,6 +600,7 @@ class _ConversationList extends StatefulWidget {
       this.realtimeStore,
       required this.selectedId,
       required this.onSelect,
+      this.onRestoreLastConversation,
       this.onConversationRemoved,
       this.onUnreadChanged});
   final MagicChatRepository repository;
@@ -607,6 +611,7 @@ class _ConversationList extends StatefulWidget {
   final RealtimeStore? realtimeStore;
   final String? selectedId;
   final ValueChanged<String> onSelect;
+  final ValueChanged<String>? onRestoreLastConversation;
   final ValueChanged<String>? onConversationRemoved;
   final ValueChanged<int>? onUnreadChanged;
   @override
@@ -732,7 +737,7 @@ class _ConversationListState extends State<_ConversationList> {
     final conversationId = await store.read(scope);
     if (!mounted || conversationId.isEmpty || widget.selectedId != null) return;
     if (conversations.any((item) => item.id == conversationId)) {
-      widget.onSelect(conversationId);
+      (widget.onRestoreLastConversation ?? widget.onSelect)(conversationId);
     } else {
       await store.clear(scope);
     }
@@ -1137,6 +1142,7 @@ class _ConversationListState extends State<_ConversationList> {
       await const LastConversationStore()
           .clearIfMatches(widget.cacheScope, conversation.id);
       widget.onConversationRemoved?.call(conversation.id);
+      if (widget.selectedId == conversation.id) widget.onSelect('');
     } else if (action == 'rename') {
       final controller = TextEditingController(text: conversation.title);
       final name = await showDialog<String>(
@@ -1301,7 +1307,9 @@ class _ConversationListState extends State<_ConversationList> {
         await const LastConversationStore()
             .clearIfMatches(widget.cacheScope, conversation.id);
         widget.onConversationRemoved?.call(conversation.id);
-        if (context.mounted) widget.onSelect('');
+        if (context.mounted && widget.selectedId == conversation.id) {
+          widget.onSelect('');
+        }
       }
     }
     if (mounted) setState(_reload);

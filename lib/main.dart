@@ -40,6 +40,7 @@ import 'data/avatar_processor.dart';
 import 'data/chat_preferences.dart';
 import 'data/chat_appearance_preferences.dart';
 import 'features/contacts/contacts_page.dart';
+import 'features/contacts/contact_directory_model.dart';
 import 'features/contacts/entity_details_page.dart';
 import 'features/messages/collapsible_message_content.dart';
 import 'features/messages/conversation_announcement.dart';

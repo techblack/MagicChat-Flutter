@@ -32,5 +32,8 @@ void main() {
 
     expect(find.byTooltip('返回会话列表'), findsOneWidget);
     expect(find.text('MagicChat 小助手'), findsOneWidget);
+    await tester.tap(find.byTooltip('返回会话列表'));
+    await tester.pumpAndSettle();
+    expect(find.byType(NavigationBar), findsOneWidget);
   });
 }

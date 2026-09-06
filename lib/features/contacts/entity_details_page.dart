@@ -8,6 +8,14 @@ import '../../data/repository.dart';
 import '../../domain/models.dart';
 import '../shared/cached_avatar.dart';
 import '../shared/user_facing_error.dart';
+import 'contact_directory_model.dart';
+
+typedef ContactConversationSource = ({
+  Contact contact,
+  ContactDirectoryCategory? category,
+});
+typedef ContactConversationCallback = void Function(
+    String conversationId, ContactConversationSource? source);
 
 class EntityDetailsPage extends StatefulWidget {
   const EntityDetailsPage({
@@ -15,6 +23,7 @@ class EntityDetailsPage extends StatefulWidget {
     required this.contact,
     this.serverUrl,
     this.cacheScope,
+    this.sourceCategory,
     this.onOpenConversation,
     super.key,
   });
@@ -23,7 +32,8 @@ class EntityDetailsPage extends StatefulWidget {
   final Contact contact;
   final String? serverUrl;
   final MessageCacheScope? cacheScope;
-  final ValueChanged<String>? onOpenConversation;
+  final ContactDirectoryCategory? sourceCategory;
+  final ContactConversationCallback? onOpenConversation;
 
   @override
   State<EntityDetailsPage> createState() => _EntityDetailsPageState();
@@ -85,7 +95,8 @@ class _EntityDetailsPageState extends State<EntityDetailsPage> {
               : await widget.repository.createDirectConversation(contact.id);
       if (!mounted) return;
       Navigator.pop(context);
-      widget.onOpenConversation?.call(conversation.id);
+      widget.onOpenConversation?.call(
+          conversation.id, (contact: contact, category: widget.sourceCategory));
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(

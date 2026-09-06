@@ -1304,6 +1304,20 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
+typedef _AppNavigationLocation = ({
+  int index,
+  String? selectedConversation,
+  String? focusMessageId,
+  int? focusMessageSequence,
+  String? focusContactId,
+  ContactDirectoryCategory? focusContactCategory,
+  String? focusProjectId,
+  String? focusTaskProjectId,
+  String? focusTaskId,
+  String? focusDocumentId,
+  bool focusRouteReturnsToSource,
+});
+
 class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   late final MagicChatRepository _repository = widget.repository;
   String? _currentUserId;
@@ -1315,16 +1329,18 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   String? _focusMessageId;
   int? _focusMessageSequence;
   String? _focusContactId;
+  ContactDirectoryCategory? _focusContactCategory;
   String? _focusProjectId;
   String? _focusTaskProjectId;
   String? _focusTaskId;
   String? _focusDocumentId;
+  bool _focusRouteReturnsToSource = false;
   int _unreadCount = 0;
   MessageSendShortcut _sendMessageShortcut = MessageSendShortcut.enter;
   DesktopScreenshotShortcut _screenshotShortcut =
       DesktopScreenshotShortcut.defaultFor(defaultTargetPlatform);
   int _screenshotRequestToken = 0;
-  final _conversationHistory = <String>[];
+  final _navigationHistory = <_AppNavigationLocation>[];
   final _contactCacheStore = ContactCacheStore();
   StreamSubscription<Map<String, dynamic>>? _realtimeSubscription;
   final _notifications = const LocalNotificationService();
@@ -1359,7 +1375,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _pushTokenProvider.setRouteOpenedHandler(_openPendingPushRoute);
+    _pushTokenProvider
+        .setRouteOpenedHandler((route) => _openPendingPushRoute(route));
     unawaited(_loadChatPreferences());
     final realtime = widget.realtime;
     final store = widget.realtimeStore;
@@ -1369,11 +1386,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     if (realtime == null || store == null) {
       unawaited(_loadCurrentUser());
     }
-    _resolveNotificationRoute();
+    _resolveNotificationRoute(recordSource: false);
     unawaited(_restoreMobileImageRecoveryRoute());
     if (widget.trayOpenRequest > 0 && widget.trayConversationId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _openConversation(widget.trayConversationId!);
+        if (mounted) {
+          _openConversation(widget.trayConversationId!, recordSource: false);
+        }
       });
     }
   }
@@ -1384,7 +1403,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     final conversationId =
         prefs.getString(mobileImageRecoveryConversationKey)?.trim();
     if (!mounted || conversationId == null || conversationId.isEmpty) return;
-    if (_selectedConversation == null) _openConversation(conversationId);
+    if (_selectedConversation == null) {
+      _openConversation(conversationId, recordSource: false);
+    }
   }
 
   void _syncDesktopTray() {
@@ -1633,7 +1654,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         body: notificationBody);
   }
 
-  Future<void> _resolveNotificationRoute() async {
+  Future<void> _resolveNotificationRoute({bool recordSource = true}) async {
     final urlToken = Uri.base.queryParameters['route_token'];
     final urlConversationId = Uri.base.queryParameters['conversation_id'];
     final urlMessageId = Uri.base.queryParameters['message_id'];
@@ -1641,17 +1662,20 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     final routeToken = urlToken?.trim().isNotEmpty == true
         ? urlToken!.trim()
         : pending?.routeToken ?? '';
-    await _openPendingPushRoute(PendingPushRoute(
-        routeToken: routeToken,
-        conversationId: urlConversationId?.trim().isNotEmpty == true
-            ? urlConversationId!.trim()
-            : pending?.conversationId ?? '',
-        messageId: urlMessageId?.trim().isNotEmpty == true
-            ? urlMessageId!.trim()
-            : pending?.messageId ?? ''));
+    await _openPendingPushRoute(
+        PendingPushRoute(
+            routeToken: routeToken,
+            conversationId: urlConversationId?.trim().isNotEmpty == true
+                ? urlConversationId!.trim()
+                : pending?.conversationId ?? '',
+            messageId: urlMessageId?.trim().isNotEmpty == true
+                ? urlMessageId!.trim()
+                : pending?.messageId ?? ''),
+        recordSource: recordSource);
   }
 
-  Future<void> _openPendingPushRoute(PendingPushRoute pending) async {
+  Future<void> _openPendingPushRoute(PendingPushRoute pending,
+      {bool recordSource = true}) async {
     final routeToken = pending.routeToken;
     if (routeToken.isEmpty) {
       final conversationId = pending.conversationId;
@@ -1660,9 +1684,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       final key = 'message:$conversationId:$messageId';
       if (!_handledNotificationRoutes.add(key)) return;
       if (messageId.isEmpty) {
-        _selectConversationFromList(conversationId);
+        _selectConversationFromList(conversationId, recordSource: recordSource);
       } else {
-        _openMessageFromSearch(conversationId, messageId, null);
+        _openMessageFromSearch(conversationId, messageId, null,
+            recordSource: recordSource);
       }
       return;
     }
@@ -1677,7 +1702,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           sessionToken: token,
           routeToken: routeToken);
       if (mounted) {
-        _openMessageFromSearch(route.conversationId, route.messageId, null);
+        _openMessageFromSearch(route.conversationId, route.messageId, null,
+            recordSource: recordSource);
       }
     } catch (_) {
       _handledNotificationRoutes.remove(key);
@@ -1751,6 +1777,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
               focusMessageId: _focusMessageId,
               focusMessageSequence: _focusMessageSequence,
               onSelect: _selectConversationFromList,
+              onRestoreLastConversation: (id) {
+                if (_index == 0 && _selectedConversation == null) {
+                  _selectConversationFromList(id, recordSource: false);
+                }
+              },
               onOpenConversation: _openConversation,
               onConversationRemoved: _forgetConversation,
               onBack: _backConversation,
@@ -1774,13 +1805,18 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           serverUrl: widget.serverUrl,
           cacheScope: _messageCacheScope,
           initialContactId: _focusContactId,
+          initialContactCategory: _focusContactCategory,
           onInitialContactOpened: () {
-            if (mounted) setState(() => _focusContactId = null);
+            if (mounted && _index == 1 && _focusContactId != null) {
+              _completeFocusedRoute();
+            }
           },
-          onOpenConversation: (id) {
-            _focusContactId = null;
-            _selectConversationFromList(id);
-            if (mounted) setState(() => _index = 0);
+          onOpenConversation: (id, source) {
+            if (source != null) {
+              _focusContactId = source.contact.id;
+              _focusContactCategory = source.category;
+            }
+            _openConversation(id);
           }),
       ProjectsPage(
           repository: _repository,
@@ -1790,18 +1826,22 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           initialTaskId: _focusTaskId,
           initialDocumentId: _focusDocumentId,
           onInitialProjectOpened: () {
-            if (mounted) setState(() => _focusProjectId = null);
+            if (mounted && _index == 2 && _focusProjectId != null) {
+              _completeFocusedRoute();
+            }
           },
           onInitialTaskOpened: () {
-            if (mounted) {
-              setState(() {
-                _focusTaskProjectId = null;
-                _focusTaskId = null;
-              });
+            if (mounted &&
+                _index == 2 &&
+                _focusTaskProjectId != null &&
+                _focusTaskId != null) {
+              _completeFocusedRoute();
             }
           },
           onInitialDocumentOpened: () {
-            if (mounted) setState(() => _focusDocumentId = null);
+            if (mounted && _index == 2 && _focusDocumentId != null) {
+              _completeFocusedRoute();
+            }
           },
           documentCollaborationFactory: documentCollaborationFactory),
       SettingsPage(
@@ -1858,7 +1898,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     final compactConversation =
         !wide && _index == 0 && _selectedConversation != null;
     return PopScope<void>(
-      canPop: _selectedConversation == null && _index == 0,
+      canPop: _navigationHistory.isEmpty &&
+          _selectedConversation == null &&
+          _index == 0,
       onPopInvokedWithResult: (didPop, result) {
         if (!didPop) _handleSystemBack();
       },
@@ -1943,13 +1985,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                           Theme.of(context).scaffoldBackgroundColor,
                       useIndicator: true,
                       selectedIndex: _index,
-                      onDestinationSelected: (i) => setState(() {
-                            if (i == _index && i == 0) {
-                              _messagesReselectToken++;
-                            } else {
-                              _index = i;
-                            }
-                          }),
+                      onDestinationSelected: _selectSection,
                       labelType: NavigationRailLabelType.all,
                       destinations: destinations
                           .map((d) => NavigationRailDestination(
@@ -1967,13 +2003,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                   backgroundColor: Theme.of(context).colorScheme.surface,
                   elevation: 0,
                   selectedIndex: _index,
-                  onDestinationSelected: (i) => setState(() {
-                        if (i == _index && i == 0) {
-                          _messagesReselectToken++;
-                        } else {
-                          _index = i;
-                        }
-                      }),
+                  onDestinationSelected: _selectSection,
                   destinations: destinations),
         ),
       ),
@@ -1987,49 +2017,116 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     _syncDesktopTray();
   }
 
-  void _selectConversationFromList(String id) {
-    if (!mounted) return;
-    setState(() {
-      _conversationHistory.clear();
-      _focusMessageId = null;
-      _focusMessageSequence = null;
-      _selectedConversation = id.isEmpty ? null : id;
-      if (id.isNotEmpty) _index = 0;
-    });
-    if (id.isNotEmpty) {
-      unawaited(_rememberConversation(id));
-      unawaited(_loadConversationAppearance(id));
+  _AppNavigationLocation get _currentNavigationLocation => (
+        index: _index,
+        selectedConversation: _selectedConversation,
+        focusMessageId: _focusMessageId,
+        focusMessageSequence: _focusMessageSequence,
+        focusContactId: _focusContactId,
+        focusContactCategory: _focusContactCategory,
+        focusProjectId: _focusProjectId,
+        focusTaskProjectId: _focusTaskProjectId,
+        focusTaskId: _focusTaskId,
+        focusDocumentId: _focusDocumentId,
+        focusRouteReturnsToSource: _focusRouteReturnsToSource,
+      );
+
+  void _pushNavigationSource() {
+    final source = _currentNavigationLocation;
+    if (_navigationHistory.lastOrNull != source) {
+      _navigationHistory.add(source);
     }
   }
 
-  void _openConversation(String id) {
-    if (!mounted || id.isEmpty) return;
+  void _clearFocusTargets() {
+    _focusMessageId = null;
+    _focusMessageSequence = null;
+    _focusContactId = null;
+    _focusContactCategory = null;
+    _focusProjectId = null;
+    _focusTaskProjectId = null;
+    _focusTaskId = null;
+    _focusDocumentId = null;
+    _focusRouteReturnsToSource = false;
+  }
+
+  void _applyNavigationLocation(_AppNavigationLocation location) {
+    _index = location.index;
+    _selectedConversation = location.selectedConversation;
+    _focusMessageId = location.focusMessageId;
+    _focusMessageSequence = location.focusMessageSequence;
+    _focusContactId = location.focusContactId;
+    _focusContactCategory = location.focusContactCategory;
+    _focusProjectId = location.focusProjectId;
+    _focusTaskProjectId = location.focusTaskProjectId;
+    _focusTaskId = location.focusTaskId;
+    _focusDocumentId = location.focusDocumentId;
+    _focusRouteReturnsToSource = location.focusRouteReturnsToSource;
+  }
+
+  void _selectSection(int index) {
+    if (!mounted || index < 0 || index > 3) return;
+    if (index == _index) {
+      if (index == 0) setState(() => _messagesReselectToken++);
+      return;
+    }
     setState(() {
-      _focusMessageId = null;
-      _focusMessageSequence = null;
-      if (_selectedConversation != null &&
-          _selectedConversation != id &&
-          !_conversationHistory.contains(_selectedConversation)) {
-        _conversationHistory.add(_selectedConversation!);
-      }
-      _selectedConversation = id;
-      _index = 0;
+      _pushNavigationSource();
+      _clearFocusTargets();
+      _index = index;
     });
+  }
+
+  void _selectConversationFromList(String id, {bool recordSource = true}) {
+    if (!mounted) return;
+    if (id.isEmpty) {
+      _restoreNavigationSource();
+      return;
+    }
+    _openConversation(id, recordSource: recordSource);
+  }
+
+  void _openConversation(String id, {bool recordSource = true}) {
+    if (!mounted || id.isEmpty) return;
+    final sameConversation = _index == 0 &&
+        _selectedConversation == id &&
+        _focusMessageId == null &&
+        _focusContactId == null &&
+        _focusProjectId == null &&
+        _focusTaskProjectId == null &&
+        _focusTaskId == null &&
+        _focusDocumentId == null;
+    if (sameConversation && !recordSource && _navigationHistory.isNotEmpty) {
+      setState(_navigationHistory.clear);
+    } else if (!sameConversation) {
+      setState(() {
+        if (recordSource) {
+          _pushNavigationSource();
+        } else {
+          _navigationHistory.clear();
+        }
+        _clearFocusTargets();
+        _selectedConversation = id;
+        _index = 0;
+      });
+    }
     unawaited(_rememberConversation(id));
     unawaited(_loadConversationAppearance(id));
   }
 
   void _openMessageFromSearch(
-      String conversationId, String messageId, int? messageSequence) {
+      String conversationId, String messageId, int? messageSequence,
+      {bool recordSource = true}) {
     if (!mounted || conversationId.isEmpty || messageId.isEmpty) return;
     setState(() {
+      if (recordSource) {
+        _pushNavigationSource();
+      } else {
+        _navigationHistory.clear();
+      }
+      _clearFocusTargets();
       _focusMessageId = messageId;
       _focusMessageSequence = messageSequence;
-      if (_selectedConversation != null &&
-          _selectedConversation != conversationId &&
-          !_conversationHistory.contains(_selectedConversation)) {
-        _conversationHistory.add(_selectedConversation!);
-      }
       _selectedConversation = conversationId;
       _index = 0;
     });
@@ -2042,27 +2139,43 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   void _forgetConversation(String conversationId) {
     unawaited(const LastConversationStore()
         .clearIfMatches(_messageCacheScope, conversationId));
-    if (_selectedConversation == conversationId) {
-      _selectConversationFromList('');
+    _navigationHistory.removeWhere(
+        (location) => location.selectedConversation == conversationId);
+  }
+
+  void _restoreNavigationSource() {
+    if (!mounted) return;
+    String? conversationId;
+    setState(() {
+      if (_navigationHistory.isNotEmpty) {
+        _applyNavigationLocation(_navigationHistory.removeLast());
+      } else {
+        _index = 0;
+        _selectedConversation = null;
+        _clearFocusTargets();
+      }
+      conversationId = _selectedConversation;
+    });
+    if (conversationId?.isNotEmpty == true) {
+      unawaited(_loadConversationAppearance(conversationId!));
     }
   }
 
-  void _backConversation() {
-    if (!mounted) return;
-    setState(() {
-      if (_conversationHistory.isNotEmpty) {
-        _selectedConversation = _conversationHistory.removeLast();
-      } else {
-        _selectedConversation = null;
-      }
-    });
+  void _completeFocusedRoute() {
+    if (_focusRouteReturnsToSource) {
+      _restoreNavigationSource();
+    } else {
+      setState(_clearFocusTargets);
+    }
   }
 
+  void _backConversation() => _restoreNavigationSource();
+
   void _handleSystemBack() {
-    if (_index != 0) {
-      setState(() => _index = 0);
-    } else if (_selectedConversation != null) {
-      _backConversation();
+    if (_navigationHistory.isNotEmpty ||
+        _index != 0 ||
+        _selectedConversation != null) {
+      _restoreNavigationSource();
     }
   }
 
@@ -2078,6 +2191,51 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   MessageCacheScope? get _messageCacheScope =>
       _messageCacheScopeFor(_currentUserId);
 
+  void _openContactTarget(String contactId) {
+    if (!mounted || contactId.isEmpty) return;
+    setState(() {
+      _pushNavigationSource();
+      _clearFocusTargets();
+      _focusContactId = contactId;
+      _focusRouteReturnsToSource = true;
+      _index = 1;
+    });
+  }
+
+  void _openProjectTarget(String projectId) {
+    if (!mounted || projectId.isEmpty) return;
+    setState(() {
+      _pushNavigationSource();
+      _clearFocusTargets();
+      _focusProjectId = projectId;
+      _focusRouteReturnsToSource = true;
+      _index = 2;
+    });
+  }
+
+  void _openTaskTarget(String projectId, String taskId) {
+    if (!mounted || projectId.isEmpty || taskId.isEmpty) return;
+    setState(() {
+      _pushNavigationSource();
+      _clearFocusTargets();
+      _focusTaskProjectId = projectId;
+      _focusTaskId = taskId;
+      _focusRouteReturnsToSource = true;
+      _index = 2;
+    });
+  }
+
+  void _openDocumentTarget(String documentId) {
+    if (!mounted || documentId.isEmpty) return;
+    setState(() {
+      _pushNavigationSource();
+      _clearFocusTargets();
+      _focusDocumentId = documentId;
+      _focusRouteReturnsToSource = true;
+      _index = 2;
+    });
+  }
+
   void _openInternalMessageLink(String path) {
     final target = parseInternalMessagePath(path);
     if (target == null) return;
@@ -2085,28 +2243,16 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     if (uri == null) return;
     final task = parseProjectTaskMessagePath(target);
     if (task != null) {
-      setState(() {
-        _focusProjectId = null;
-        _focusDocumentId = null;
-        _focusTaskProjectId = task.projectId;
-        _focusTaskId = task.taskId;
-        _index = 2;
-      });
+      _openTaskTarget(task.projectId, task.taskId);
       return;
     }
     final document = parseDocumentMessagePath(target);
     if (document != null) {
-      setState(() {
-        _focusProjectId = null;
-        _focusTaskProjectId = null;
-        _focusTaskId = null;
-        _focusDocumentId = document.documentId;
-        _index = 2;
-      });
+      _openDocumentTarget(document.documentId);
       return;
     }
     if (uri.path == '/projects' || uri.path.startsWith('/projects/')) {
-      setState(() => _index = 2);
+      _selectSection(2);
     }
   }
 
@@ -2117,21 +2263,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         repository: _repository,
         onOpenConversation: _selectConversationFromList,
         onOpenMessage: _openMessageFromSearch,
-        onOpenProject: (id) {
-          setState(() {
-            _focusDocumentId = null;
-            _focusTaskProjectId = null;
-            _focusTaskId = null;
-            _focusProjectId = id;
-            _index = 2;
-          });
-        },
-        onOpenContact: (contact) {
-          setState(() {
-            _focusContactId = contact.id;
-            _index = 1;
-          });
-        },
+        onOpenProject: _openProjectTarget,
+        onOpenContact: (contact) => _openContactTarget(contact.id),
       ),
     );
   }

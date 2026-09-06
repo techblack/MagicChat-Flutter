@@ -143,7 +143,7 @@ void main() {
         home: Scaffold(
             body: ContactsPage(
                 repository: repository,
-                onOpenConversation: (id) => opened = id))));
+                onOpenConversation: (id, _) => opened = id))));
     await tester.pumpAndSettle();
     await tester
         .tap(find.byKey(const ValueKey('contact-category-publicGroups')));
@@ -166,7 +166,7 @@ void main() {
         home: Scaffold(
             body: ContactsPage(
                 repository: repository,
-                onOpenConversation: (id) => opened = id))));
+                onOpenConversation: (id, _) => opened = id))));
     await tester.pumpAndSettle();
     await tester
         .tap(find.byKey(const ValueKey('contact-category-publicGroups')));
@@ -189,7 +189,7 @@ void main() {
         home: Scaffold(
             body: ContactsPage(
                 repository: repository,
-                onOpenConversation: (id) => opened = id))));
+                onOpenConversation: (id, _) => opened = id))));
     await tester.pumpAndSettle();
 
     await tester.tap(find.widgetWithText(ListTile, 'Alice'));
@@ -253,7 +253,7 @@ void main() {
         home: Scaffold(
             body: ContactsPage(
                 repository: repository,
-                onOpenConversation: (id) => opened = id))));
+                onOpenConversation: (id, _) => opened = id))));
     await tester.pumpAndSettle();
 
     await tester.longPress(find.widgetWithText(ListTile, 'Alice'));
