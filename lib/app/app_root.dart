@@ -1333,6 +1333,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   final _desktopScreenshot = DesktopScreenshotController();
   final _desktopWindow = const PlatformDesktopWindowController();
   final _messageCacheStore = MessageCacheStore();
+  final _conversationDraftStore = ConversationDraftStore();
   final _handledNotificationRoutes = <String>{};
   final _loadedConversationAppearances = <String, ChatConversationAppearance>{};
 
@@ -1415,6 +1416,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     if (!mounted) return;
     if (rememberedId != null) {
       store.setCurrentUserId(rememberedId);
+      await _conversationDraftStore.load(_messageCacheScopeFor(rememberedId));
+      if (!mounted) return;
       setState(() {
         _currentUserId = rememberedId;
         _identityReady = true;
@@ -1468,6 +1471,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       if (!mounted) return;
       store?.setCurrentUserId(user.id);
       await _rememberCurrentUser(user);
+      await _conversationDraftStore.load(_messageCacheScopeFor(user.id));
+      if (!mounted) return;
       if (mounted && _currentUserId != user.id) {
         setState(() => _currentUserId = user.id);
       }
@@ -1687,6 +1692,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     _realtimeSubscription?.cancel();
     widget.realtime?.close();
     unawaited(_messageCacheStore.close());
+    _conversationDraftStore.dispose();
     unawaited(_desktopScreenshot.dispose());
     super.dispose();
   }
@@ -1695,6 +1701,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(_resolveNotificationRoute());
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      unawaited(_conversationDraftStore.flush());
     }
   }
 
@@ -1725,6 +1736,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
               realtimeSession: widget.realtime,
               realtimeStore: widget.realtimeStore,
               cacheScope: _messageCacheScope,
+              draftStore: _conversationDraftStore,
               sendMessageShortcut: _sendMessageShortcut,
               chatAppearance: widget.chatAppearance,
               conversationAppearance:
@@ -2054,14 +2066,17 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     }
   }
 
-  MessageCacheScope? get _messageCacheScope {
+  MessageCacheScope? _messageCacheScopeFor(String? userId) {
     final server = widget.serverUrl?.trim();
-    final user = _currentUserId?.trim();
+    final user = userId?.trim();
     if (server == null || server.isEmpty || user == null || user.isEmpty) {
       return null;
     }
     return MessageCacheScope(serverUrl: server, userId: user);
   }
+
+  MessageCacheScope? get _messageCacheScope =>
+      _messageCacheScopeFor(_currentUserId);
 
   void _openInternalMessageLink(String path) {
     final target = parseInternalMessagePath(path);

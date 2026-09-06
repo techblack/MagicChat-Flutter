@@ -8,6 +8,8 @@ import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/data/auth_service.dart';
 import 'package:magicchat_client/data/chat_preferences.dart';
+import 'package:magicchat_client/data/conversation_draft_store.dart';
+import 'package:magicchat_client/data/message_cache_store.dart';
 import 'package:magicchat_client/data/server_store.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/messages/conversation_details_page.dart';
@@ -313,20 +315,70 @@ void main() {
 
   testWidgets('会话草稿按会话恢复', (tester) async {
     SharedPreferences.setMockInitialValues({});
-    Widget page() => MaterialApp(
+    const scope = MessageCacheScope(
+        serverUrl: 'https://chat.example.com', userId: 'user-1');
+    final store = ConversationDraftStore();
+    await store.load(scope);
+    String conversationId = 'conversation-1';
+    late StateSetter setPageState;
+    await tester.pumpWidget(
+        MaterialApp(home: StatefulBuilder(builder: (context, setState) {
+      setPageState = setState;
+      return Scaffold(
+          body: ConversationView(
+              repository: DemoRepository(),
+              cacheScope: scope,
+              draftStore: store,
+              conversationId: conversationId));
+    })));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.enterText(find.byType(TextField), '稍后发送');
+    setPageState(() => conversationId = 'conversation-2');
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(tester.widget<TextField>(find.byType(TextField)).controller?.text,
+        isEmpty);
+    setPageState(() => conversationId = 'conversation-1');
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('稍后发送'), findsOneWidget);
+    await tester.tap(find.byTooltip('发送'));
+    await tester.pump();
+    expect(store.draftFor('conversation-1'), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    store.dispose();
+    await tester.pump();
+  });
+
+  testWidgets('会话草稿恢复 Markdown 模式和回复目标', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    const scope = MessageCacheScope(
+        serverUrl: 'https://chat.example.com', userId: 'user-1');
+    final store = ConversationDraftStore();
+    await store.load(scope);
+    store.update(
+      'conversation-1',
+      text: '# 稍后发送',
+      markdownMode: true,
+      replyTo:
+          const MessageReply(id: 'message-1', author: 'Alice', text: '原消息'),
+    );
+    await tester.pumpWidget(MaterialApp(
         home: Scaffold(
             body: ConversationView(
                 repository: DemoRepository(),
-                conversationId: 'conversation-1')));
-    await tester.pumpWidget(page());
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), '稍后发送');
-    await tester.pump(const Duration(milliseconds: 50));
+                cacheScope: scope,
+                draftStore: store,
+                conversationId: 'conversation-1'))));
+    await tester.pump(const Duration(milliseconds: 500));
+
+    final input = tester.widget<TextField>(find.byType(TextField).first);
+    expect(input.controller?.text, '# 稍后发送');
+    expect(input.decoration?.hintText, '输入 Markdown…');
+    expect(find.textContaining('回复 Alice'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
-    await tester.pumpWidget(page());
-    await tester.pumpAndSettle();
-    expect(find.text('稍后发送'), findsOneWidget);
+    store.dispose();
+    await tester.pump();
   });
 
   testWidgets('消息立即进入发送中状态并清空输入，空输入不会重复提交', (tester) async {

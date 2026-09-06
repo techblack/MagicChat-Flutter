@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import 'package:magicchat_client/data/chat_preferences.dart';
+import 'package:magicchat_client/data/conversation_draft_store.dart';
 import 'package:magicchat_client/data/desktop_system_tray.dart';
 import 'package:magicchat_client/data/last_conversation_store.dart';
 import 'package:magicchat_client/data/message_cache_store.dart';
@@ -494,6 +495,62 @@ void main() {
     expect(find.text('产品群'), findsOneWidget);
     expect(find.text('发布计划'), findsOneWidget);
     expect(find.byIcon(Icons.subdirectory_arrow_right), findsOneWidget);
+  });
+
+  testWidgets('会话列表优先显示当前账号未发送的草稿', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    const scope = MessageCacheScope(
+        serverUrl: 'https://chat.example.com', userId: 'user-1');
+    final drafts = ConversationDraftStore();
+    await drafts.load(scope);
+    drafts.update('welcome', text: '稍后继续', markdownMode: false);
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: MessagesPage(
+                repository: DemoRepository(),
+                cacheScope: scope,
+                draftStore: drafts,
+                selectedId: null,
+                onSelect: (_) {}))));
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.text('[草稿] 稍后继续'), findsOneWidget);
+    drafts.clear('welcome');
+    await tester.pump();
+    expect(find.text('[草稿] 稍后继续'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    drafts.dispose();
+    await tester.pump();
+  });
+
+  testWidgets('从列表移除会话时同步清理草稿', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    const scope = MessageCacheScope(
+        serverUrl: 'https://chat.example.com', userId: 'user-1');
+    final drafts = ConversationDraftStore();
+    await drafts.load(scope);
+    drafts.update('preference', text: '不再保留', markdownMode: false);
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: MessagesPage(
+                repository: _PreferenceDemoRepository(),
+                cacheScope: scope,
+                draftStore: drafts,
+                selectedId: null,
+                onSelect: (_) {}))));
+    await tester.pump(const Duration(milliseconds: 500));
+
+    await tester.longPress(find.text('偏好会话'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('从列表移除'));
+    await tester.pumpAndSettle();
+    expect(drafts.draftFor('preference'), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    drafts.dispose();
+    await tester.pump();
   });
 
   testWidgets('会话预览使用会话成员资料，不加载完整通讯录', (tester) async {
