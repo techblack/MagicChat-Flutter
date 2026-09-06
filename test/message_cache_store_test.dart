@@ -167,6 +167,8 @@ void main() {
       authorId: 'alice',
       text: '正文',
       contentType: 'text',
+      editableText: '# 可重新编辑',
+      editableContentType: 'markdown',
       mine: true,
       replyTo: MessageReply(
           id: 'reply-1',
@@ -180,6 +182,8 @@ void main() {
     expect(messageCacheRecord(message),
         containsPair('client_message_id', 'client-message-1'));
     expect(messageCacheRecord(message), containsPair('author_id', 'alice'));
+    expect(messageCacheRecord(message),
+        containsPair('editable_content_type', 'markdown'));
     expect(messageCacheRecord(message)['reply_to'], {
       'id': 'reply-1',
       'author': 'Bob',

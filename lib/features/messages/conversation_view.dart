@@ -629,6 +629,9 @@ class _ConversationViewState extends State<ConversationView>
       editableText: value['editable_text'] is String
           ? value['editable_text'] as String
           : null,
+      editableContentType: value['editable_content_type'] is String
+          ? value['editable_content_type'] as String
+          : null,
       mine: value['mine'] == true,
       choice: parseMessageChoiceState(choice),
       replyTo:
@@ -977,6 +980,7 @@ class _ConversationViewState extends State<ConversationView>
         rawBody: message.rawBody,
         mine: message.mine,
         editableText: message.editableText,
+        editableContentType: message.editableContentType,
         choice: choice == null
             ? message.choice
             : choice.status == 'active'
@@ -2633,6 +2637,7 @@ class _ConversationViewState extends State<ConversationView>
     if (text == null || text.isEmpty) return;
     _controller.value = TextEditingValue(
         text: text, selection: TextSelection.collapsed(offset: text.length));
+    setState(() => _markdownMode = message.editableContentType == 'markdown');
     _composerFocusNode.requestFocus();
   }
 

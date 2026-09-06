@@ -321,10 +321,12 @@ void main() {
         'id': 'choice-1',
         'body': {'type': 'revoked'},
         'revoked_at': '2026-08-30T00:00:00Z',
+        'editable_body': {'type': 'markdown', 'content': '# 原选择说明'},
       },
     });
     expect(store.messages['choice-1']?.contentType, 'revoked');
     expect(store.messages['choice-1']?.choice, isNull);
+    expect(store.messages['choice-1']?.editableContentType, 'markdown');
   });
 
   test('选择消息实时更新保留当前用户选项和各项计数', () {

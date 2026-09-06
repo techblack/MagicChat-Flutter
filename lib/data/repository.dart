@@ -1592,8 +1592,8 @@ class HttpMagicChatRepository implements MagicChatRepository {
     final content = MessageContent.fromEnvelope(item['body'],
         revokedAt: item['revoked_at']);
     final editableBody = item['editable_body'];
-    final editableText = editableBody is Map<String, dynamic>
-        ? MessageContent.parse(editableBody).text
+    final editableContent = editableBody is Map<String, dynamic>
+        ? MessageContent.parse(editableBody)
         : null;
     final sender = item['sender'];
     final senderId = sender is Map<String, dynamic> ? sender['id'] : null;
@@ -1618,7 +1618,8 @@ class HttpMagicChatRepository implements MagicChatRepository {
         contentType: content.type,
         rawBody: content.raw,
         text: content.text,
-        editableText: editableText,
+        editableText: editableContent?.text,
+        editableContentType: editableContent?.type,
         choice: parseMessageChoiceState(item['choice']),
         replyTo: _replyFromJson(item['reply_to']) ??
             _replyFromMessageId(item['reply_to_message_id']),
@@ -1905,8 +1906,8 @@ class HttpMagicChatRepository implements MagicChatRepository {
           final body = MessageContent.fromEnvelope(message['body'],
               revokedAt: message['revoked_at']);
           final editableBody = message['editable_body'];
-          final editableText = editableBody is Map<String, dynamic>
-              ? MessageContent.parse(editableBody).text
+          final editableContent = editableBody is Map<String, dynamic>
+              ? MessageContent.parse(editableBody)
               : null;
           final sender = message['sender'];
           final senderName = message['sender_name'];
@@ -1938,7 +1939,8 @@ class HttpMagicChatRepository implements MagicChatRepository {
               contentType: body.type,
               rawBody: body.raw,
               text: body.text,
-              editableText: editableText,
+              editableText: editableContent?.text,
+              editableContentType: editableContent?.type,
               replyTo: _replyFromJson(message['reply_to']) ??
                   _replyFromMessageId(message['reply_to_message_id']));
           return conversationId is String && conversationName is String
