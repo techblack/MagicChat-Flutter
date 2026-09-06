@@ -4,6 +4,7 @@
 #include <variant>
 
 #include "flutter/generated_plugin_registrant.h"
+#include "utils.h"
 
 namespace {
 constexpr UINT kQuitFromTrayMessage = WM_APP + 1;
@@ -46,6 +47,19 @@ bool FlutterWindow::OnCreate() {
             SetForegroundWindow(window);
           }
           result->Success();
+        } else if (method == "setTitle") {
+          const auto* title = std::get_if<std::string>(call.arguments());
+          if (title == nullptr) {
+            result->Error("invalid_args", "setTitle expects a string");
+          } else {
+            const auto utf16_title = Utf16FromUtf8(*title);
+            if (!title->empty() && utf16_title.empty()) {
+              result->Error("invalid_title", "setTitle received invalid UTF-8");
+            } else {
+              ::SetWindowTextW(GetHandle(), utf16_title.c_str());
+              result->Success();
+            }
+          }
         } else if (method == "setTrayReady") {
           const auto* ready = std::get_if<bool>(call.arguments());
           tray_ready_ = ready != nullptr && *ready;

@@ -608,6 +608,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
                     desktopCloseBehavior: _desktopCloseBehavior,
                     onDesktopCloseBehaviorChanged: _setDesktopCloseBehavior,
                     desktopTray: _desktopTray,
+                    desktopWindowController: _desktopWindowController,
                     trayConversationId: _trayConversationId,
                     trayOpenRequest: _trayOpenRequest,
                     themeMode: _themeMode),
@@ -1297,6 +1298,8 @@ class AppShell extends StatefulWidget {
       this.desktopCloseBehavior = DesktopCloseBehavior.background,
       this.onDesktopCloseBehaviorChanged,
       this.desktopTray,
+      this.desktopWindowController,
+      this.windowTitleController,
       this.trayConversationId,
       this.trayOpenRequest = 0,
       this.desktopSearchShortcut,
@@ -1326,6 +1329,8 @@ class AppShell extends StatefulWidget {
   final DesktopCloseBehavior desktopCloseBehavior;
   final ValueChanged<DesktopCloseBehavior>? onDesktopCloseBehaviorChanged;
   final DesktopSystemTrayController? desktopTray;
+  final DesktopWindowController? desktopWindowController;
+  final AppWindowTitleController? windowTitleController;
   final String? trayConversationId;
   final int trayOpenRequest;
   final DesktopSearchShortcutController? desktopSearchShortcut;
@@ -1382,12 +1387,51 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   final _desktopScreenshot = DesktopScreenshotController();
   late final DesktopSearchShortcutController _desktopSearchShortcut =
       widget.desktopSearchShortcut ?? DesktopSearchShortcutController();
-  final _desktopWindow = const PlatformDesktopWindowController();
+  late final DesktopWindowController _desktopWindow =
+      widget.desktopWindowController ?? const PlatformDesktopWindowController();
+  late final AppWindowTitleController _windowTitle =
+      widget.windowTitleController ??
+          AppWindowTitleController(desktopWindowController: _desktopWindow);
   final _messageCacheStore = MessageCacheStore();
   final _conversationDraftStore = ConversationDraftStore();
   final _handledNotificationRoutes = <String>{};
   final _loadedConversationAppearances = <String, ChatConversationAppearance>{};
   bool _searchDialogOpen = false;
+  bool _windowTitleSyncScheduled = false;
+
+  void _onWindowTitleDataChanged() => _scheduleWindowTitleSync();
+
+  void _scheduleWindowTitleSync() {
+    if (_windowTitleSyncScheduled) return;
+    _windowTitleSyncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _windowTitleSyncScheduled = false;
+      if (!mounted) return;
+      unawaited(_windowTitle.update(_currentWindowTitleState));
+    });
+  }
+
+  AppWindowTitleState get _currentWindowTitleState {
+    const moduleTitles = ['消息', '联系人', '项目', '设置'];
+    final conversations = widget.realtimeStore?.conversations.values;
+    final notifiableUnread = conversations == null || conversations.isEmpty
+        ? _unreadCount
+        : conversations
+            .where((conversation) => !conversation.muted)
+            .fold(0, (total, item) => total + conversationUnreadCount(item));
+    String? conversationTitle;
+    if (_index == 0 && _selectedConversation != null) {
+      conversationTitle = widget.realtimeStore
+              ?.conversations[_selectedConversation]?.displayTitle ??
+          '会话';
+    }
+    return AppWindowTitleState(
+      moduleTitle: moduleTitles[_index],
+      conversationTitle: conversationTitle,
+      totalUnread: _unreadCount,
+      notifiableUnread: notifiableUnread,
+    );
+  }
 
   Future<void> _loadConversationAppearance(String conversationId) async {
     if (conversationId.isEmpty ||
@@ -1411,6 +1455,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    widget.realtimeStore?.addListener(_onWindowTitleDataChanged);
+    _scheduleWindowTitleSync();
     _pushTokenProvider
         .setRouteOpenedHandler((route) => _openPendingPushRoute(route));
     unawaited(_loadChatPreferences());
@@ -1458,6 +1504,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   void didUpdateWidget(covariant AppShell oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.realtimeStore != widget.realtimeStore) {
+      oldWidget.realtimeStore?.removeListener(_onWindowTitleDataChanged);
+      widget.realtimeStore?.addListener(_onWindowTitleDataChanged);
+      _scheduleWindowTitleSync();
+    }
     if (oldWidget.notificationPrivacy != widget.notificationPrivacy) {
       _syncDesktopTray();
     }
@@ -1794,6 +1845,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    widget.realtimeStore?.removeListener(_onWindowTitleDataChanged);
     _pushTokenProvider.setRouteOpenedHandler(null);
     _realtimeSubscription?.cancel();
     _realtimeUserProfileSync?.dispose();
@@ -1802,6 +1854,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     _conversationDraftStore.dispose();
     unawaited(_desktopScreenshot.dispose());
     unawaited(_desktopSearchShortcut.dispose());
+    unawaited(_windowTitle.dispose());
     super.dispose();
   }
 
@@ -1819,6 +1872,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    _scheduleWindowTitleSync();
     final wide = MediaQuery.sizeOf(context).width >= 800;
     final httpRepository = widget.repository;
 
@@ -2102,6 +2156,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     unawaited(_appBadge.setCount(value));
     if (value != _unreadCount) setState(() => _unreadCount = value);
     _syncDesktopTray();
+    _scheduleWindowTitleSync();
   }
 
   _AppNavigationLocation get _currentNavigationLocation => (
