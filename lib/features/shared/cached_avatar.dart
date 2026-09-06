@@ -16,6 +16,8 @@ class CachedAvatar extends StatefulWidget {
     this.cacheScope,
     this.radius = 16,
     this.backgroundColor,
+    this.foregroundColor,
+    this.borderRadius,
     super.key,
   });
 
@@ -25,6 +27,8 @@ class CachedAvatar extends StatefulWidget {
   final MessageCacheScope? cacheScope;
   final double radius;
   final Color? backgroundColor;
+  final Color? foregroundColor;
+  final BorderRadius? borderRadius;
 
   @override
   State<CachedAvatar> createState() => _CachedAvatarState();
@@ -105,16 +109,43 @@ class _CachedAvatarState extends State<CachedAvatar> {
     } else if (widget.avatarUri != null) {
       image = NetworkImage(widget.avatarUri.toString());
     }
-    return CircleAvatar(
-      radius: widget.radius,
-      backgroundColor: widget.backgroundColor ??
-          Theme.of(context).colorScheme.primaryContainer,
-      backgroundImage: image,
-      child: image == null
-          ? label.isEmpty
-              ? const Icon(Icons.person_outline, size: 17)
-              : Text(label.characters.first)
-          : null,
+    final backgroundColor = widget.backgroundColor ??
+        Theme.of(context).colorScheme.primaryContainer;
+    final foregroundColor = widget.foregroundColor ??
+        Theme.of(context).colorScheme.onPrimaryContainer;
+    final fallback = image == null
+        ? label.isEmpty
+            ? const Icon(Icons.person_outline, size: 17)
+            : Text(label.characters.first)
+        : null;
+    final borderRadius = widget.borderRadius;
+    if (borderRadius == null) {
+      return CircleAvatar(
+        radius: widget.radius,
+        backgroundColor: backgroundColor,
+        foregroundColor: foregroundColor,
+        backgroundImage: image,
+        child: fallback,
+      );
+    }
+    return Container(
+      width: widget.radius * 2,
+      height: widget.radius * 2,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: borderRadius,
+        image: image == null
+            ? null
+            : DecorationImage(image: image, fit: BoxFit.cover),
+      ),
+      child: IconTheme(
+        data: IconThemeData(color: foregroundColor),
+        child: DefaultTextStyle.merge(
+          style: TextStyle(color: foregroundColor),
+          child: fallback ?? const SizedBox.shrink(),
+        ),
+      ),
     );
   }
 }

@@ -749,11 +749,11 @@ class _ConversationListState extends State<_ConversationList> {
                     selected: c.id == widget.selectedId,
                     selectedTileColor:
                         Theme.of(context).colorScheme.primaryContainer,
-                    leading: CachedAvatar(
+                    leading: ConversationAvatar(
                         repository: widget.repository,
                         cacheScope: widget.cacheScope,
-                        avatarUri: _resolveAssetUri(widget.serverUrl, c.avatar),
-                        name: c.displayTitle,
+                        serverUrl: widget.serverUrl,
+                        conversation: c,
                         radius: 23),
                     title: statusIcons.isEmpty
                         ? Text(c.displayTitle,
