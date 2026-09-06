@@ -5,8 +5,22 @@ import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/contacts/contacts_page.dart';
 import 'package:magicchat_client/features/contacts/contact_category_page.dart';
 import 'package:magicchat_client/features/contacts/entity_details_page.dart';
+import 'package:magicchat_client/features/contacts/contact_directory_tile.dart';
 
 void main() {
+  testWidgets('2000 人通讯录只构建视口附近的联系人条目', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(500, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final repository = _LargeDirectoryRepository();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: ContactsPage(repository: repository))));
+    await tester.pumpAndSettle();
+
+    final builtTiles = find.byType(ContactDirectoryTile).evaluate().length;
+    expect(builtTiles, greaterThan(0));
+    expect(builtTiles, lessThan(200));
+  });
+
   testWidgets('好友模式可精确查找并发送申请', (tester) async {
     tester.view.physicalSize = const Size(1200, 800);
     tester.view.devicePixelRatio = 1;
@@ -466,4 +480,15 @@ class _SearchContactsRepository extends DemoRepository {
           name: keyword.isEmpty ? 'Bob' : 'Alice')
     ], mode: 'organization');
   }
+}
+
+class _LargeDirectoryRepository extends DemoRepository {
+  @override
+  Future<ContactDirectory> contactDirectory({String keyword = ''}) async =>
+      ContactDirectory(
+          contacts: [
+            for (var index = 0; index < 2000; index++)
+              Contact(id: 'user-$index', name: '成员 $index')
+          ],
+          mode: 'organization');
 }
