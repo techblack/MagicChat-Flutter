@@ -8,6 +8,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  archive: ^4.0.7
   app_settings: ^9.0.0
   http: ^1.2.2
   web_socket_channel: ^3.0.1

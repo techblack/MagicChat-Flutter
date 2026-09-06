@@ -292,7 +292,12 @@ class _SettingsPageState extends State<SettingsPage> {
               )
             : AppUpdateDialog(
                 release: release,
-                installer: AndroidUpdateInstaller(),
+                installer: !kIsWeb &&
+                        (defaultTargetPlatform == TargetPlatform.windows ||
+                            defaultTargetPlatform == TargetPlatform.macOS ||
+                            defaultTargetPlatform == TargetPlatform.linux)
+                    ? DesktopUpdateInstaller()
+                    : AndroidUpdateInstaller(),
               ),
       );
     } catch (error) {

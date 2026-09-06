@@ -46,7 +46,8 @@ void main() {
       expect(request.headers['user-agent'], 'MagicChat-Flutter');
       return http.Response(
           '{"tag_name":"v0.3.13","assets":[{"name":"MagicChat-Windows-x64.zip",'
-          '"browser_download_url":"https://github.com/techblack/MagicChat-Flutter/releases/download/v0.3.13/MagicChat-Windows-x64.zip"}]}',
+          '"size":1234,"browser_download_url":"https://github.com/techblack/MagicChat-Flutter/releases/download/v0.3.13/MagicChat-Windows-x64.zip"},'
+          '{"name":"SHA256SUMS.txt","browser_download_url":"https://github.com/techblack/MagicChat-Flutter/releases/download/v0.3.13/SHA256SUMS.txt"}]}',
           200);
     });
     final release =
@@ -55,6 +56,9 @@ void main() {
     expect(release?.version, '0.3.13');
     expect(release?.build, 3013);
     expect(release?.url, contains('MagicChat-Windows-x64.zip'));
+    expect(release?.assetName, 'MagicChat-Windows-x64.zip');
+    expect(release?.size, 1234);
+    expect(release?.sha256Url, endsWith('/SHA256SUMS.txt'));
   });
 
   test('桌面端没有对应产物时拒绝响应', () async {

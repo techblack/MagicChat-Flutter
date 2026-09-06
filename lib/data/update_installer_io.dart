@@ -9,7 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'update_installer_types.dart';
 import 'update_service.dart';
 
-class AndroidUpdateInstaller {
+class AndroidUpdateInstaller implements UpdateInstaller {
   AndroidUpdateInstaller({
     http.Client? client,
     TargetPlatform? platform,
@@ -32,9 +32,17 @@ class AndroidUpdateInstaller {
   bool _ownsActiveClient = false;
   bool _running = false;
 
+  @override
   bool get supported =>
       !kIsWeb && (_platform ?? defaultTargetPlatform) == TargetPlatform.android;
 
+  @override
+  String get progressLabel => '正在下载安装包';
+
+  @override
+  String get completionHint => '下载完成后将打开系统安装器，请按系统提示完成更新。';
+
+  @override
   Future<void> downloadAndInstall(
     AppRelease release, {
     required UpdateDownloadProgress onProgress,
@@ -109,6 +117,7 @@ class AndroidUpdateInstaller {
     }
   }
 
+  @override
   Future<void> cancel() async {
     if (!_running) return;
     final completion = _downloadCompleter;

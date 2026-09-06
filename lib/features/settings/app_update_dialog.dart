@@ -17,7 +17,7 @@ class AppUpdateDialog extends StatefulWidget {
   });
 
   final AppRelease release;
-  final AndroidUpdateInstaller installer;
+  final UpdateInstaller installer;
   final UpdateDownloadPageLauncher? openDownloadPage;
 
   @override
@@ -106,7 +106,7 @@ class _AppUpdateDialogState extends State<AppUpdateDialog> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('正在下载安装包'),
+                    Text(widget.installer.progressLabel),
                     Text('$percent%',
                         style: TextStyle(
                             color: colors.primary,
@@ -120,7 +120,7 @@ class _AppUpdateDialogState extends State<AppUpdateDialog> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 const SizedBox(height: 8),
-                Text('下载完成后将打开系统安装器，请按系统提示完成更新。',
+                Text(widget.installer.completionHint,
                     style: Theme.of(context)
                         .textTheme
                         .bodySmall
