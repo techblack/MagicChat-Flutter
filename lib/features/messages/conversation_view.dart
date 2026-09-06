@@ -2559,57 +2559,11 @@ class _ConversationViewState extends State<ConversationView>
   }
 
   Future<void> _showEmojiPicker() async {
-    const emojis = [
-      '😀',
-      '😂',
-      '🙂',
-      '😍',
-      '🤔',
-      '😢',
-      '😡',
-      '👍',
-      '👎',
-      '👏',
-      '🙏',
-      '🎉',
-      '❤️',
-      '🔥',
-      '✅',
-      '⭐',
-      '🚀',
-      '💡',
-    ];
-    final emoji = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: GridView.count(
-          shrinkWrap: true,
-          crossAxisCount: 6,
-          padding: const EdgeInsets.all(16),
-          mainAxisSpacing: 8,
-          crossAxisSpacing: 8,
-          children: emojis
-              .map((value) => InkWell(
-                    borderRadius: BorderRadius.circular(12),
-                    onTap: () => Navigator.pop(context, value),
-                    child: Center(
-                        child:
-                            Text(value, style: const TextStyle(fontSize: 28))),
-                  ))
-              .toList(),
-        ),
-      ),
-    );
-    if (emoji == null || !mounted) return;
-    final value = _controller.value;
-    final text = value.text;
-    final start = value.selection.isValid ? value.selection.start : text.length;
-    final end = value.selection.isValid ? value.selection.end : start;
-    final next = text.replaceRange(start, end, emoji);
-    _controller.value = TextEditingValue(
-        text: next,
-        selection: TextSelection.collapsed(offset: start + emoji.length));
+    final expression =
+        await showExpressionPicker(context, cacheScope: widget.cacheScope);
+    if (expression == null || !mounted) return;
+    _controller.value = insertExpression(_controller.value, expression.value);
+    _composerFocusNode.requestFocus();
   }
 
   Future<void> _revokeSelected(String conversationId) async {
