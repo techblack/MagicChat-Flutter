@@ -8,6 +8,8 @@ import '../../data/chat_appearance_preferences.dart';
 import '../../data/desktop_auto_launch.dart';
 import '../../data/desktop_screenshot.dart';
 import '../../data/desktop_screenshot_preferences.dart';
+import '../../data/desktop_search_shortcut.dart';
+import '../../data/desktop_search_shortcut_preferences.dart';
 import '../../data/desktop_window_controller.dart';
 import '../../data/local_notification_service.dart';
 import '../../data/realtime.dart';
@@ -27,6 +29,7 @@ import '../shared/cached_avatar.dart';
 import 'about_magicchat_page.dart';
 import 'account_deactivation_page.dart';
 import 'app_update_dialog.dart';
+import 'desktop_shortcut_dialog.dart';
 import 'desktop_screenshot_shortcut_dialog.dart';
 import 'profile_avatar_picker_dialog.dart';
 import 'runtime_diagnostics_page.dart';
@@ -58,6 +61,9 @@ class SettingsPage extends StatefulWidget {
       this.onSendMessageShortcutChanged,
       this.screenshotShortcut,
       this.onScreenshotShortcutChanged,
+      this.searchShortcut,
+      this.onSearchShortcutChanged,
+      this.onSearchShortcutRecordingChanged,
       this.chatAppearance = const ChatAppearance(),
       this.onChatAppearanceChanged,
       this.messageSoundEnabled = true,
@@ -89,6 +95,10 @@ class SettingsPage extends StatefulWidget {
   final DesktopScreenshotShortcut? screenshotShortcut;
   final Future<bool> Function(DesktopScreenshotShortcut shortcut)?
       onScreenshotShortcutChanged;
+  final DesktopSearchShortcut? searchShortcut;
+  final Future<DesktopShortcutUpdateStatus> Function(
+      DesktopSearchShortcut shortcut)? onSearchShortcutChanged;
+  final Future<bool> Function(bool recording)? onSearchShortcutRecordingChanged;
   final ChatAppearance chatAppearance;
   final ValueChanged<ChatAppearance>? onChatAppearanceChanged;
   final bool messageSoundEnabled;
@@ -119,12 +129,15 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _checkingForUpdate = false;
   String? _updateError;
   late DesktopScreenshotShortcut _screenshotShortcut;
+  late DesktopSearchShortcut _searchShortcut;
   @override
   void initState() {
     super.initState();
     _sendMessageShortcut = widget.sendMessageShortcut;
     _screenshotShortcut = widget.screenshotShortcut ??
         DesktopScreenshotShortcut.defaultFor(defaultTargetPlatform);
+    _searchShortcut = widget.searchShortcut ??
+        DesktopSearchShortcut.defaultFor(defaultTargetPlatform);
     _messageSoundEnabled = widget.messageSoundEnabled;
     _notificationPrivacy = widget.notificationPrivacy;
     _desktopAutoLaunch = widget.desktopAutoLaunch ?? DesktopAutoLaunchService();
@@ -152,6 +165,10 @@ class _SettingsPageState extends State<SettingsPage> {
     if (widget.screenshotShortcut != null &&
         oldWidget.screenshotShortcut != widget.screenshotShortcut) {
       _screenshotShortcut = widget.screenshotShortcut!;
+    }
+    if (widget.searchShortcut != null &&
+        oldWidget.searchShortcut != widget.searchShortcut) {
+      _searchShortcut = widget.searchShortcut!;
     }
     if (oldWidget.messageSoundEnabled != widget.messageSoundEnabled) {
       _messageSoundEnabled = widget.messageSoundEnabled;
@@ -258,6 +275,77 @@ class _SettingsPageState extends State<SettingsPage> {
     );
     if (shortcut != null && mounted) {
       await _applyScreenshotShortcut(shortcut.copyWith(enabled: true));
+    }
+  }
+
+  Future<void> _applySearchShortcut(DesktopSearchShortcut shortcut) async {
+    final update = widget.onSearchShortcutChanged;
+    DesktopShortcutUpdateStatus status;
+    if (update == null) {
+      try {
+        await const DesktopSearchShortcutPreferences().write(shortcut);
+        status = DesktopShortcutUpdateStatus.updated;
+      } catch (_) {
+        status = DesktopShortcutUpdateStatus.saveFailed;
+      }
+    } else {
+      status = await update(shortcut);
+    }
+    if (!mounted) return;
+    if (status == DesktopShortcutUpdateStatus.updated) {
+      setState(() => _searchShortcut = shortcut);
+      return;
+    }
+    final message = switch (status) {
+      DesktopShortcutUpdateStatus.conflict => '该快捷键已被系统或其他应用占用',
+      DesktopShortcutUpdateStatus.saveFailed => '快捷键保存失败，已恢复原设置',
+      DesktopShortcutUpdateStatus.restoreFailed => '快捷键设置失败，原快捷键也未能恢复，请重新设置',
+      DesktopShortcutUpdateStatus.updated => '',
+    };
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _editSearchShortcut() async {
+    final recording = widget.onSearchShortcutRecordingChanged;
+    if (recording != null && !await recording(true)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('暂时无法录制快捷键，请重试')));
+      }
+      return;
+    }
+    if (!mounted) return;
+    final shortcut = await showDialog<DesktopSearchShortcut>(
+      context: context,
+      builder: (_) => DesktopShortcutDialog<DesktopSearchShortcut>(
+        title: '修改全局搜索快捷键',
+        initial: _searchShortcut,
+        defaultShortcut:
+            DesktopSearchShortcut.defaultFor(defaultTargetPlatform),
+        platform: defaultTargetPlatform,
+        recorderKey: const ValueKey('desktop-search-shortcut-recorder'),
+        labelKey: const ValueKey('desktop-search-shortcut-label'),
+        createShortcut: ({
+          required keyCode,
+          required modifiers,
+          required enabled,
+        }) =>
+            DesktopSearchShortcut(
+          keyCode: keyCode,
+          modifiers: modifiers,
+          enabled: enabled,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (shortcut == null) {
+      if (recording != null && !await recording(false) && mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('恢复原快捷键失败，请重新设置')));
+      }
+    } else {
+      await _applySearchShortcut(shortcut.copyWith(enabled: true));
     }
   }
 
@@ -755,6 +843,23 @@ class _SettingsPageState extends State<SettingsPage> {
                   ])),
           if (!kIsWeb &&
               isDesktopScreenshotPlatform(defaultTargetPlatform)) ...[
+            SwitchListTile(
+              secondary: const Icon(Icons.search),
+              title: const Text('全局搜索快捷键'),
+              subtitle: Text(_searchShortcut.enabled
+                  ? '${_searchShortcut.label(defaultTargetPlatform)} · 全局打开综合搜索'
+                  : '已禁用'),
+              value: _searchShortcut.enabled,
+              onChanged: (enabled) => _applySearchShortcut(
+                  _searchShortcut.copyWith(enabled: enabled)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.keyboard_command_key),
+              title: const Text('修改全局搜索快捷键'),
+              subtitle: Text(_searchShortcut.label(defaultTargetPlatform)),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _editSearchShortcut,
+            ),
             SwitchListTile(
               secondary: const Icon(Icons.crop_free),
               title: const Text('桌面截图快捷键'),

@@ -1268,6 +1268,7 @@ class AppShell extends StatefulWidget {
       this.desktopTray,
       this.trayConversationId,
       this.trayOpenRequest = 0,
+      this.desktopSearchShortcut,
       this.themeMode = ThemeMode.system,
       super.key});
   final MagicChatRepository repository;
@@ -1296,6 +1297,7 @@ class AppShell extends StatefulWidget {
   final DesktopSystemTrayController? desktopTray;
   final String? trayConversationId;
   final int trayOpenRequest;
+  final DesktopSearchShortcutController? desktopSearchShortcut;
   final ThemeMode themeMode;
   @override
   State<AppShell> createState() => _AppShellState();
@@ -1336,6 +1338,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   MessageSendShortcut _sendMessageShortcut = MessageSendShortcut.enter;
   DesktopScreenshotShortcut _screenshotShortcut =
       DesktopScreenshotShortcut.defaultFor(defaultTargetPlatform);
+  DesktopSearchShortcut _searchShortcut =
+      DesktopSearchShortcut.defaultFor(defaultTargetPlatform);
   int _screenshotRequestToken = 0;
   final _navigationHistory = <_AppNavigationLocation>[];
   final _contactCacheStore = ContactCacheStore();
@@ -1344,11 +1348,14 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   final _pushTokenProvider = const PushTokenProvider();
   final _appBadge = const AppBadgeService();
   final _desktopScreenshot = DesktopScreenshotController();
+  late final DesktopSearchShortcutController _desktopSearchShortcut =
+      widget.desktopSearchShortcut ?? DesktopSearchShortcutController();
   final _desktopWindow = const PlatformDesktopWindowController();
   final _messageCacheStore = MessageCacheStore();
   final _conversationDraftStore = ConversationDraftStore();
   final _handledNotificationRoutes = <String>{};
   final _loadedConversationAppearances = <String, ChatConversationAppearance>{};
+  bool _searchDialogOpen = false;
 
   Future<void> _loadConversationAppearance(String conversationId) async {
     if (conversationId.isEmpty ||
@@ -1557,13 +1564,16 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     final values = await Future.wait([
       const ChatPreferences().readSendShortcut(),
       const DesktopScreenshotPreferences().read(defaultTargetPlatform),
+      const DesktopSearchShortcutPreferences().read(defaultTargetPlatform),
     ]);
     if (!mounted) return;
     final sendShortcut = values[0] as MessageSendShortcut;
     final screenshotShortcut = values[1] as DesktopScreenshotShortcut;
+    final searchShortcut = values[2] as DesktopSearchShortcut;
     setState(() {
       _sendMessageShortcut = sendShortcut;
       _screenshotShortcut = screenshotShortcut;
+      _searchShortcut = searchShortcut;
     });
     final registered = await _desktopScreenshot.configure(
         screenshotShortcut, _triggerScreenshotFromShortcut);
@@ -1572,6 +1582,16 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('截图快捷键注册失败，可在设置中修改或禁用')));
+        }
+      });
+    }
+    final searchRegistered = await _desktopSearchShortcut.configure(
+        searchShortcut, _triggerGlobalSearchShortcut);
+    if (!searchRegistered && searchShortcut.enabled && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('全局搜索快捷键注册失败，可在设置中修改或禁用')));
         }
       });
     }
@@ -1584,6 +1604,31 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     if (!registered || !mounted) return registered;
     setState(() => _screenshotShortcut = shortcut);
     return true;
+  }
+
+  Future<DesktopShortcutUpdateStatus> _updateSearchShortcut(
+      DesktopSearchShortcut shortcut) async {
+    final previous = _searchShortcut;
+    final status = await updateDesktopShortcut(
+      previous: previous,
+      candidate: shortcut,
+      configure: (value) =>
+          _desktopSearchShortcut.configure(value, _triggerGlobalSearchShortcut),
+      persist: const DesktopSearchShortcutPreferences().write,
+    );
+    if (status == DesktopShortcutUpdateStatus.updated && mounted) {
+      setState(() => _searchShortcut = shortcut);
+    }
+    return status;
+  }
+
+  Future<bool> _setSearchShortcutRecording(bool recording) => recording
+      ? _desktopSearchShortcut.beginRecording()
+      : _desktopSearchShortcut.cancelRecording();
+
+  Future<void> _triggerGlobalSearchShortcut() async {
+    await _desktopWindow.show();
+    if (mounted) await _showSearch(context);
   }
 
   Future<void> _triggerScreenshotFromShortcut() async {
@@ -1717,6 +1762,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     unawaited(_messageCacheStore.close());
     _conversationDraftStore.dispose();
     unawaited(_desktopScreenshot.dispose());
+    unawaited(_desktopSearchShortcut.dispose());
     super.dispose();
   }
 
@@ -1858,6 +1904,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           },
           screenshotShortcut: _screenshotShortcut,
           onScreenshotShortcutChanged: _updateScreenshotShortcut,
+          searchShortcut: _searchShortcut,
+          onSearchShortcutChanged: _updateSearchShortcut,
+          onSearchShortcutRecordingChanged: _setSearchShortcutRecording,
           chatAppearance: widget.chatAppearance,
           onChatAppearanceChanged: widget.onChatAppearanceChanged,
           messageSoundEnabled: widget.messageSoundEnabled,
@@ -2254,17 +2303,23 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   }
 
   Future<void> _showSearch(BuildContext context) async {
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => GlobalSearchDialog(
-        repository: _repository,
-        cacheScope: _messageCacheScope,
-        onOpenConversation: _selectConversationFromList,
-        onOpenMessage: _openMessageFromSearch,
-        onOpenProject: _openProjectTarget,
-        onOpenContact: (contact) => _openContactTarget(contact.id),
-      ),
-    );
+    if (_searchDialogOpen) return;
+    _searchDialogOpen = true;
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => GlobalSearchDialog(
+          repository: _repository,
+          cacheScope: _messageCacheScope,
+          onOpenConversation: _selectConversationFromList,
+          onOpenMessage: _openMessageFromSearch,
+          onOpenProject: _openProjectTarget,
+          onOpenContact: (contact) => _openContactTarget(contact.id),
+        ),
+      );
+    } finally {
+      _searchDialogOpen = false;
+    }
   }
 }
 
