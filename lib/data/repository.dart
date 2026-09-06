@@ -51,6 +51,8 @@ abstract interface class MagicChatRepository {
       {String? cursor, int limit = 50});
   Future<void> sendMessage(String conversationId, String text,
       {String? replyToMessageId, String? clientMessageId});
+  Future<void> sendMarkdown(String conversationId, String text,
+      {String? replyToMessageId, String? clientMessageId});
   Future<void> sendEntityCard(String conversationId,
       {required String entityType,
       required String entityId,
@@ -475,6 +477,21 @@ class DemoRepository implements MagicChatRepository {
         clientMessageId: clientMessageId,
         author: '我',
         text: text,
+        mine: true,
+        replyTo: replyToMessageId == null
+            ? null
+            : MessageReply(id: replyToMessageId, author: '用户', text: '引用消息')));
+  }
+
+  @override
+  Future<void> sendMarkdown(String conversationId, String text,
+      {String? replyToMessageId, String? clientMessageId}) async {
+    _messages.add(ChatMessage(
+        id: clientMessageId ?? DateTime.now().toIso8601String(),
+        clientMessageId: clientMessageId,
+        author: '我',
+        text: text,
+        contentType: 'markdown',
         mine: true,
         replyTo: replyToMessageId == null
             ? null
@@ -1739,6 +1756,18 @@ class HttpMagicChatRepository implements MagicChatRepository {
           body: {
             'client_message_id': clientMessageId ?? newMessageClientId(),
             'body': {'type': 'text', 'content': text},
+            if (replyToMessageId != null)
+              'reply_to_message_id': replyToMessageId,
+          });
+
+  @override
+  Future<void> sendMarkdown(String conversationId, String text,
+          {String? replyToMessageId, String? clientMessageId}) async =>
+      _request('POST',
+          '/api/client/conversations/${Uri.encodeComponent(conversationId)}/messages',
+          body: {
+            'client_message_id': clientMessageId ?? newMessageClientId(),
+            'body': {'type': 'markdown', 'content': text},
             if (replyToMessageId != null)
               'reply_to_message_id': replyToMessageId,
           });

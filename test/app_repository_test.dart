@@ -8,6 +8,30 @@ import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
 
 void main() {
+  test('HTTP 仓库按 Markdown 类型发送消息并保留回复和客户端 ID', () async {
+    late http.Request request;
+    final repository = HttpMagicChatRepository(
+      serverUrl: 'https://chat.example.com',
+      sessionToken: 'token',
+      client: MockClient((value) async {
+        request = value;
+        return http.Response('{"data":{}}', 201);
+      }),
+    );
+
+    await repository.sendMarkdown('conversation/1', '# 发布计划',
+        replyToMessageId: 'message/1', clientMessageId: 'client-1');
+
+    expect(request.method, 'POST');
+    expect(request.url.path,
+        '/api/client/conversations/conversation%2F1/messages');
+    expect(jsonDecode(request.body), {
+      'client_message_id': 'client-1',
+      'body': {'type': 'markdown', 'content': '# 发布计划'},
+      'reply_to_message_id': 'message/1',
+    });
+  });
+
   test('HTTP 消息检索传递会话、发送人和 UTC 时间范围', () async {
     late Uri requestUri;
     final repository = HttpMagicChatRepository(

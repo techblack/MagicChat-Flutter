@@ -169,6 +169,47 @@ void main() {
         '可以自由选择复制的正文');
   });
 
+  testWidgets('输入框可切换 Markdown 模式并按富文本类型发送', (tester) async {
+    final repository = _MarkdownSendRepository();
+    await _pumpConversation(tester, repository);
+
+    await tester.tap(find.byKey(const ValueKey('markdown-mode-toggle')));
+    await tester.pump();
+    final input = tester.widget<TextField>(find.byType(TextField).first);
+    expect(input.decoration?.hintText, '输入 Markdown…');
+    await tester.enterText(find.byType(TextField).first, '# 发布计划');
+    await tester.tap(find.byTooltip('发送'));
+    await tester.pumpAndSettle();
+
+    expect(repository.markdown, '# 发布计划');
+    expect(repository.clientMessageId, isNotEmpty);
+    expect(find.text('发布计划'), findsOneWidget);
+  });
+
+  testWidgets('窄屏附件工具栏保持单行并可横向滚动', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(420, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ConversationView(
+          repository: _ExperienceRepository(),
+          conversationId: 'conversation-1',
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    final markdown = find.byKey(const ValueKey('markdown-mode-toggle'));
+    final voice = find.byTooltip('语音输入');
+    expect(markdown, findsOneWidget);
+    expect(voice, findsOneWidget);
+    expect(tester.getCenter(markdown).dy, tester.getCenter(voice).dy);
+    expect(
+        find.ancestor(
+            of: markdown, matching: find.byType(SingleChildScrollView)),
+        findsOneWidget);
+  });
+
   testWidgets('消息左滑进入引用回复且消息不被删除', (tester) async {
     await _pumpConversation(tester, _ExperienceRepository());
 
@@ -416,6 +457,18 @@ class _PickedImageRepository extends _ExperienceRepository {
       String? clientMessageId}) async {
     sentUploads.add(upload);
     sentCaptions.add(caption);
+  }
+}
+
+class _MarkdownSendRepository extends _ExperienceRepository {
+  String? markdown;
+  String? clientMessageId;
+
+  @override
+  Future<void> sendMarkdown(String conversationId, String text,
+      {String? replyToMessageId, String? clientMessageId}) async {
+    markdown = text;
+    this.clientMessageId = clientMessageId;
   }
 }
 
