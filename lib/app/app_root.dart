@@ -1347,11 +1347,21 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       unawaited(_loadCurrentUser());
     }
     _resolveNotificationRoute();
+    unawaited(_restoreMobileImageRecoveryRoute());
     if (widget.trayOpenRequest > 0 && widget.trayConversationId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _openConversation(widget.trayConversationId!);
       });
     }
+  }
+
+  Future<void> _restoreMobileImageRecoveryRoute() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    final prefs = await SharedPreferences.getInstance();
+    final conversationId =
+        prefs.getString(mobileImageRecoveryConversationKey)?.trim();
+    if (!mounted || conversationId == null || conversationId.isEmpty) return;
+    if (_selectedConversation == null) _openConversation(conversationId);
   }
 
   void _syncDesktopTray() {
