@@ -460,6 +460,18 @@ void main() {
         isFalse);
     expect(
         shouldShowLocalMessageNotification(
+            conversationId: 'c1',
+            selectedConversationId: 'c2',
+            eventMuted: true),
+        isFalse);
+    expect(
+        shouldShowLocalMessageNotification(
+            conversationId: 'c1',
+            selectedConversationId: 'c2',
+            senderType: 'system'),
+        isFalse);
+    expect(
+        shouldShowLocalMessageNotification(
             conversationId: 'c1', selectedConversationId: 'c1'),
         isFalse);
     expect(

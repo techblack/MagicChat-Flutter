@@ -6,11 +6,11 @@ import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/domain/models.dart';
 
 void main() {
-  Map<String, dynamic> event() => {
-        'cursor': 1,
+  Map<String, dynamic> event({int cursor = 1, String id = 'message-1'}) => {
+        'cursor': cursor,
         'event': 'message.created',
         'payload': {
-          'id': 'message-1',
+          'id': id,
           'conversation_id': 'conversation-1',
           'seq': 1,
           'sender': {'id': 'user-1', 'name': 'Alice'},
@@ -36,7 +36,7 @@ void main() {
     expect(store.messages, isEmpty);
 
     persisted.complete();
-    await processing;
+    expect(await processing, isTrue);
     expect(store.messages['message-1']?.text, '先写入缓存');
   });
 
@@ -49,5 +49,24 @@ void main() {
     );
 
     expect(store.messages['message-1']?.text, '先写入缓存');
+  });
+
+  test('重复 cursor 和已投影消息不再产生通知', () async {
+    final store = RealtimeStore();
+
+    expect(
+        await applyRealtimeEventAfterPersistence(store: store, event: event()),
+        isTrue);
+    expect(
+        await applyRealtimeEventAfterPersistence(store: store, event: event()),
+        isFalse);
+    expect(
+        await applyRealtimeEventAfterPersistence(
+            store: store, event: event(cursor: 2)),
+        isFalse);
+    expect(
+        await applyRealtimeEventAfterPersistence(
+            store: store, event: event(cursor: 3, id: 'message-2')),
+        isTrue);
   });
 }

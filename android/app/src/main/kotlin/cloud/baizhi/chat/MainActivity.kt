@@ -106,6 +106,7 @@ class MainActivity : FlutterActivity() {
                                 .setGroup(unreadGroup)
                                 .setNumber(1)
                                 .setAutoCancel(true)
+                                .setSilent(true)
                                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                                 .build())
                         }
