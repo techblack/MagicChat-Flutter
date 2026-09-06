@@ -6,7 +6,7 @@ library;
 import 'dart:convert' show jsonEncode;
 
 import '../structs/abstract_struct.dart';
-import '../structs/content.dart' show ContentType;
+import '../structs/content.dart' as content_types;
 import '../structs/gc.dart';
 import '../utils/id.dart';
 import '../utils/id_set.dart' hide findIndexSS;
@@ -442,7 +442,7 @@ class Item extends AbstractStruct {
       } else {
         if (parentItem is Item) {
           final content = parentItem.content;
-          parent = content is ContentType ? content.type : null;
+          parent = content is content_types.ContentType ? content.type : null;
         }
       }
     }
@@ -811,15 +811,15 @@ AbstractContent readItemContent(dynamic decoder, int info) {
 /// Mirrors: `contentRefs` in Item.js
 final List<AbstractContent Function(dynamic)> contentRefs = [
   (_) => throw StateError('contentRefs[0]: GC is not ItemContent'), // 0
-  readContentDeleted, // 1
-  readContentJSON, // 2
-  readContentBinary, // 3
-  readContentString, // 4
-  readContentEmbed, // 5
-  readContentFormat, // 6
-  readContentType, // 7
-  readContentAny, // 8
-  readContentDoc, // 9
+  content_types.readContentDeleted, // 1
+  content_types.readContentJSON, // 2
+  content_types.readContentBinary, // 3
+  content_types.readContentString, // 4
+  content_types.readContentEmbed, // 5
+  content_types.readContentFormat, // 6
+  content_types.readContentType, // 7
+  content_types.readContentAny, // 8
+  content_types.readContentDoc, // 9
   (_) => throw StateError('contentRefs[10]: Skip is not ItemContent'), // 10
 ];
 
@@ -879,7 +879,7 @@ AbstractContent readContentFormat(dynamic decoder) {
 ///
 /// Mirrors: `readContentType` in ContentType.js
 AbstractContent readContentType(dynamic decoder) {
-  return ContentType(readYType(decoder));
+  return content_types.ContentType(readYType(decoder));
 }
 
 /// Read any content from [decoder].

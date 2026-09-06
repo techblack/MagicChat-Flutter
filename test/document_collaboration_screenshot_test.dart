@@ -230,6 +230,13 @@ void main() {
         matching: find.byType(TextFormField));
     await tester.enterText(editor, '编辑后文本');
     await tester.pump();
+    tester
+        .widget<EditableText>(find.descendant(
+            of: find.byKey(const ValueKey('rich-document-inline-editor')),
+            matching: find.byType(EditableText)))
+        .controller
+        .selection = const TextSelection(baseOffset: 0, extentOffset: 5);
+    await tester.pump();
     await tester.tap(find.byTooltip('粗体'));
     await tester.pump();
 
@@ -263,11 +270,19 @@ void main() {
     expect(formattedMarks['highlight'], {'color': '#ca8a04'});
     expect(formattedMarks['link'], {'href': 'https://example.com/task'});
     expect(session.xmlTextAlignment(editedText), 'center');
-    final formattedEditor = tester.widget<EditableText>(find.descendant(
+    final formattedEditorFinder = find.descendant(
         of: find.byKey(const ValueKey('rich-document-inline-editor')),
-        matching: find.byType(EditableText)));
-    expect(formattedEditor.style.color, const Color(0xFF2563EB));
-    expect(formattedEditor.style.backgroundColor, const Color(0xFFCA8A04));
+        matching: find.byType(EditableText));
+    final formattedEditor = tester.widget<EditableText>(formattedEditorFinder);
+    final formattedSpan = formattedEditor.controller.buildTextSpan(
+        context: tester.element(formattedEditorFinder),
+        style: formattedEditor.style,
+        withComposing: false);
+    final markedSpan = formattedSpan.children!
+        .whereType<TextSpan>()
+        .firstWhere((span) => span.text == '编辑后文本');
+    expect(markedSpan.style?.color, const Color(0xFF2563EB));
+    expect(markedSpan.style?.backgroundColor, const Color(0xFFCA8A04));
     expect(formattedEditor.textAlign, TextAlign.center);
 
     await tester.tap(find.byTooltip('块类型'));

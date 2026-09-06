@@ -50,10 +50,14 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
   bool _saving = false;
   bool _reconnecting = false;
   yjs.YXmlText? _selectedRichText;
+  TextSelection _selectedRichTextSelection =
+      const TextSelection.collapsed(offset: 0);
+  Map<String, Object?> _storedRichMarks = {};
   Map<String, Object?>? _formatPainterMarks;
   String? _formatPainterAlignment;
-  String? _formatPainterBlockBackground;
   yjs.YXmlText? _formatPainterSource;
+  RichDocumentTextRange? _formatPainterSourceRange;
+  Timer? _formatPainterApplyTimer;
   final Map<String, Future<Uri?>> _documentImageUrls = {};
   ClipboardEvents? _clipboardEvents;
 
@@ -86,10 +90,14 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     final session = widget.collaboration!;
     if (session.status != DocumentCollaborationStatus.synced) {
       _selectedRichText = null;
+      _selectedRichTextSelection = const TextSelection.collapsed(offset: 0);
+      _storedRichMarks = {};
       _formatPainterMarks = null;
       _formatPainterAlignment = null;
-      _formatPainterBlockBackground = null;
       _formatPainterSource = null;
+      _formatPainterSourceRange = null;
+      _formatPainterApplyTimer?.cancel();
+      _formatPainterApplyTimer = null;
     }
     if (session.status == DocumentCollaborationStatus.synced &&
         _body.text != session.text) {
@@ -114,6 +122,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
 
   @override
   void dispose() {
+    _formatPainterApplyTimer?.cancel();
     _clipboardEvents?.unregisterPasteEventListener(_onWebPaste);
     widget.collaboration?.removeListener(_onCollaborationChanged);
     unawaited(widget.collaboration?.close());
@@ -300,35 +309,85 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                 initialMarks: session.xmlTextMarks(node)));
     if (result != null && mounted) {
       session.replaceXmlText(node, result.text, marks: result.marks);
-      setState(() => _selectedRichText = node);
+      _selectRichText(node);
     }
   }
 
   void _selectRichText(yjs.YXmlText? node) {
     final session = widget.collaboration;
+    if (session == null) return;
+    final offset = node?.length ?? 0;
+    final selection = TextSelection.collapsed(offset: offset);
+    setState(() {
+      _selectedRichText = node;
+      _selectedRichTextSelection = selection;
+      _storedRichMarks = node == null
+          ? {}
+          : session.xmlTextMarksForRange(node, offset, offset);
+    });
+  }
+
+  void _updateRichTextSelection(yjs.YXmlText node, TextSelection selection) {
+    final session = widget.collaboration;
+    if (session == null || !identical(node, _selectedRichText)) return;
+    final start = selection.start;
+    final end = selection.end;
     final painterMarks = _formatPainterMarks;
     final painterAlignment = _formatPainterAlignment;
-    final painterBlockBackground = _formatPainterBlockBackground;
-    if (node != null &&
+    final sourceRange = _formatPainterSourceRange;
+    final isSource = identical(node, _formatPainterSource) &&
+        sourceRange?.start == start &&
+        sourceRange?.end == end;
+    _formatPainterApplyTimer?.cancel();
+    _formatPainterApplyTimer = null;
+    if (!selection.isCollapsed &&
         painterMarks != null &&
         painterAlignment != null &&
-        session != null &&
-        !identical(node, _formatPainterSource)) {
-      session.replaceXmlText(node, node.toString(), marks: painterMarks);
-      session.setXmlTextAlignment(node, painterAlignment);
-      session.setXmlTextBlockBackground(node, painterBlockBackground);
+        !isSource) {
       setState(() {
-        _selectedRichText = node;
-        _formatPainterMarks = null;
-        _formatPainterAlignment = null;
-        _formatPainterBlockBackground = null;
-        _formatPainterSource = null;
+        _selectedRichTextSelection = selection;
+        _storedRichMarks = session.xmlTextMarksForRange(node, start, end);
       });
+      _formatPainterApplyTimer =
+          Timer(const Duration(milliseconds: 80), _applyRichFormatPainter);
       return;
     }
-    if (!identical(_selectedRichText, node)) {
-      setState(() => _selectedRichText = node);
+    setState(() {
+      _selectedRichTextSelection = selection;
+      _storedRichMarks = session.xmlTextMarksForRange(node, start, end);
+    });
+  }
+
+  void _applyRichFormatPainter() {
+    if (!mounted) return;
+    final session = widget.collaboration;
+    final node = _selectedRichText;
+    final selection = _selectedRichTextSelection;
+    final marks = _formatPainterMarks;
+    final alignment = _formatPainterAlignment;
+    final sourceRange = _formatPainterSourceRange;
+    final isSource = identical(node, _formatPainterSource) &&
+        sourceRange?.start == selection.start &&
+        sourceRange?.end == selection.end;
+    if (session == null ||
+        node == null ||
+        marks == null ||
+        alignment == null ||
+        selection.isCollapsed ||
+        isSource) {
+      _formatPainterApplyTimer = null;
+      return;
     }
+    session.replaceXmlTextMarks(node, selection.start, selection.end, marks);
+    session.setXmlTextAlignment(node, alignment);
+    setState(() {
+      _storedRichMarks = Map<String, Object?>.from(marks);
+      _formatPainterMarks = null;
+      _formatPainterAlignment = null;
+      _formatPainterSource = null;
+      _formatPainterSourceRange = null;
+      _formatPainterApplyTimer = null;
+    });
   }
 
   void _toggleRichFormatPainter() {
@@ -339,78 +398,102 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
       return;
     }
     if (_formatPainterMarks != null) {
+      _formatPainterApplyTimer?.cancel();
       setState(() {
         _formatPainterMarks = null;
         _formatPainterAlignment = null;
-        _formatPainterBlockBackground = null;
         _formatPainterSource = null;
+        _formatPainterSourceRange = null;
+        _formatPainterApplyTimer = null;
       });
       return;
     }
+    _formatPainterApplyTimer?.cancel();
+    _formatPainterApplyTimer = null;
     if (source == null) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('请先选择格式来源文本块')));
       return;
     }
+    final selection = _selectedRichTextSelection;
+    final marks = selection.isCollapsed
+        ? Map<String, Object?>.from(_storedRichMarks)
+        : session.xmlTextMarksAt(source, selection.start, preferRight: true);
+    marks.remove('link');
     setState(() {
-      _formatPainterMarks =
-          Map<String, Object?>.from(session.xmlTextMarks(source));
+      _formatPainterMarks = marks;
       _formatPainterAlignment = session.xmlTextAlignment(source);
-      _formatPainterBlockBackground = session.xmlTextBlockBackground(source);
       _formatPainterSource = source;
+      _formatPainterSourceRange = (start: selection.start, end: selection.end);
     });
   }
 
   void _clearRichFormatPainter() {
     if (_formatPainterMarks == null && _formatPainterSource == null) return;
+    _formatPainterApplyTimer?.cancel();
     setState(() {
       _formatPainterMarks = null;
       _formatPainterAlignment = null;
-      _formatPainterBlockBackground = null;
       _formatPainterSource = null;
+      _formatPainterSourceRange = null;
+      _formatPainterApplyTimer = null;
     });
   }
 
-  void _updateRichText(yjs.YXmlText node, String value) {
-    widget.collaboration?.replaceXmlText(node, value);
+  void _updateRichText(yjs.YXmlText node, String value,
+      TextSelection previousSelection, TextSelection selection) {
+    final session = widget.collaboration;
+    if (session == null) return;
+    session.replaceXmlTextPreservingMarks(
+      node,
+      value,
+      _storedRichMarks,
+      replacedRange: (
+        start: previousSelection.start,
+        end: previousSelection.end,
+      ),
+      selectionAfter: selection.start,
+    );
+    _selectedRichTextSelection = selection;
   }
 
   void _toggleRichTextMark(String mark) {
-    _updateSelectedRichMarks((marks) {
-      if (marks[mark] == true) {
-        marks.remove(mark);
-      } else {
-        marks[mark] = true;
-      }
-    });
+    _setSelectedRichMark(mark, _storedRichMarks[mark] == true ? null : true);
   }
 
   void _setRichTextColor(String? color) {
-    _updateSelectedRichMarks((marks) {
-      final textStyle = marks['textStyle'] is Map
-          ? Map<String, Object?>.from(marks['textStyle'] as Map)
-          : <String, Object?>{};
-      if (color == null) {
-        textStyle.remove('color');
-      } else {
-        textStyle['color'] = color;
-      }
-      if (textStyle.isEmpty) {
-        marks.remove('textStyle');
-      } else {
-        marks['textStyle'] = textStyle;
-      }
-    });
+    _setSelectedRichMark('textStyle', color == null ? null : {'color': color});
   }
 
   void _setRichTextHighlight(String? color) {
-    _updateSelectedRichMarks((marks) {
-      if (color == null) {
-        marks.remove('highlight');
-      } else {
-        marks['highlight'] = {'color': color};
-      }
-    });
+    _setSelectedRichMark('highlight', color == null ? null : {'color': color});
+  }
+
+  void _setSelectedRichMark(String mark, Object? value,
+      {RichDocumentTextRange? range}) {
+    final session = widget.collaboration;
+    final node = _selectedRichText;
+    if (session == null || node == null) return;
+    final selection = range == null
+        ? _selectedRichTextSelection
+        : TextSelection(baseOffset: range.start, extentOffset: range.end);
+    if (selection.isCollapsed) {
+      setState(() {
+        if (value == null) {
+          _storedRichMarks.remove(mark);
+        } else {
+          _storedRichMarks[mark] = value;
+        }
+      });
+      return;
+    }
+    if (session.updateXmlTextMarks(
+        node, selection.start, selection.end, {mark: value})) {
+      setState(() {
+        _storedRichMarks =
+            session.xmlTextMarksForRange(node, selection.start, selection.end);
+      });
+    }
   }
 
   void _setRichTextAlignment(String alignment) {
@@ -432,7 +515,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     final node = _selectedRichText;
     if (session == null || node == null) return;
     final result = session.editTable(node, action);
-    if (result.changed) setState(() => _selectedRichText = result.selection);
+    if (result.changed) _selectRichText(result.selection);
   }
 
   Future<void> _pasteRichDocument(
@@ -455,7 +538,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
             .showSnackBar(const SnackBar(content: Text('剪贴板中没有可粘贴的内容')));
         return;
       }
-      setState(() => _selectedRichText = result.selection);
+      _selectRichText(result.selection);
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -468,7 +551,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     final session = widget.collaboration;
     final node = _selectedRichText;
     if (session == null || node == null) return;
-    final currentLink = session.xmlTextMarks(node)['link'];
+    final currentLink = _storedRichMarks['link'];
     final currentHref = currentLink is Map && currentLink['href'] is String
         ? currentLink['href'] as String
         : '';
@@ -484,35 +567,32 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
           .showSnackBar(const SnackBar(content: Text('链接地址无效')));
       return;
     }
-    _updateSelectedRichMarks((marks) {
-      if (href == null) {
-        marks.remove('link');
-      } else {
-        marks['link'] = {'href': href};
-      }
-    });
-  }
-
-  void _updateSelectedRichMarks(
-      void Function(Map<String, Object?> marks) update) {
-    final session = widget.collaboration;
-    final node = _selectedRichText;
-    if (session == null || node == null) return;
-    final marks = Map<String, Object?>.from(session.xmlTextMarks(node));
-    update(marks);
-    session.stopUndoCapture();
-    session.replaceXmlText(node, node.toString(), marks: marks);
-    setState(() {});
+    final selection = _selectedRichTextSelection;
+    final linkRange = selection.isCollapsed
+        ? session.xmlTextLinkRange(node, selection.start)
+        : null;
+    _setSelectedRichMark('link', href == null ? null : {'href': href},
+        range: linkRange);
   }
 
   void _clearRichTextFormatting() {
     final session = widget.collaboration;
     final node = _selectedRichText;
-    _clearRichFormatPainter();
     if (session == null || node == null) return;
-    session.stopUndoCapture();
-    session.replaceXmlText(node, node.toString(), marks: const {});
-    setState(() {});
+    final selection = _selectedRichTextSelection;
+    if (!selection.isCollapsed) {
+      session
+          .replaceXmlTextMarks(node, selection.start, selection.end, const {});
+    }
+    _formatPainterApplyTimer?.cancel();
+    setState(() {
+      _storedRichMarks = {};
+      _formatPainterMarks = null;
+      _formatPainterAlignment = null;
+      _formatPainterSource = null;
+      _formatPainterSourceRange = null;
+      _formatPainterApplyTimer = null;
+    });
   }
 
   void _transformRichTextBlock(RichDocumentBlockType type) {
@@ -520,7 +600,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     final node = _selectedRichText;
     if (session == null || node == null) return;
     final replacement = session.transformXmlTextBlock(node, type);
-    if (replacement != null) setState(() => _selectedRichText = replacement);
+    if (replacement != null) _selectRichText(replacement);
   }
 
   void _insertRichParagraph({required bool after}) {
@@ -528,7 +608,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     final node = _selectedRichText;
     if (session == null || node == null) return;
     final inserted = session.insertParagraphNear(node, after: after);
-    if (inserted != null) setState(() => _selectedRichText = inserted);
+    if (inserted != null) _selectRichText(inserted);
   }
 
   void _deleteRichTextBlock() {
@@ -536,30 +616,38 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     final node = _selectedRichText;
     if (session == null || node == null) return;
     final replacement = session.deleteXmlTextBlock(node);
-    setState(() => _selectedRichText = replacement);
+    _selectRichText(replacement);
   }
 
   void _undoRichDocument() {
     final session = widget.collaboration;
     if (session == null || !session.undo()) return;
+    _formatPainterApplyTimer?.cancel();
     setState(() {
       _selectedRichText = null;
+      _selectedRichTextSelection = const TextSelection.collapsed(offset: 0);
+      _storedRichMarks = {};
       _formatPainterMarks = null;
       _formatPainterAlignment = null;
-      _formatPainterBlockBackground = null;
       _formatPainterSource = null;
+      _formatPainterSourceRange = null;
+      _formatPainterApplyTimer = null;
     });
   }
 
   void _redoRichDocument() {
     final session = widget.collaboration;
     if (session == null || !session.redo()) return;
+    _formatPainterApplyTimer?.cancel();
     setState(() {
       _selectedRichText = null;
+      _selectedRichTextSelection = const TextSelection.collapsed(offset: 0);
+      _storedRichMarks = {};
       _formatPainterMarks = null;
       _formatPainterAlignment = null;
-      _formatPainterBlockBackground = null;
       _formatPainterSource = null;
+      _formatPainterSourceRange = null;
+      _formatPainterApplyTimer = null;
     });
   }
 
@@ -570,7 +658,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
       return;
     }
     final rule = session.insertHorizontalRule(near: _selectedRichText);
-    if (rule != null) setState(() => _selectedRichText = null);
+    if (rule != null) _selectRichText(null);
   }
 
   Future<void> _editRichHorizontalRule(yjs.YXmlElement rule) async {
@@ -612,7 +700,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     if (!mounted || size == null) return;
     final firstCell = session.insertTable(
         near: _selectedRichText, rows: size.rows, columns: size.columns);
-    if (firstCell != null) setState(() => _selectedRichText = firstCell);
+    if (firstCell != null) _selectRichText(firstCell);
   }
 
   Future<void> _insertRichImage() async {
@@ -623,7 +711,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     }
     final image = session.insertDocumentImage(near: _selectedRichText);
     if (image == null) return;
-    setState(() => _selectedRichText = null);
+    _selectRichText(null);
     await _editRichImage(image);
   }
 
@@ -642,7 +730,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
     if (!mounted || result == null) return;
     if (result.deleted) {
       session.deleteDocumentImage(image);
-      setState(() => _selectedRichText = null);
+      _selectRichText(null);
       return;
     }
     final attributes = result.attributes;
@@ -762,7 +850,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                                         DocumentCollaborationStatus.error
                                     ? '协作连接已断开 · 点击右上角重新连接'
                                     : _formatPainterMarks != null
-                                        ? '格式刷已启用 · 点击其他文本块应用格式'
+                                        ? '格式刷已启用 · 选择目标文本应用格式'
                                         : '富文档安全编辑 · 长按文本块可编辑，可追加标准内容块')),
                           ])),
                       const SizedBox(height: 8),
@@ -789,7 +877,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                         RichDocumentInlineToolbar(
                           blockType:
                               widget.collaboration!.xmlTextBlockType(selected),
-                          marks: widget.collaboration!.xmlTextMarks(selected),
+                          marks: _storedRichMarks,
                           alignment:
                               widget.collaboration!.xmlTextAlignment(selected),
                           blockBackground: widget.collaboration!
@@ -819,6 +907,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                           child: RichDocumentView(
                               body: widget.collaboration!.body,
                               selectedText: _selectedRichText,
+                              selectedTextSelection: _selectedRichTextSelection,
                               onSelectText: widget.collaboration!.status ==
                                       DocumentCollaborationStatus.synced
                                   ? _selectRichText
@@ -827,9 +916,12 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                                       DocumentCollaborationStatus.synced
                                   ? _updateRichText
                                   : null,
+                              onTextSelectionChanged:
+                                  widget.collaboration!.status == DocumentCollaborationStatus.synced
+                                      ? _updateRichTextSelection
+                                      : null,
                               imageUrlResolver: _resolveDocumentImage,
-                              onEditHorizontalRule: widget
-                                          .collaboration!.status ==
+                              onEditHorizontalRule: widget.collaboration!.status ==
                                       DocumentCollaborationStatus.synced
                                   ? (rule) =>
                                       unawaited(_editRichHorizontalRule(rule))
@@ -838,8 +930,7 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                                       DocumentCollaborationStatus.synced
                                   ? _setRichTaskChecked
                                   : null,
-                              onEditImage: widget.collaboration!.status ==
-                                      DocumentCollaborationStatus.synced
+                              onEditImage: widget.collaboration!.status == DocumentCollaborationStatus.synced
                                   ? (image) => unawaited(_editRichImage(image))
                                   : null,
                               onEditText: _editTextNode)),
