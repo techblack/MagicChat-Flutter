@@ -1,5 +1,7 @@
 Future<bool> browserNotificationRequestPermission() async => false;
 
+String browserNotificationPermissionStatus() => 'unsupported';
+
 Future<bool> browserNotificationShow({
   required String title,
   required String body,

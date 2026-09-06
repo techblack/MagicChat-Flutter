@@ -67,6 +67,12 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "getPermissionStatus" -> {
+                        val granted = NotificationManagerCompat.from(this).areNotificationsEnabled() &&
+                            (Build.VERSION.SDK_INT < 33 ||
+                                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
+                        result.success(if (granted) "granted" else "denied")
+                    }
                     "requestPermission" -> {
                         if (Build.VERSION.SDK_INT >= 33 &&
                             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {

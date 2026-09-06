@@ -11,8 +11,10 @@ import '../../data/desktop_auto_launch.dart';
 import '../../data/desktop_screenshot.dart';
 import '../../data/desktop_screenshot_preferences.dart';
 import '../../data/local_notification_service.dart';
+import '../../data/realtime.dart';
 import '../../data/realtime_store.dart';
 import '../../data/repository.dart';
+import '../../data/runtime_diagnostics.dart';
 import '../../data/session_store.dart';
 import '../../data/server_store.dart';
 import '../../data/storage_service.dart';
@@ -25,6 +27,7 @@ import '../shared/cached_avatar.dart';
 import 'account_deactivation_page.dart';
 import 'app_update_dialog.dart';
 import 'desktop_screenshot_shortcut_dialog.dart';
+import 'runtime_diagnostics_page.dart';
 import 'server_management_page.dart';
 import 'storage_management_page.dart';
 
@@ -40,8 +43,11 @@ class SettingsPage extends StatefulWidget {
   const SettingsPage(
       {required this.repository,
       this.realtimeStore,
+      this.realtimeSession,
       required this.serverUrl,
       this.cacheScope,
+      this.messageCacheStore,
+      this.diagnosticsSource,
       this.onServerChanged,
       this.onAccountSwitch,
       this.onLogout,
@@ -64,8 +70,11 @@ class SettingsPage extends StatefulWidget {
   final Future<void> Function(String code)? onDeactivateAccount;
   final MagicChatRepository repository;
   final RealtimeStore? realtimeStore;
+  final RealtimeSession? realtimeSession;
   final String? serverUrl;
   final MessageCacheScope? cacheScope;
+  final MessageCacheStore? messageCacheStore;
+  final RuntimeDiagnosticsSource? diagnosticsSource;
   final Future<void> Function(String server)? onServerChanged;
   final ValueChanged<StoredAccount>? onAccountSwitch;
   final ValueChanged<ThemeMode>? onThemeChanged;
@@ -292,6 +301,24 @@ class _SettingsPageState extends State<SettingsPage> {
             .showSnackBar(SnackBar(content: Text('检查更新失败：$error')));
       }
     }
+  }
+
+  Future<void> _openRuntimeDiagnostics() async {
+    final source = widget.diagnosticsSource ??
+        RuntimeDiagnosticsService(
+          repository: widget.repository,
+          serverUrl: widget.serverUrl,
+          realtimeSession: widget.realtimeSession,
+          realtimeStore: widget.realtimeStore,
+          cacheScope: widget.cacheScope,
+          messageCacheStore: widget.messageCacheStore,
+          messageSoundEnabled: _messageSoundEnabled,
+          notificationPrivacy: _notificationPrivacy,
+        );
+    await Navigator.push(
+        context,
+        MaterialPageRoute(
+            builder: (_) => RuntimeDiagnosticsPage(source: source)));
   }
 
   Future<void> _editNickname(CurrentUser user) async {
@@ -713,6 +740,12 @@ class _SettingsPageState extends State<SettingsPage> {
                   MaterialPageRoute(
                       builder: (_) =>
                           StorageManagementPage(service: StorageService())))),
+          ListTile(
+              leading: const Icon(Icons.monitor_heart_outlined),
+              title: const Text('连接与运行诊断'),
+              subtitle: const Text('检查网络、实时连接、缓存与通知状态'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _openRuntimeDiagnostics),
           ListTile(
               leading: const Icon(Icons.system_update_outlined),
               title: const Text('检查更新'),

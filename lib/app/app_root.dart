@@ -1729,9 +1729,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           documentCollaborationFactory: documentCollaborationFactory),
       SettingsPage(
           repository: _repository,
+          realtimeSession: widget.realtime,
           realtimeStore: widget.realtimeStore,
           serverUrl: widget.serverUrl,
           cacheScope: _messageCacheScope,
+          messageCacheStore: _messageCacheStore,
           onServerChanged: widget.onServerChanged,
           onAccountSwitch: widget.onAccountSwitch,
           onLogout: widget.onLogout,
