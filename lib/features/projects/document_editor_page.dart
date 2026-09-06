@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
@@ -15,6 +16,7 @@ import 'rich_document_view.dart';
 import 'rich_document_toolbar.dart';
 import 'rich_document_image_dialog.dart';
 import 'rich_table_size_picker.dart';
+import 'document_export.dart';
 
 class DocumentEditorPage extends StatefulWidget {
   const DocumentEditorPage(
@@ -160,6 +162,77 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
           description: projectName.isEmpty ? '项目文档' : '项目: $projectName',
           url: documentCardPath(widget.document),
         ),
+      ),
+    );
+  }
+
+  Future<void> _exportDocument() async {
+    final body = widget.collaboration?.text ?? _body.text;
+    final bytes = documentExportBytes(title: _title.text, body: body);
+    try {
+      final path = await FilePicker.saveFile(
+        dialogTitle: '导出文档',
+        fileName: documentExportFileName(widget.document),
+        type: FileType.custom,
+        allowedExtensions:
+            widget.document.documentType == 'markdown' ? ['md'] : ['txt'],
+        bytes: bytes,
+      );
+      if (path != null && mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('文档已导出')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('导出失败：$error')));
+      }
+    }
+  }
+
+  Future<void> _showDocumentInfo() async {
+    final collaboration = widget.collaboration;
+    final type =
+        widget.document.documentType == 'markdown' ? 'Markdown' : '富文本文档';
+    final status = collaboration == null ? '本机草稿' : _collaborationLabel;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('文档信息'),
+        content: SizedBox(
+          width: 420,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            ListTile(
+                leading: const Icon(Icons.description_outlined),
+                title: Text(
+                    _title.text.trim().isEmpty ? '未命名文档' : _title.text.trim()),
+                subtitle: Text(type)),
+            ListTile(
+                leading: const Icon(Icons.folder_outlined),
+                title: const Text('所属项目'),
+                subtitle: Text(widget.projectName.trim().isEmpty
+                    ? '未提供项目名称'
+                    : widget.projectName.trim())),
+            ListTile(
+                leading: const Icon(Icons.sync_outlined),
+                title: const Text('同步状态'),
+                subtitle: Text(status)),
+            if (collaboration != null)
+              ListTile(
+                  leading: const Icon(Icons.people_outline),
+                  title: const Text('在线协作者'),
+                  subtitle: Text('${collaboration.collaboratorCount} 人')),
+            ListTile(
+                leading: const Icon(Icons.schema_outlined),
+                title: const Text('文档结构版本'),
+                subtitle: Text('v${widget.document.schemaVersion}')),
+          ]),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('关闭')),
+        ],
       ),
     );
   }
@@ -490,6 +563,16 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                     icon: Icon(_preview
                         ? Icons.edit_outlined
                         : Icons.preview_outlined)),
+              IconButton(
+                  key: const ValueKey('document-info'),
+                  tooltip: '文档信息',
+                  onPressed: _showDocumentInfo,
+                  icon: const Icon(Icons.info_outline)),
+              IconButton(
+                  key: const ValueKey('document-export'),
+                  tooltip: '导出文档',
+                  onPressed: _exportDocument,
+                  icon: const Icon(Icons.download_outlined)),
               if (widget.document.documentType == 'document' &&
                   widget.collaboration != null)
                 IconButton(
