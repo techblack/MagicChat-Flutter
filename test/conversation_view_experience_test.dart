@@ -71,6 +71,43 @@ void main() {
     expect(find.text('现场进度'), findsOneWidget);
   });
 
+  testWidgets('相册支持多选图片并统一确认发送', (tester) async {
+    final repository = _PickedImageRepository();
+    await tester.binding.setSurfaceSize(const Size(600, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ConversationView(
+          repository: repository,
+          conversationId: 'conversation-1',
+          mobileGalleryImagePicker: () async => [
+            for (var index = 1; index <= 3; index++)
+              XFile.fromData(
+                repository.imageBytes,
+                path: '图片$index.png',
+                mimeType: 'image/png',
+              ),
+          ],
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('从相册选择图片'));
+    await tester.pumpAndSettle();
+    expect(find.text('发送 3 张图片'), findsOneWidget);
+    expect(find.bySemanticsLabel('待发送图片 1'), findsOneWidget);
+    expect(find.bySemanticsLabel('待发送图片 3'), findsOneWidget);
+    await tester.enterText(
+        find.widgetWithText(TextField, '图片说明（附在第一张，可选）'), '本周进度');
+    await tester.tap(find.widgetWithText(FilledButton, '发送'));
+    await tester.pumpAndSettle();
+
+    expect(repository.sentUploads.map((item) => item.name),
+        ['图片1.png', '图片2.png', '图片3.png']);
+    expect(repository.sentCaptions, ['本周进度', '', '']);
+  });
+
   testWidgets('双击消息打开可选择复制的独立详情', (tester) async {
     await _pumpConversation(tester, _ExperienceRepository());
 
@@ -326,16 +363,18 @@ class _ExperienceRepository extends DemoRepository {
 class _PickedImageRepository extends _ExperienceRepository {
   late final Uint8List imageBytes =
       Uint8List.fromList(image.encodePng(image.Image(width: 120, height: 80)));
-  AttachmentUpload? sentUpload;
-  String? sentCaption;
+  final sentUploads = <AttachmentUpload>[];
+  final sentCaptions = <String>[];
+  AttachmentUpload? get sentUpload => sentUploads.lastOrNull;
+  String? get sentCaption => sentCaptions.lastOrNull;
 
   @override
   Future<void> sendImage(String conversationId, AttachmentUpload upload,
       {String caption = '',
       String? replyToMessageId,
       String? clientMessageId}) async {
-    sentUpload = upload;
-    sentCaption = caption;
+    sentUploads.add(upload);
+    sentCaptions.add(caption);
   }
 }
 
