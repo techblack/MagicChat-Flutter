@@ -60,6 +60,7 @@ void main() {
     _addParagraph(body, '原位正文');
     yjs.YXmlText? selected;
     String? changed;
+    TextSelection? selectedRange;
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         body: StatefulBuilder(builder: (context, setState) {
@@ -67,7 +68,8 @@ void main() {
             body: body,
             selectedText: selected,
             onSelectText: (node) => setState(() => selected = node),
-            onTextChanged: (node, value) => changed = value,
+            onTextChanged: (node, value, _, __) => changed = value,
+            onTextSelectionChanged: (node, value) => selectedRange = value,
           );
         }),
       ),
@@ -77,6 +79,14 @@ void main() {
     await tester.pump();
     expect(find.byKey(const ValueKey('rich-document-inline-editor')),
         findsOneWidget);
+    tester
+        .widget<EditableText>(find.descendant(
+            of: find.byKey(const ValueKey('rich-document-inline-editor')),
+            matching: find.byType(EditableText)))
+        .controller
+        .selection = const TextSelection(baseOffset: 0, extentOffset: 2);
+    await tester.pump();
+    expect(selectedRange, const TextSelection(baseOffset: 0, extentOffset: 2));
     await tester.enterText(find.byType(TextFormField), '新的正文');
     await tester.pump();
     expect(changed, '新的正文');
@@ -263,7 +273,7 @@ void main() {
             body: body,
             selectedText: selected,
             onSelectText: (node) => setState(() => selected = node),
-            onTextChanged: (node, value) => changes[node] = value,
+            onTextChanged: (node, value, _, __) => changes[node] = value,
           );
         }),
       ),

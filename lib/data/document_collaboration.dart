@@ -45,6 +45,19 @@ typedef RichDocumentPasteEditResult = ({
   yjs.YXmlText? selection,
 });
 
+typedef RichDocumentTextRange = ({int start, int end});
+
+const richDocumentInlineMarkKeys = {
+  'bold',
+  'italic',
+  'underline',
+  'strike',
+  'code',
+  'textStyle',
+  'highlight',
+  'link',
+};
+
 typedef RichDocumentImageAttributes = ({
   String alignment,
   String alt,
@@ -104,6 +117,14 @@ class _RichStructureReplacement {
 
   final List<yjs.YXmlElement> blocks;
   final List<_PendingRichText> pending;
+}
+
+class _RichTextRun {
+  const _RichTextRun(this.start, this.end, this.marks);
+
+  final int start;
+  final int end;
+  final Map<String, Object?> marks;
 }
 
 /// 将协作文档绑定到服务端 Yjs 类型，并通过 Hocuspocus sync 帧交换更新。
@@ -271,6 +292,122 @@ class DocumentCollaborationSession extends ChangeNotifier {
 
   /// 返回当前文本叶子的可见 marks，供编辑器初始化格式控件。
   Map<String, Object?> xmlTextMarks(yjs.YXmlText node) => _marksFor(node);
+
+  /// 返回光标处或选区内所有字符共同拥有的 marks。
+  Map<String, Object?> xmlTextMarksForRange(
+      yjs.YXmlText node, int start, int end) {
+    if (!_validXmlTextRange(node, start, end, allowEmpty: true)) {
+      return const {};
+    }
+    if (start == end) return _marksAt(node, start, preferRight: false);
+    final runs = _textRuns(node)
+        .where((run) => run.end > start && run.start < end)
+        .toList(growable: false);
+    if (runs.isEmpty) return const {};
+    final common = Map<String, Object?>.from(runs.first.marks);
+    for (final run in runs.skip(1)) {
+      common.removeWhere((key, value) =>
+          !run.marks.containsKey(key) ||
+          !_deepMarkEquals(value, run.marks[key]));
+    }
+    return common;
+  }
+
+  /// 格式刷从非空选区的首个字符读取格式，空选区读取光标 stored marks。
+  Map<String, Object?> xmlTextMarksAt(yjs.YXmlText node, int offset,
+      {bool preferRight = false}) {
+    if (!_validXmlTextRange(node, offset, offset, allowEmpty: true)) {
+      return const {};
+    }
+    return _marksAt(node, offset, preferRight: preferRight);
+  }
+
+  /// 在选区边界直接写入 Yjs ContentFormat，由 Yjs 分割已有多段 marks。
+  bool updateXmlTextMarks(
+      yjs.YXmlText node, int start, int end, Map<String, Object?> updates) {
+    if (!_validXmlTextRange(node, start, end) ||
+        updates.isEmpty ||
+        updates.keys.any((key) => !richDocumentInlineMarkKeys.contains(key))) {
+      return false;
+    }
+    _undoManager?.stopCapturing();
+    _document.transact((_) => node.format(start, end - start, updates));
+    _undoManager?.stopCapturing();
+    notifyListeners();
+    return true;
+  }
+
+  /// 清除选区全部支持 marks 后应用指定快照，供格式刷和清除格式复用。
+  bool replaceXmlTextMarks(
+      yjs.YXmlText node, int start, int end, Map<String, Object?> marks) {
+    if (marks.keys.any((key) => !richDocumentInlineMarkKeys.contains(key))) {
+      return false;
+    }
+    return updateXmlTextMarks(node, start, end, {
+      for (final key in richDocumentInlineMarkKeys) key: null,
+      ...marks,
+    });
+  }
+
+  /// 按文本最小变化区增删字符，插入部分使用当前 stored marks。
+  bool replaceXmlTextPreservingMarks(
+    yjs.YXmlText node,
+    String value,
+    Map<String, Object?> insertionMarks, {
+    RichDocumentTextRange? replacedRange,
+    int? selectionAfter,
+  }) {
+    if (documentType != 'document' ||
+        status != DocumentCollaborationStatus.synced ||
+        !_isDescendantOfBody(node) ||
+        insertionMarks.keys
+            .any((key) => !richDocumentInlineMarkKeys.contains(key))) {
+      return false;
+    }
+    final current = node.toString();
+    final change = _textChangeForSelection(
+            current, value, replacedRange, selectionAfter) ??
+        _textChange(current, value);
+    if (change.deleteLength == 0 && change.insertion.isEmpty) return false;
+    final isolateUndo =
+        change.deleteLength > 0 || change.insertion.runes.length > 1;
+    if (isolateUndo) _undoManager?.stopCapturing();
+    _document.transact((_) {
+      if (change.deleteLength > 0) {
+        node.delete(change.prefix, change.deleteLength);
+      }
+      if (change.insertion.isNotEmpty) {
+        node.insert(change.prefix, change.insertion, insertionMarks);
+      }
+    });
+    if (isolateUndo) _undoManager?.stopCapturing();
+    notifyListeners();
+    return true;
+  }
+
+  /// 光标位于链接内时返回相同 href 的连续范围，对齐 extendMarkRange。
+  RichDocumentTextRange? xmlTextLinkRange(yjs.YXmlText node, int offset) {
+    if (!_validXmlTextRange(node, offset, offset, allowEmpty: true) ||
+        node.length == 0) {
+      return null;
+    }
+    final runs = _textRuns(node);
+    final position = offset == 0 ? 0 : offset - 1;
+    final index =
+        runs.indexWhere((run) => run.start <= position && position < run.end);
+    if (index < 0 || runs[index].marks['link'] is! Map) return null;
+    final link = runs[index].marks['link'];
+    var first = index;
+    var last = index;
+    while (first > 0 && _deepMarkEquals(runs[first - 1].marks['link'], link)) {
+      first--;
+    }
+    while (last + 1 < runs.length &&
+        _deepMarkEquals(runs[last + 1].marks['link'], link)) {
+      last++;
+    }
+    return (start: runs[first].start, end: runs[last].end);
+  }
 
   /// 返回当前文本所在的可安全转换结构类型。
   ///
@@ -1346,6 +1483,84 @@ class DocumentCollaborationSession extends ChangeNotifier {
     return attributes is Map ? Map<String, Object?>.from(attributes) : const {};
   }
 
+  bool _validXmlTextRange(yjs.YXmlText node, int start, int end,
+      {bool allowEmpty = false}) {
+    return documentType == 'document' &&
+        status == DocumentCollaborationStatus.synced &&
+        _isDescendantOfBody(node) &&
+        start >= 0 &&
+        end >= start &&
+        end <= node.length &&
+        _isUtf16Boundary(node.toString(), start) &&
+        _isUtf16Boundary(node.toString(), end) &&
+        (allowEmpty || end > start);
+  }
+
+  bool _isUtf16Boundary(String value, int offset) {
+    if (offset <= 0 || offset >= value.length) return true;
+    final left = value.codeUnitAt(offset - 1);
+    final right = value.codeUnitAt(offset);
+    return !(left >= 0xD800 &&
+        left <= 0xDBFF &&
+        right >= 0xDC00 &&
+        right <= 0xDFFF);
+  }
+
+  List<_RichTextRun> _textRuns(yjs.YXmlText node) {
+    final result = <_RichTextRun>[];
+    var offset = 0;
+    for (final operation in node.toDelta()) {
+      final value = operation['insert'];
+      if (value is! String || value.isEmpty) continue;
+      final rawAttributes = operation['attributes'];
+      final marks = rawAttributes is Map
+          ? Map<String, Object?>.from(rawAttributes)
+          : const <String, Object?>{};
+      result.add(_RichTextRun(offset, offset + value.length, marks));
+      offset += value.length;
+    }
+    return result;
+  }
+
+  Map<String, Object?> _marksAt(yjs.YXmlText node, int offset,
+      {required bool preferRight}) {
+    if (node.length == 0) return const {};
+    final position = preferRight
+        ? (offset == node.length ? offset - 1 : offset)
+        : (offset == 0 ? 0 : offset - 1);
+    for (final run in _textRuns(node)) {
+      if (run.start <= position && position < run.end) {
+        return Map<String, Object?>.from(run.marks);
+      }
+    }
+    return const {};
+  }
+
+  bool _deepMarkEquals(Object? left, Object? right) {
+    if (left is Map && right is Map) {
+      if (left.length != right.length) return false;
+      for (final entry in left.entries) {
+        if (!right.containsKey(entry.key) ||
+            !_deepMarkEquals(entry.value, right[entry.key])) {
+          return false;
+        }
+      }
+      return true;
+    }
+    if (left is Iterable && right is Iterable) {
+      final leftValues = left.toList(growable: false);
+      final rightValues = right.toList(growable: false);
+      if (leftValues.length != rightValues.length) return false;
+      for (var index = 0; index < leftValues.length; index++) {
+        if (!_deepMarkEquals(leftValues[index], rightValues[index])) {
+          return false;
+        }
+      }
+      return true;
+    }
+    return left == right;
+  }
+
   void _clearText(yjs.YXmlText node) {
     if (node.length > 0) node.delete(0, node.length);
   }
@@ -1401,6 +1616,59 @@ class DocumentCollaborationSession extends ChangeNotifier {
     final deleteLength = current.length - prefix - currentSuffix;
     final insertion = next.substring(prefix, next.length - nextSuffix);
     return (prefix: prefix, deleteLength: deleteLength, insertion: insertion);
+  }
+
+  ({int prefix, int deleteLength, String insertion})? _textChangeForSelection(
+    String current,
+    String next,
+    RichDocumentTextRange? replacedRange,
+    int? selectionAfter,
+  ) {
+    if (replacedRange == null ||
+        replacedRange.start < 0 ||
+        replacedRange.end < replacedRange.start ||
+        replacedRange.end > current.length ||
+        !_isUtf16Boundary(current, replacedRange.start) ||
+        !_isUtf16Boundary(current, replacedRange.end)) {
+      return null;
+    }
+    final removed = replacedRange.end - replacedRange.start;
+    final inserted = next.length - (current.length - removed);
+    if (inserted >= 0 && replacedRange.start + inserted <= next.length) {
+      final insertion =
+          next.substring(replacedRange.start, replacedRange.start + inserted);
+      if (current.replaceRange(
+              replacedRange.start, replacedRange.end, insertion) ==
+          next) {
+        return (
+          prefix: replacedRange.start,
+          deleteLength: removed,
+          insertion: insertion,
+        );
+      }
+    }
+    if (removed == 0 &&
+        selectionAfter != null &&
+        next.length < current.length) {
+      final deleted = current.length - next.length;
+      final candidates = <RichDocumentTextRange>[
+        if (selectionAfter < replacedRange.start)
+          (start: selectionAfter, end: replacedRange.start),
+        (start: replacedRange.start, end: replacedRange.start + deleted),
+      ];
+      for (final candidate in candidates) {
+        if (candidate.start >= 0 &&
+            candidate.end <= current.length &&
+            current.replaceRange(candidate.start, candidate.end, '') == next) {
+          return (
+            prefix: candidate.start,
+            deleteLength: candidate.end - candidate.start,
+            insertion: '',
+          );
+        }
+      }
+    }
+    return null;
   }
 
   String _readBodyText() {

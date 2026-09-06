@@ -707,6 +707,108 @@ void main() {
     await session.close();
     serverDocument.destroy();
   });
+
+  test('富文档区间 marks 按 UTF-16 边界分割并增量同步输入', () async {
+    final channel = _FakeChannel();
+    final session = DocumentCollaborationSession(
+        serverUrl: 'https://chat.example.com',
+        token: 'session-token',
+        documentId: 'doc-rich-range-format',
+        documentType: 'document',
+        connector: (_, __) => channel);
+    await session.connect();
+    channel.emit(encodeHocuspocusAuthenticatedFrame(
+        documentName: 'doc-rich-range-format'));
+    await Future<void>.delayed(Duration.zero);
+    final serverDocument = yjs.Doc(yjs.DocOpts(guid: 'doc-rich-range-format'));
+    final serverBody =
+        serverDocument.get<yjs.YXmlFragment>('body', yjs.YXmlFragment.new)!;
+    final paragraph = yjs.YXmlElement('paragraph');
+    final text = yjs.YXmlText()
+      ..insert(0, 'A')
+      ..insert(1, '😀B', {'bold': true})
+      ..insert(4, 'C', {'italic': true});
+    paragraph.insert(0, [text]);
+    serverBody.insert(0, [paragraph]);
+    final incoming = yjs.createEncoder();
+    yjs.writeVarString(incoming, 'doc-rich-range-format');
+    yjs.writeVarUint(incoming, HocuspocusMessageType.sync);
+    yjs.writeSyncStep2(incoming, serverDocument);
+    channel.emit(yjs.toUint8Array(incoming));
+    await Future<void>.delayed(Duration.zero);
+    final localText = (session.body.toArray().single as yjs.YXmlElement)
+        .toArray()
+        .whereType<yjs.YXmlText>()
+        .single;
+    final sentBefore = channel.sent.length;
+
+    expect(localText.toString(), 'A😀BC');
+    expect(localText.length, 5);
+    expect(session.xmlTextMarksForRange(localText, 1, 3),
+        containsPair('bold', true));
+    expect(session.xmlTextMarksForRange(localText, 0, 4), isEmpty);
+    expect(
+        session.updateXmlTextMarks(localText, 1, 2, {'code': true}), isFalse);
+    expect(localText.toString(), 'A😀BC');
+    expect(session.updateXmlTextMarks(localText, 1, 3, {'underline': true}),
+        isTrue);
+    expect(localText.toString(), 'A😀BC');
+    final emoji = localText
+        .toDelta()
+        .firstWhere((operation) => operation['insert'] == '😀');
+    expect(emoji['attributes'], containsPair('bold', true));
+    expect(emoji['attributes'], containsPair('underline', true));
+
+    expect(
+        session.updateXmlTextMarks(localText, 0, 1, {
+          'bold': true,
+          'italic': true,
+          'underline': true,
+          'strike': true,
+          'code': true,
+          'textStyle': {'color': '#2563eb'},
+          'highlight': {'color': '#ca8a04'},
+          'link': {'href': 'https://example.com'},
+        }),
+        isTrue);
+    expect(session.xmlTextLinkRange(localText, 0), (start: 0, end: 1));
+    expect(session.replaceXmlTextMarks(localText, 0, 1, const {}), isTrue);
+    expect(session.xmlTextMarksForRange(localText, 0, 1), isEmpty);
+
+    expect(
+        session
+            .replaceXmlTextPreservingMarks(localText, 'A😀XBC', {'code': true}),
+        isTrue);
+    expect(localText.toString(), 'A😀XBC');
+    final inserted = localText
+        .toDelta()
+        .firstWhere((operation) => '${operation['insert']}'.contains('X'));
+    expect(inserted['attributes'], containsPair('code', true));
+    final boldRemainder = localText
+        .toDelta()
+        .firstWhere((operation) => '${operation['insert']}'.contains('B'));
+    expect(boldRemainder['attributes'], containsPair('bold', true));
+    expect(
+        session
+            .replaceXmlTextPreservingMarks(localText, 'A😀XC', {'code': true}),
+        isTrue);
+    expect(localText.toString(), 'A😀XC');
+    expect(session.undo(), isTrue);
+    expect(localText.toString(), 'A😀XBC');
+
+    for (final update in channel.sent.skip(sentBefore).whereType<Uint8List>()) {
+      _applySyncUpdate(update, serverDocument);
+    }
+    final roundTrip = (serverBody.toArray().single as yjs.YXmlElement)
+        .toArray()
+        .whereType<yjs.YXmlText>()
+        .single;
+    expect(roundTrip.toString(), localText.toString());
+    expect(roundTrip.toDelta(), localText.toDelta());
+
+    await session.close();
+    serverDocument.destroy();
+  });
 }
 
 List<yjs.YXmlElement> _tableRows(yjs.YXmlElement table) => table

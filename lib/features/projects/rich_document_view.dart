@@ -16,8 +16,10 @@ class RichDocumentView extends StatelessWidget {
   const RichDocumentView({
     required this.body,
     this.selectedText,
+    this.selectedTextSelection,
     this.onSelectText,
     this.onTextChanged,
+    this.onTextSelectionChanged,
     this.onEditText,
     this.imageUrlResolver,
     this.onEditImage,
@@ -28,8 +30,12 @@ class RichDocumentView extends StatelessWidget {
 
   final yjs.YXmlFragment body;
   final yjs.YXmlText? selectedText;
+  final TextSelection? selectedTextSelection;
   final ValueChanged<yjs.YXmlText?>? onSelectText;
-  final void Function(yjs.YXmlText node, String value)? onTextChanged;
+  final void Function(yjs.YXmlText node, String value,
+      TextSelection previousSelection, TextSelection selection)? onTextChanged;
+  final void Function(yjs.YXmlText node, TextSelection selection)?
+      onTextSelectionChanged;
   final ValueChanged<yjs.YXmlText>? onEditText;
   final Future<Uri?> Function(String fileId)? imageUrlResolver;
   final ValueChanged<yjs.YXmlElement>? onEditImage;
@@ -148,7 +154,6 @@ class RichDocumentView extends StatelessWidget {
   Widget _editableText(BuildContext context, yjs.YXmlText node,
       {TextStyle? style, TextAlign textAlign = TextAlign.left}) {
     if (identical(selectedText, node) && onTextChanged != null) {
-      final markStyle = _markStyle(context, _marks(node));
       return Container(
         key: const ValueKey('rich-document-inline-editor'),
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -162,17 +167,15 @@ class RichDocumentView extends StatelessWidget {
               color:
                   Theme.of(context).colorScheme.primary.withValues(alpha: .55)),
         ),
-        child: TextFormField(
+        child: _RichDocumentInlineEditor(
           key: ObjectKey(node),
-          initialValue: node.toString(),
-          autofocus: true,
-          minLines: 1,
-          maxLines: null,
-          style: style?.merge(markStyle) ?? markStyle,
+          node: node,
+          selection: selectedTextSelection,
+          style: style,
           textAlign: textAlign,
-          onChanged: (value) => onTextChanged!(node, value),
-          decoration: const InputDecoration(
-              border: InputBorder.none, isDense: true, hintText: '输入正文'),
+          markStyle: _markStyle,
+          onChanged: onTextChanged!,
+          onSelectionChanged: onTextSelectionChanged,
         ),
       );
     }
@@ -491,13 +494,6 @@ class RichDocumentView extends StatelessWidget {
             : null);
   }
 
-  Map<String, Object?> _marks(yjs.YXmlText node) {
-    final delta = node.toDelta();
-    if (delta.isEmpty) return const {};
-    final attributes = delta.first['attributes'];
-    return attributes is Map ? Map<String, Object?>.from(attributes) : const {};
-  }
-
   TextAlign _textAlign(yjs.YXmlElement node) =>
       switch (node.getAttribute('textAlign')) {
         'center' => TextAlign.center,
@@ -518,4 +514,155 @@ class RichDocumentView extends StatelessWidget {
         if (child is yjs.YXmlFragment) return _plainText(child);
         return '';
       }).join();
+}
+
+class _RichDocumentInlineEditor extends StatefulWidget {
+  const _RichDocumentInlineEditor({
+    required this.node,
+    required this.selection,
+    required this.style,
+    required this.textAlign,
+    required this.markStyle,
+    required this.onChanged,
+    required this.onSelectionChanged,
+    super.key,
+  });
+
+  final yjs.YXmlText node;
+  final TextSelection? selection;
+  final TextStyle? style;
+  final TextAlign textAlign;
+  final TextStyle Function(BuildContext context, Map<String, Object?> marks)
+      markStyle;
+  final void Function(yjs.YXmlText node, String value,
+      TextSelection previousSelection, TextSelection selection) onChanged;
+  final void Function(yjs.YXmlText node, TextSelection selection)?
+      onSelectionChanged;
+
+  @override
+  State<_RichDocumentInlineEditor> createState() =>
+      _RichDocumentInlineEditorState();
+}
+
+class _RichDocumentInlineEditorState extends State<_RichDocumentInlineEditor> {
+  late final _RichDocumentTextController _controller;
+  late String _lastText;
+  late TextSelection _lastSelection;
+  bool _syncing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastText = widget.node.toString();
+    _lastSelection = _selectionFor(_lastText, widget.selection);
+    _controller = _RichDocumentTextController(
+      node: widget.node,
+      markStyle: widget.markStyle,
+      value: TextEditingValue(
+        text: _lastText,
+        selection: _lastSelection,
+      ),
+    )..addListener(_handleControllerChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant _RichDocumentInlineEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _controller
+      ..node = widget.node
+      ..markStyle = widget.markStyle;
+    final text = widget.node.toString();
+    if (_controller.text != text) {
+      _syncing = true;
+      _lastText = text;
+      _lastSelection = _selectionFor(text, widget.selection);
+      _controller.value = TextEditingValue(
+        text: text,
+        selection: _lastSelection,
+      );
+      _syncing = false;
+    }
+  }
+
+  void _handleControllerChanged() {
+    if (_syncing) return;
+    final value = _controller.value;
+    if (value.text != _lastText) {
+      _lastText = value.text;
+      widget.onChanged(
+          widget.node, value.text, _lastSelection, value.selection);
+    }
+    if (value.selection != _lastSelection) {
+      _lastSelection = value.selection;
+      widget.onSelectionChanged?.call(widget.node, value.selection);
+    }
+  }
+
+  TextSelection _selectionFor(String text, TextSelection? value) {
+    if (value == null ||
+        !value.isValid ||
+        value.start < 0 ||
+        value.end > text.length) {
+      return TextSelection.collapsed(offset: text.length);
+    }
+    return value;
+  }
+
+  @override
+  void dispose() {
+    _controller
+      ..removeListener(_handleControllerChanged)
+      ..dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => TextFormField(
+        controller: _controller,
+        autofocus: true,
+        minLines: 1,
+        maxLines: null,
+        style: widget.style,
+        textAlign: widget.textAlign,
+        decoration: const InputDecoration(
+            border: InputBorder.none, isDense: true, hintText: '输入正文'),
+      );
+}
+
+class _RichDocumentTextController extends TextEditingController {
+  _RichDocumentTextController({
+    required this.node,
+    required this.markStyle,
+    required TextEditingValue value,
+  }) : super.fromValue(value);
+
+  yjs.YXmlText node;
+  TextStyle Function(BuildContext context, Map<String, Object?> marks)
+      markStyle;
+
+  @override
+  TextSpan buildTextSpan({
+    required BuildContext context,
+    TextStyle? style,
+    required bool withComposing,
+  }) {
+    if (withComposing &&
+        value.composing.isValid &&
+        !value.composing.isCollapsed) {
+      return super
+          .buildTextSpan(context: context, style: style, withComposing: true);
+    }
+    if (node.toString() != text) return TextSpan(text: text, style: style);
+    final spans = <InlineSpan>[];
+    for (final operation in node.toDelta()) {
+      final value = operation['insert'];
+      if (value is! String || value.isEmpty) continue;
+      final rawAttributes = operation['attributes'];
+      final marks = rawAttributes is Map
+          ? Map<String, Object?>.from(rawAttributes)
+          : const <String, Object?>{};
+      spans.add(TextSpan(text: value, style: markStyle(context, marks)));
+    }
+    return TextSpan(style: style, children: spans);
+  }
 }
