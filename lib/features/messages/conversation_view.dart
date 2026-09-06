@@ -3831,6 +3831,7 @@ class _OptimisticMessageBubble extends StatelessWidget {
               descriptor.text,
               contacts.map(
                   (contact) => (id: contact.id, name: contact.displayName))),
+          builders: markdownCodeBlockBuilders(),
           styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
             p: Theme.of(context).textTheme.bodyMedium?.copyWith(color: color),
             a: Theme.of(context)
@@ -4190,6 +4191,7 @@ class _MessageBubble extends StatelessWidget {
           foregroundColor: foreground,
           builder: (context) => MarkdownBody(
             data: content,
+            builders: markdownCodeBlockBuilders(),
             styleSheet:
                 MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
               p: Theme.of(context)
@@ -4572,6 +4574,7 @@ class _MessageBubble extends StatelessWidget {
                           ? MarkdownBody(
                               data:
                                   (message.rawBody['caption'] as String).trim(),
+                              builders: markdownCodeBlockBuilders(),
                               styleSheet: MarkdownStyleSheet.fromTheme(
                                   Theme.of(context)),
                               onTapLink: (text, href, title) {
