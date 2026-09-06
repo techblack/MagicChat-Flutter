@@ -15,6 +15,23 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  test('移动端图片选择器只在 Android/iOS 原生端显示', () {
+    expect(
+        supportsMobileImagePicker(
+            isWeb: false, platform: TargetPlatform.android),
+        isTrue);
+    expect(
+        supportsMobileImagePicker(isWeb: false, platform: TargetPlatform.iOS),
+        isTrue);
+    expect(
+        supportsMobileImagePicker(isWeb: false, platform: TargetPlatform.linux),
+        isFalse);
+    expect(
+        supportsMobileImagePicker(
+            isWeb: true, platform: TargetPlatform.android),
+        isFalse);
+  });
+
   testWidgets('双击消息打开可选择复制的独立详情', (tester) async {
     await _pumpConversation(tester, _ExperienceRepository());
 

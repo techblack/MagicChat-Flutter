@@ -6,6 +6,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_windows
   desktop_drop
   desktop_tray
+  file_selector_windows
   flutter_secure_storage_windows
   hotkey_manager_windows
   record_windows

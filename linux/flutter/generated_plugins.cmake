@@ -6,6 +6,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_linux
   desktop_drop
   desktop_tray
+  file_selector_linux
   flutter_secure_storage_linux
   hotkey_manager_linux
   record_linux
