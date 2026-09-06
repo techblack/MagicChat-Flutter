@@ -33,7 +33,9 @@ jobs:
       - run: flutter pub get
       - run: dart format --set-exit-if-changed lib test test_driver packages/yjs_dart/lib
       - run: flutter analyze --no-fatal-infos
-      - run: flutter test
+      # Widget golden 与异步图片预取在并发 isolate 下会争抢字体/图标光栅化
+      # 和解码资源，出现仅数百像素的非确定性差异；串行执行保持基线稳定。
+      - run: flutter test --concurrency=1
       - run: flutter build web --release
       - run: flutter build linux --debug
 
