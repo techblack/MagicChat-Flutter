@@ -1205,6 +1205,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   final _notifications = const LocalNotificationService();
   final _pushTokenProvider = const PushTokenProvider();
   final _appBadge = const AppBadgeService();
+  final _desktopTray = DesktopSystemTray();
   final _messageCacheStore = MessageCacheStore();
   final _handledNotificationRoutes = <String>{};
   final _loadedConversationAppearances = <String, ChatConversationAppearance>{};
@@ -1242,6 +1243,30 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       unawaited(_loadCurrentUser());
     }
     _resolveNotificationRoute();
+    unawaited(_initializeDesktopTray());
+  }
+
+  Future<void> _initializeDesktopTray() async {
+    final initialized =
+        await _desktopTray.initialize(onOpenConversation: _openConversation);
+    if (initialized && mounted) _syncDesktopTray();
+  }
+
+  void _syncDesktopTray() {
+    unawaited(_desktopTray.update(
+      unreadCount: _unreadCount,
+      conversations: widget.realtimeStore?.conversations.values ?? const [],
+      contacts: widget.realtimeStore?.contacts.values ?? const [],
+      privacy: widget.notificationPrivacy,
+    ));
+  }
+
+  @override
+  void didUpdateWidget(covariant AppShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.notificationPrivacy != widget.notificationPrivacy) {
+      _syncDesktopTray();
+    }
   }
 
   Future<void> _startRealtime(
@@ -1472,6 +1497,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     _realtimeSubscription?.cancel();
     widget.realtime?.close();
     unawaited(_messageCacheStore.close());
+    unawaited(_desktopTray.dispose());
     super.dispose();
   }
 
@@ -1741,8 +1767,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   void _setUnreadCount(int value) {
     if (!mounted) return;
     unawaited(_appBadge.setCount(value));
-    if (value == _unreadCount) return;
-    setState(() => _unreadCount = value);
+    if (value != _unreadCount) setState(() => _unreadCount = value);
+    _syncDesktopTray();
   }
 
   void _selectConversationFromList(String id) {

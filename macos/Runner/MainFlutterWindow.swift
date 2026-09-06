@@ -25,6 +25,28 @@ class MainFlutterWindow: NSWindow {
       result(true)
     }
 
+    let desktopWindowChannel = FlutterMethodChannel(
+      name: "magicchat/desktop_window",
+      binaryMessenger: flutterViewController.engine.binaryMessenger
+    )
+    desktopWindowChannel.setMethodCallHandler { [weak self] call, result in
+      switch call.method {
+      case "show":
+        self?.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        result(true)
+      case "setTrayReady":
+        result(true)
+      case "quit":
+        result(true)
+        DispatchQueue.main.async {
+          NSApplication.shared.terminate(nil)
+        }
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+
     super.awakeFromNib()
   }
 }

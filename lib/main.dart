@@ -23,6 +23,7 @@ import 'data/message_cache_store.dart';
 import 'data/contact_cache_store.dart';
 import 'data/asset_cache_store.dart';
 import 'data/document_collaboration.dart';
+import 'data/desktop_system_tray.dart';
 import 'data/push_service.dart';
 import 'data/push_token_provider.dart';
 import 'data/local_notification_service.dart';

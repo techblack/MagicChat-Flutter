@@ -1,8 +1,13 @@
 #include "flutter_window.h"
 
 #include <optional>
+#include <variant>
 
 #include "flutter/generated_plugin_registrant.h"
+
+namespace {
+constexpr UINT kQuitFromTrayMessage = WM_APP + 1;
+}
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -25,6 +30,32 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  desktop_window_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(),
+          "magicchat/desktop_window",
+          &flutter::StandardMethodCodec::GetInstance());
+  desktop_window_channel_->SetMethodCallHandler(
+      [this](const auto& call, auto result) {
+        const auto& method = call.method_name();
+        if (method == "show") {
+          const auto window = GetHandle();
+          if (window != nullptr) {
+            ShowWindow(window, SW_RESTORE);
+            SetForegroundWindow(window);
+          }
+          result->Success();
+        } else if (method == "setTrayReady") {
+          const auto* ready = std::get_if<bool>(call.arguments());
+          tray_ready_ = ready != nullptr && *ready;
+          result->Success();
+        } else if (method == "quit") {
+          result->Success();
+          PostMessage(GetHandle(), kQuitFromTrayMessage, 0, 0);
+        } else {
+          result->NotImplemented();
+        }
+      });
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -62,9 +93,12 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   }
 
   switch (message) {
+    case kQuitFromTrayMessage:
+      DestroyWindow(hwnd);
+      return 0;
     case WM_CLOSE:
-      // 将关闭按钮视为最小化，保持实时连接和后台通知；用户仍可从任务栏恢复窗口。
-      ShowWindow(hwnd, SW_MINIMIZE);
+      // 托盘可用时隐藏窗口；托盘不可用时保留任务栏入口，避免窗口无法恢复。
+      ShowWindow(hwnd, tray_ready_ ? SW_HIDE : SW_MINIMIZE);
       return 0;
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();

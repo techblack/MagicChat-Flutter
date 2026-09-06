@@ -27,6 +27,7 @@ jobs:
         run: >-
           sudo apt-get update && sudo apt-get install -y
           clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev
+          libayatana-appindicator3-dev
           libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
       - run: flutter pub get
       - run: dart format --set-exit-if-changed lib test test_driver packages/yjs_dart/lib
@@ -34,3 +35,27 @@ jobs:
       - run: flutter test
       - run: flutter build web --release
       - run: flutter build linux --debug
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build windows --debug
+
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build macos --debug

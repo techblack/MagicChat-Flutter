@@ -169,6 +169,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.8.4"
+  desktop_tray:
+    dependency: "direct main"
+    description:
+      name: desktop_tray
+      sha256: "0dd96566039b19e28e7610a299bb1c9a5ae91c88983591be9ee63506ce632734"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2026.6.25"
   fake_async:
     dependency: transitive
     description:
