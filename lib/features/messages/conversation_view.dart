@@ -449,12 +449,16 @@ class _ConversationViewState extends State<ConversationView>
       for (final contact in results[0] as List<Contact>) contact.id: contact,
     };
     final id = widget.conversationId;
+    final memberUserIds = <String>{};
     if (id != null) {
       ChatConversation? selected;
       for (final conversation in results[1] as List<ChatConversation>) {
         if (conversation.id == id) {
           selected = conversation;
           for (final member in conversation.members) {
+            if (member.type == 'user' && member.id.trim().isNotEmpty) {
+              memberUserIds.add(member.id.trim());
+            }
             final previous = contacts[member.id];
             contacts[member.id] = previous == null
                 ? member
@@ -480,15 +484,12 @@ class _ConversationViewState extends State<ConversationView>
         unawaited(_loadTopicDetail(id));
       }
     }
-    final memberUserIds = contacts.values
-        .where((contact) => contact.type == 'user')
-        .map((contact) => contact.id.trim())
-        .where((id) => id.isNotEmpty)
-        .toSet()
-        .toList(growable: false);
     if (memberUserIds.isNotEmpty) {
       try {
-        final resolved = await widget.repository.resolveUsers(memberUserIds);
+        // contacts() 已返回组织通讯录的完整用户资料；这里只补齐当前会话
+        // 成员，避免打开一个群聊时再次解析整组织的 2000 个用户。
+        final resolved = await widget.repository
+            .resolveUsers(memberUserIds.toList(growable: false));
         for (final user in resolved) {
           final previous = contacts[user.id];
           contacts[user.id] = previous == null
@@ -505,8 +506,17 @@ class _ConversationViewState extends State<ConversationView>
         // 成员资料补全失败时仍保留消息接口返回的 ID/名称。
       }
     }
-    await _contactCacheStore.write(widget.cacheScope, contacts.values);
+    unawaited(_writeConversationContactCache(contacts.values));
     return contacts.values.toList();
+  }
+
+  Future<void> _writeConversationContactCache(
+      Iterable<Contact> contacts) async {
+    try {
+      await _contactCacheStore.write(widget.cacheScope, contacts);
+    } catch (_) {
+      // 联系人资料缓存失败不影响消息首屏。
+    }
   }
 
   void _applyConversation(ChatConversation conversation) {

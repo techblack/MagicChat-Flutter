@@ -2126,26 +2126,36 @@ class HttpMagicChatRepository implements MagicChatRepository {
   @override
   Future<List<Contact>> resolveUsers(List<String> userIds) async {
     if (userIds.isEmpty) return const [];
-    final result = <Contact>[];
-    for (var start = 0; start < userIds.length; start += 100) {
-      final end = (start + 100).clamp(0, userIds.length);
-      final values = _data(await _request('POST', '/api/client/users/resolve',
-          body: {'user_ids': userIds.sublist(start, end)}))['users'];
-      if (values is! List) throw const FormatException('用户资料响应格式不正确');
-      result.addAll(values
-          .whereType<Map<String, dynamic>>()
-          .where((item) => item['id'] is String && item['name'] is String)
-          .map((item) => Contact(
-              id: item['id'] as String,
-              name: item['name'] as String,
-              online: item['online'] == true,
-              nickname: '${item['nickname'] ?? ''}',
-              email: '${item['email'] ?? ''}',
-              phone: '${item['phone'] ?? ''}',
-              avatar: '${item['avatar'] ?? ''}',
-              type: 'user')));
+    final chunks = <List<String>>[
+      for (var start = 0; start < userIds.length; start += 100)
+        userIds.sublist(start, (start + 100).clamp(0, userIds.length)),
+    ];
+    // 2000 人组织需要 20 个资料分块。每波最多 4 个请求，既缩短首屏
+    // 等待，也避免在移动端/服务端瞬间创建 20 条连接；Future.wait 会按
+    // chunks 原顺序合并结果，保持服务端目录顺序稳定。
+    final resolved = <List<Contact>>[];
+    for (var start = 0; start < chunks.length; start += 4) {
+      final wave = chunks.sublist(start, (start + 4).clamp(0, chunks.length));
+      resolved.addAll(await Future.wait(wave.map((chunk) async {
+        final values = _data(await _request('POST', '/api/client/users/resolve',
+            body: {'user_ids': chunk}))['users'];
+        if (values is! List) throw const FormatException('用户资料响应格式不正确');
+        return values
+            .whereType<Map<String, dynamic>>()
+            .where((item) => item['id'] is String && item['name'] is String)
+            .map((item) => Contact(
+                id: item['id'] as String,
+                name: item['name'] as String,
+                online: item['online'] == true,
+                nickname: '${item['nickname'] ?? ''}',
+                email: '${item['email'] ?? ''}',
+                phone: '${item['phone'] ?? ''}',
+                avatar: '${item['avatar'] ?? ''}',
+                type: 'user'))
+            .toList(growable: false);
+      })));
     }
-    return result;
+    return resolved.expand((items) => items).toList(growable: false);
   }
 
   @override

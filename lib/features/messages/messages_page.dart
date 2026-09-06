@@ -239,27 +239,30 @@ class MessagesPage extends StatelessWidget {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) {
-          final list = contacts
-              .map((contact) => CheckboxListTile(
-                    value: selected.contains(contact.id),
-                    title: Text(contact.displayName),
-                    onChanged: (checked) => setDialogState(() {
-                      if (checked == true) {
-                        selected.add(contact.id);
-                      } else {
-                        selected.remove(contact.id);
-                      }
-                    }),
-                  ))
-              .toList();
           return AlertDialog(
             title: const Text('选择群成员'),
             content: SizedBox(
                 width: 360,
                 height: 320,
-                child: list.isEmpty
+                child: contacts.isEmpty
                     ? const Center(child: Text('暂无联系人'))
-                    : ListView(children: list)),
+                    : ListView.builder(
+                        itemCount: contacts.length,
+                        itemBuilder: (context, index) {
+                          final contact = contacts[index];
+                          return CheckboxListTile(
+                            key: ValueKey(contact.id),
+                            value: selected.contains(contact.id),
+                            title: Text(contact.displayName),
+                            onChanged: (checked) => setDialogState(() {
+                              if (checked == true) {
+                                selected.add(contact.id);
+                              } else {
+                                selected.remove(contact.id);
+                              }
+                            }),
+                          );
+                        })),
             actions: [
               TextButton(
                   onPressed: () => Navigator.pop(dialogContext),
