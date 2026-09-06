@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -6,6 +8,7 @@ import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/data/chat_preferences.dart';
 import 'package:magicchat_client/data/desktop_auto_launch.dart';
 import 'package:magicchat_client/data/desktop_window_controller.dart';
+import 'package:magicchat_client/data/update_service.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/settings/settings_page.dart';
 import 'package:magicchat_client/features/settings/account_deactivation_page.dart';
@@ -67,6 +70,68 @@ void main() {
       await tester.pump();
     }
     expect(find.text('退出登录'), findsOneWidget);
+  });
+
+  testWidgets('更新行显示当前版本并在检查期间阻止重复触发', (tester) async {
+    final pending = Completer<AppRelease?>();
+    final service = _FakeUpdateService([() => pending.future]);
+    await tester.binding.setSurfaceSize(const Size(600, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SettingsPage(
+                repository: DemoRepository(),
+                serverUrl: 'https://chat.example.com',
+                updateService: service))));
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(find.text('检查更新'), 250,
+        scrollable: find.byType(Scrollable).first);
+    expect(find.text('当前版本 ${UpdateService.currentVersion}'), findsOneWidget);
+
+    await tester.tap(find.text('检查更新'));
+    await tester.pump();
+    expect(find.text('正在检查更新'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(tester.widget<ListTile>(find.widgetWithText(ListTile, '检查更新')).onTap,
+        isNull);
+    expect(service.checks, 1);
+
+    pending.complete(null);
+    await tester.pumpAndSettle();
+    expect(
+        find.text('当前已是最新版本（${UpdateService.currentVersion}）'), findsOneWidget);
+    expect(service.checks, 1);
+  });
+
+  testWidgets('检查更新失败后在设置行原位重试', (tester) async {
+    final service = _FakeUpdateService([
+      () async => throw const FormatException('版本服务暂时不可用'),
+      () async => null,
+    ]);
+    await tester.binding.setSurfaceSize(const Size(600, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SettingsPage(
+                repository: DemoRepository(),
+                serverUrl: 'https://chat.example.com',
+                updateService: service))));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('检查更新'), 250,
+        scrollable: find.byType(Scrollable).first);
+
+    await tester.tap(find.text('检查更新'));
+    await tester.pumpAndSettle();
+    expect(find.text('检查失败：版本服务暂时不可用，点击重试'), findsOneWidget);
+    expect(find.byIcon(Icons.refresh), findsOneWidget);
+    expect(service.checks, 1);
+
+    await tester.tap(find.text('检查更新'));
+    await tester.pumpAndSettle();
+    expect(
+        find.text('当前已是最新版本（${UpdateService.currentVersion}）'), findsOneWidget);
+    expect(service.checks, 2);
   });
 
   testWidgets('系统拒绝通知权限时开关回滚并提示用户', (tester) async {
@@ -368,6 +433,16 @@ class _RetryProfileRepository extends DemoRepository {
     return const CurrentUser(
         id: 'user-1', name: '恢复后的用户', email: 'user@example.com');
   }
+}
+
+class _FakeUpdateService extends UpdateService {
+  _FakeUpdateService(this.actions);
+
+  final List<Future<AppRelease?> Function()> actions;
+  int checks = 0;
+
+  @override
+  Future<AppRelease?> check() => actions[checks++]();
 }
 
 class _FakeDesktopAutoLaunch implements DesktopAutoLaunchController {
