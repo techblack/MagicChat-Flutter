@@ -64,6 +64,7 @@
 
 ## 未发布
 
+- Android、iOS、macOS、Windows、Linux 和 Web 统一使用 MagicChat 品牌气泡图标。
 - Windows、macOS 和 Linux 新增系统托盘；关闭窗口后可从托盘恢复或退出，Windows/Linux 托盘菜单按通知隐私展示并直达未读会话。
 - Android 检查到新版本后可在应用内下载 APK、查看进度、取消下载并直接打开系统安装器；其他平台继续使用下载页。
 - Markdown、卡片、图片说明、历史附件和二维码页面中的未加密 HTTP 外链，打开前展示域名、完整地址和安全风险确认。
