@@ -26,6 +26,8 @@ import 'data/asset_cache_store.dart';
 import 'data/document_collaboration.dart';
 import 'data/desktop_system_tray.dart';
 import 'data/desktop_auto_launch.dart';
+import 'data/desktop_screenshot.dart';
+import 'data/desktop_screenshot_preferences.dart';
 import 'data/push_service.dart';
 import 'data/push_token_provider.dart';
 import 'data/local_notification_service.dart';

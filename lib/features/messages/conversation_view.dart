@@ -109,6 +109,8 @@ class ConversationView extends StatefulWidget {
       this.chatAppearance = const ChatAppearance(),
       this.conversationAppearance,
       this.enableFileDrop = true,
+      this.screenshotController,
+      this.screenshotRequestToken = 0,
       required this.conversationId,
       this.focusMessageId,
       this.focusMessageSequence,
@@ -126,6 +128,8 @@ class ConversationView extends StatefulWidget {
   final ChatAppearance chatAppearance;
   final ChatConversationAppearance? conversationAppearance;
   final bool enableFileDrop;
+  final DesktopScreenshotController? screenshotController;
+  final int screenshotRequestToken;
   final String? conversationId;
   final String? focusMessageId;
   final int? focusMessageSequence;
@@ -165,6 +169,7 @@ class _ConversationViewState extends State<ConversationView>
   late final bool _ownsMessageCacheStore = widget.messageCacheStore == null;
   bool _sendingFile = false;
   bool _draggingFile = false;
+  bool _capturingScreenshot = false;
   Future<List<Contact>>? _contactsFuture;
   final _olderMessages = <ChatMessage>[];
   bool _loadingOlder = false;
@@ -1383,6 +1388,15 @@ class _ConversationViewState extends State<ConversationView>
         widget.conversationId != null) {
       unawaited(_jumpToLatest(widget.conversationId!));
     }
+    if (oldWidget.screenshotRequestToken != widget.screenshotRequestToken &&
+        widget.conversationId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          unawaited(_captureScreenshot(
+              widget.conversationId!, DesktopScreenshotMode.region));
+        }
+      });
+    }
     if (oldWidget.realtimeSession != widget.realtimeSession &&
         oldWidget.conversationId == widget.conversationId &&
         _composerFocusNode.hasFocus) {
@@ -2254,6 +2268,38 @@ class _ConversationViewState extends State<ConversationView>
                           ? null
                           : () => _pickAndSendFile(conversationId),
                     ),
+                    if (widget.screenshotController?.isSupported == true)
+                      PopupMenuButton<DesktopScreenshotMode>(
+                        tooltip: '截图',
+                        enabled:
+                            canSend && !_sendingFile && !_capturingScreenshot,
+                        icon: _capturingScreenshot
+                            ? const SizedBox.square(
+                                dimension: 18,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2))
+                            : const Icon(Icons.crop_free),
+                        onSelected: (mode) =>
+                            unawaited(_captureScreenshot(conversationId, mode)),
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(
+                            value: DesktopScreenshotMode.region,
+                            child: ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(Icons.crop_free),
+                              title: Text('选择区域截图'),
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: DesktopScreenshotMode.screen,
+                            child: ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(Icons.desktop_windows_outlined),
+                              title: Text('截取整个屏幕'),
+                            ),
+                          ),
+                        ],
+                      ),
                     IconButton(
                       icon: const Icon(Icons.mic_none),
                       tooltip: '语音输入',
@@ -2519,6 +2565,102 @@ class _ConversationViewState extends State<ConversationView>
       }
     } finally {
       if (mounted) setState(() => _sendingFile = false);
+    }
+  }
+
+  Future<void> _captureScreenshot(
+      String conversationId, DesktopScreenshotMode mode) async {
+    final controller = widget.screenshotController;
+    if (controller == null ||
+        !controller.isSupported ||
+        _capturingScreenshot ||
+        _sendingFile) return;
+    if (!_conversationCanSend(conversationId)) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('当前会话为只读，无法发送截图')));
+      return;
+    }
+    setState(() => _capturingScreenshot = true);
+    try {
+      final screenshot = await controller.capture(mode);
+      if (screenshot == null ||
+          !mounted ||
+          widget.conversationId != conversationId) return;
+      final send = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('发送截图'),
+          content: SizedBox(
+            width: 560,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              ConstrainedBox(
+                constraints:
+                    const BoxConstraints(maxWidth: 520, maxHeight: 380),
+                child: Image.memory(screenshot.bytes, fit: BoxFit.contain),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '${screenshot.width} × ${screenshot.height} · ${_formatAttachmentSize(screenshot.bytes.length)}',
+                key: const ValueKey('screenshot-preview-metadata'),
+              ),
+            ]),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('取消')),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              icon: const Icon(Icons.send_outlined),
+              label: const Text('发送'),
+            ),
+          ],
+        ),
+      );
+      if (send == true &&
+          mounted &&
+          widget.conversationId == conversationId &&
+          _conversationCanSend(conversationId)) {
+        _enqueueAttachment(
+          conversationId,
+          AttachmentUpload(
+            path: '',
+            name: screenshot.fileName,
+            mimeType: 'image/png',
+            bytes: screenshot.bytes,
+          ),
+          screenshot.bytes.length,
+        );
+      }
+    } on DesktopScreenshotException catch (error) {
+      if (!mounted) return;
+      if (error.code == DesktopScreenshotErrorCode.permissionDenied) {
+        await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('需要屏幕录制权限'),
+            content:
+                const Text('请在“系统设置 → 隐私与安全性 → 屏幕录制”中允许 MagicChat，然后重新尝试截图。'),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('取消')),
+              FilledButton(
+                onPressed: () async {
+                  await controller.openPermissionSettings();
+                  if (dialogContext.mounted) Navigator.pop(dialogContext);
+                },
+                child: const Text('打开系统设置'),
+              ),
+            ],
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _capturingScreenshot = false);
     }
   }
 
