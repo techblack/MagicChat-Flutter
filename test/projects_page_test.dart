@@ -4,6 +4,7 @@ import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/projects/document_editor_page.dart';
 import 'package:magicchat_client/features/projects/project_task_calendar_view.dart';
+import 'package:magicchat_client/features/projects/project_goals_view.dart';
 import 'package:magicchat_client/features/projects/projects_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -41,9 +42,9 @@ void main() {
     expect(find.text('成员'), findsOneWidget);
     await tester.tap(find.text('目标'));
     await tester.pumpAndSettle();
-    expect(find.text('目标概览'), findsOneWidget);
-    expect(find.text('任务完成率'), findsOneWidget);
-    expect(find.textContaining('已完成'), findsOneWidget);
+    expect(find.byType(ProjectGoalsView), findsOneWidget);
+    expect(find.text('项目目标'), findsOneWidget);
+    expect(find.text('还没有项目目标'), findsOneWidget);
     await tester.tap(find.text('成员'));
     await tester.pumpAndSettle();
     expect(find.text('演示用户'), findsOneWidget);
