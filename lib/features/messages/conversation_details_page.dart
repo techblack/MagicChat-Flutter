@@ -85,6 +85,7 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
               _hydrateConversation(data.conversation, contacts),
           currentUser: data.currentUser,
           contacts: contacts,
+          unavailableMemberIds: _unavailableMemberIds(contacts),
           availableProjects: data.availableProjects,
           topicDetail: data.topicDetail);
     });
@@ -189,6 +190,7 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
         conversation: hydrated,
         currentUser: currentUser,
         contacts: contacts,
+        unavailableMemberIds: _unavailableMemberIds(contacts),
         availableProjects: availableProjects,
         topicDetail: topicDetail);
   }
@@ -286,6 +288,10 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
     final canManage = isOwner || currentMember?.role == 'admin';
     final canAddMembers = conversation.type == 'group' && currentMember != null;
     final visibleMembers = _visibleMembers(conversation, data.currentUser.id);
+    final unavailableMemberCount = visibleMembers
+        .where((member) =>
+            data.unavailableMemberIds.contains(member.id.toLowerCase()))
+        .length;
     final removable = conversation.members
         .where((member) =>
             member.role != 'owner' && !_sameId(member.id, data.currentUser.id))
@@ -300,29 +306,63 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
-                child: Wrap(
-                  spacing: 18,
-                  runSpacing: 14,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    ...visibleMembers.map((member) => _MemberTile(
-                          member: member,
-                          repository: widget.repository,
-                          serverUrl: widget.serverUrl,
-                          cacheScope: widget.cacheScope,
-                          onTap: () => _showMember(member),
-                        )),
-                    if (conversation.type == 'direct' || canAddMembers)
-                      _ActionMemberTile(
-                          icon: Icons.add,
-                          label: '添加',
-                          onTap: conversation.type == 'direct'
-                              ? () => _createGroup(data)
-                              : () => _addMembers(data)),
-                    if (canManage && removable.isNotEmpty)
-                      _ActionMemberTile(
-                          icon: Icons.remove,
-                          label: '移除',
-                          onTap: () => _removeMember(data, removable)),
+                    Wrap(
+                      spacing: 18,
+                      runSpacing: 14,
+                      children: [
+                        ...visibleMembers.map((member) {
+                          final profileUnavailable = data.unavailableMemberIds
+                              .contains(member.id.toLowerCase());
+                          return _MemberTile(
+                            member: member,
+                            profileUnavailable: profileUnavailable,
+                            repository: widget.repository,
+                            serverUrl: widget.serverUrl,
+                            cacheScope: widget.cacheScope,
+                            onTap: () =>
+                                _showMember(member, profileUnavailable),
+                          );
+                        }),
+                        if (conversation.type == 'direct' || canAddMembers)
+                          _ActionMemberTile(
+                              icon: Icons.add,
+                              label: '添加',
+                              onTap: conversation.type == 'direct'
+                                  ? () => _createGroup(data)
+                                  : () => _addMembers(data)),
+                        if (canManage && removable.isNotEmpty)
+                          _ActionMemberTile(
+                              icon: Icons.remove,
+                              label: '移除',
+                              onTap: () => _removeMember(data, removable)),
+                      ],
+                    ),
+                    if (unavailableMemberCount > 0) ...[
+                      const SizedBox(height: 12),
+                      Row(children: [
+                        Icon(Icons.person_off_outlined,
+                            size: 18,
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '$unavailableMemberCount 位成员已停用或资料暂不可用',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant),
+                          ),
+                        ),
+                        TextButton(onPressed: _reload, child: const Text('重试')),
+                      ]),
+                    ],
                   ],
                 ),
               ),
@@ -702,7 +742,7 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
         .toList(growable: false);
   }
 
-  Future<void> _showMember(Contact member) async {
+  Future<void> _showMember(Contact member, bool profileUnavailable) async {
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -712,8 +752,12 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             _memberAvatar(member, 34),
             const SizedBox(height: 10),
-            Text(member.displayName,
+            Text(profileUnavailable ? '资料不可用' : member.displayName,
                 style: Theme.of(context).textTheme.titleLarge),
+            if (profileUnavailable) ...[
+              const SizedBox(height: 6),
+              const Text('该成员可能已停用，或资料暂时无法加载。'),
+            ],
             if (member.email.trim().isNotEmpty) ...[
               const SizedBox(height: 6),
               Text(member.email.trim()),
@@ -1044,6 +1088,7 @@ class _ConversationDetailsData {
     required this.conversation,
     required this.currentUser,
     required this.contacts,
+    required this.unavailableMemberIds,
     this.availableProjects = const [],
     this.topicDetail,
   });
@@ -1051,6 +1096,7 @@ class _ConversationDetailsData {
   final ChatConversation conversation;
   final CurrentUser currentUser;
   final List<Contact> contacts;
+  final Set<String> unavailableMemberIds;
   final List<Project> availableProjects;
   final TopicDetail? topicDetail;
 }
@@ -1104,11 +1150,20 @@ bool _needsMemberProfile(Contact contact) =>
     ![contact.nickname, contact.name]
         .any((value) => !_isPlaceholderMemberValue(value, contact.id));
 
+Set<String> _unavailableMemberIds(Iterable<Contact> contacts) => contacts
+    .where((contact) =>
+        contact.type == 'user' &&
+        ![contact.nickname, contact.name, contact.email, contact.phone]
+            .any((value) => !_isPlaceholderMemberValue(value, contact.id)))
+    .map((contact) => contact.id.toLowerCase())
+    .toSet();
+
 bool _isPlaceholderMemberValue(String value, String id) {
   final normalized = value.trim();
   return normalized.isEmpty ||
       normalized.toLowerCase() == id.trim().toLowerCase() ||
-      normalized == '成员';
+      normalized == '成员' ||
+      normalized == '用户';
 }
 
 Contact _mergeContact(Contact member, Contact profile) => member.copyWith(
@@ -1127,6 +1182,7 @@ Contact _mergeContact(Contact member, Contact profile) => member.copyWith(
 class _MemberTile extends StatelessWidget {
   const _MemberTile({
     required this.member,
+    required this.profileUnavailable,
     required this.repository,
     required this.serverUrl,
     required this.cacheScope,
@@ -1134,6 +1190,7 @@ class _MemberTile extends StatelessWidget {
   });
 
   final Contact member;
+  final bool profileUnavailable;
   final MagicChatRepository repository;
   final String? serverUrl;
   final MessageCacheScope? cacheScope;
@@ -1141,6 +1198,7 @@ class _MemberTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final displayName = profileUnavailable ? '资料不可用' : member.displayName;
     final avatar = Uri.tryParse(member.avatar.trim());
     final uri = avatar == null || member.avatar.trim().isEmpty
         ? null
@@ -1159,10 +1217,10 @@ class _MemberTile extends StatelessWidget {
                 repository: repository,
                 cacheScope: cacheScope,
                 avatarUri: uri,
-                name: member.displayName,
+                name: displayName,
                 radius: 22),
             const SizedBox(height: 5),
-            Text(member.displayName,
+            Text(displayName,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall),
