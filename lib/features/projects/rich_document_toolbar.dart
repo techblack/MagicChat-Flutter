@@ -129,6 +129,7 @@ class RichDocumentInlineToolbar extends StatelessWidget {
     required this.onHighlight,
     required this.onAlignment,
     this.onBlockBackground,
+    this.onTableAction,
     required this.onEditLink,
     required this.onClearFormatting,
     required this.onTransform,
@@ -148,6 +149,7 @@ class RichDocumentInlineToolbar extends StatelessWidget {
   final ValueChanged<String?> onHighlight;
   final ValueChanged<String> onAlignment;
   final ValueChanged<String?>? onBlockBackground;
+  final ValueChanged<RichDocumentTableAction>? onTableAction;
   final VoidCallback onEditLink;
   final VoidCallback onClearFormatting;
   final ValueChanged<RichDocumentBlockType> onTransform;
@@ -217,6 +219,7 @@ class RichDocumentInlineToolbar extends StatelessWidget {
                     _nestedMarkValue('highlight', 'color'), onHighlight),
                 _blockBackgroundTool(context),
                 _alignmentTool(),
+                if (onTableAction != null) _tableTool(),
                 IconButton(
                     tooltip: '链接',
                     isSelected: _linkHref != null,
@@ -254,6 +257,42 @@ class RichDocumentInlineToolbar extends StatelessWidget {
             ),
           ),
         ),
+      );
+
+  Widget _tableTool() => PopupMenuButton<RichDocumentTableAction>(
+        tooltip: '表格结构',
+        onSelected: onTableAction,
+        itemBuilder: (_) => const [
+          PopupMenuItem(
+              value: RichDocumentTableAction.addRowBefore,
+              child: Text('在上方插入行')),
+          PopupMenuItem(
+              value: RichDocumentTableAction.addRowAfter,
+              child: Text('在下方插入行')),
+          PopupMenuItem(
+              value: RichDocumentTableAction.deleteRow,
+              child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text('删除当前行'),
+                  subtitle: Text('仅剩一行时删除表格'))),
+          PopupMenuDivider(),
+          PopupMenuItem(
+              value: RichDocumentTableAction.addColumnBefore,
+              child: Text('在左侧插入列')),
+          PopupMenuItem(
+              value: RichDocumentTableAction.addColumnAfter,
+              child: Text('在右侧插入列')),
+          PopupMenuItem(
+              value: RichDocumentTableAction.deleteColumn,
+              child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text('删除当前列'),
+                  subtitle: Text('仅剩一列时删除表格'))),
+          PopupMenuDivider(),
+          PopupMenuItem(
+              value: RichDocumentTableAction.deleteTable, child: Text('删除表格')),
+        ],
+        icon: const Icon(Icons.table_chart_outlined, size: 20),
       );
 
   Widget _colorTool(BuildContext context, IconData icon, String label,
