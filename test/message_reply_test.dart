@@ -149,7 +149,10 @@ void main() {
                   'seq': 3,
                   'sender': {'id': 'user-2', 'name': 'Alice'},
                   'revoked_at': '2026-08-29T12:00:00Z',
-                  'editable_body': {'type': 'markdown', 'content': '# Revoked body'},
+                  'editable_body': {
+                    'type': 'markdown',
+                    'content': '# Revoked body'
+                  },
                 }
               ]
             }
