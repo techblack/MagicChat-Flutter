@@ -51,7 +51,8 @@ void main() {
     final directory = await repository.contactDirectory();
 
     expect(directory.contacts, hasLength(2000));
-    expect(requests.where((request) => request.method == 'POST'), hasLength(20));
+    expect(
+        requests.where((request) => request.method == 'POST'), hasLength(20));
     expect(maxActive, lessThanOrEqualTo(4));
   });
 

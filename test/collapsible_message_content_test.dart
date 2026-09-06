@@ -97,8 +97,7 @@ void main() {
                 contentIdentity: 'large-text',
                 backgroundColor: Colors.white,
                 foregroundColor: Colors.blue,
-                builder: (_) =>
-                    Text(List.filled(30, '大字号正文').join('\n')),
+                builder: (_) => Text(List.filled(30, '大字号正文').join('\n')),
               ),
             ),
           ),

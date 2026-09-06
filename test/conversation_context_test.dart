@@ -70,8 +70,8 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    final text = tester.getRect(
-        find.byKey(const ValueKey('conversation-announcement-text')));
+    final text = tester
+        .getRect(find.byKey(const ValueKey('conversation-announcement-text')));
     final toggle = tester.getRect(
         find.byKey(const ValueKey('conversation-announcement-toggle')));
     expect(text.bottom, lessThanOrEqualTo(toggle.top));
