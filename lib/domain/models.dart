@@ -1210,14 +1210,22 @@ class Contact {
   final String? creatorUserId;
 
   String get displayName {
+    final normalizedId = id.trim().toLowerCase();
+    bool isReadable(String value) {
+      final normalized = value.trim();
+      return normalized.isNotEmpty &&
+          normalized.toLowerCase() != normalizedId &&
+          (type != 'user' || normalized != '成员');
+    }
+
     final preferred = nickname.trim();
-    if (preferred.isNotEmpty && preferred != id) return preferred;
+    if (isReadable(preferred)) return preferred;
     final fallback = name.trim();
-    if (fallback.isNotEmpty && fallback != id) return fallback;
+    if (isReadable(fallback)) return fallback;
     final emailLabel = email.trim();
-    if (emailLabel.isNotEmpty && emailLabel != id) return emailLabel;
+    if (isReadable(emailLabel)) return emailLabel;
     final phoneLabel = phone.trim();
-    if (phoneLabel.isNotEmpty && phoneLabel != id) return phoneLabel;
+    if (isReadable(phoneLabel)) return phoneLabel;
     return switch (type) {
       'app' => '应用',
       'group' => '群组',

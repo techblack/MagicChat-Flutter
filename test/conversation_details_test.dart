@@ -15,6 +15,22 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  test('成员占位名称和大小写不同的 ID 会回退到可读资料', () {
+    expect(
+        const Contact(id: 'USER-1', name: '成员', email: 'user@example.com')
+            .displayName,
+        'user@example.com');
+    expect(
+        const Contact(
+                id: 'ABCDEF12-3456-7890-ABCD-EF1234567890',
+                name: 'abcdef12-3456-7890-abcd-ef1234567890',
+                phone: '13800000000')
+            .displayName,
+        '13800000000');
+    expect(
+        const Contact(id: 'app-1', name: '成员', type: 'app').displayName, '成员');
+  });
+
   testWidgets('群聊详情补齐当前群缺失的成员资料并使用可读备选名称', (tester) async {
     final repository = _DetailsRepository.incompleteMembers();
     const scope =
@@ -27,8 +43,8 @@ void main() {
         Uint8List.fromList(image.encodePng(image.Image(width: 1, height: 1))));
     addTearDown(() => avatarCache.removeMemory(avatarCacheKey));
     final realtimeStore = RealtimeStore()
-      ..contacts['alice'] = const Contact(
-          id: 'alice',
+      ..contacts['user-alice'] = const Contact(
+          id: 'user-alice',
           name: 'Alice',
           nickname: '小爱',
           avatar: '/avatars/alice.webp');
@@ -43,11 +59,13 @@ void main() {
     )));
     await tester.pumpAndSettle();
 
-    expect(repository.resolvedUserIds, ['me', 'bob', 'charlie']);
+    expect(
+        repository.resolvedUserIds, ['me', 'user-bob', 'charlie', 'user-dana']);
     expect(repository.contactRequests, 0);
     expect(find.text('小爱'), findsOneWidget);
     expect(find.text('Bob'), findsOneWidget);
     expect(find.text('charlie@example.com'), findsOneWidget);
+    expect(find.text('Dana'), findsOneWidget);
     expect(find.text('成员'), findsNothing);
     final alice = tester.widget<CachedAvatar>(find.byWidgetPredicate(
         (widget) => widget is CachedAvatar && widget.name == '小爱'));
@@ -127,7 +145,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, '完成'));
     await tester.pumpAndSettle();
     expect(repository.conversation.members.map((member) => member.id),
-        contains('bob'));
+        contains('user-bob'));
     expect(find.text('Bob'), findsOneWidget);
   });
 
@@ -173,7 +191,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repository.createdName, '新建群聊');
-    expect(repository.createdMemberIds, containsAll(['alice', 'bob']));
+    expect(
+        repository.createdMemberIds, containsAll(['user-alice', 'user-bob']));
     expect(opened, 'created-group');
   });
 
@@ -252,7 +271,7 @@ class _DetailsRepository extends DemoRepository {
           members: [
             Contact(id: 'me', name: '当前用户', role: role),
             const Contact(
-                id: 'alice', name: 'Alice', email: 'alice@example.com'),
+                id: 'user-alice', name: 'Alice', email: 'alice@example.com'),
             const Contact(id: 'app', name: '演示应用', type: 'app'),
           ],
           projects: projects,
@@ -266,7 +285,8 @@ class _DetailsRepository extends DemoRepository {
           type: 'direct',
           members: [
             Contact(id: 'me', name: '当前用户'),
-            Contact(id: 'alice', name: 'Alice', email: 'alice@example.com'),
+            Contact(
+                id: 'user-alice', name: 'Alice', email: 'alice@example.com'),
           ],
         ),
       );
@@ -278,9 +298,14 @@ class _DetailsRepository extends DemoRepository {
           type: 'group',
           members: [
             Contact(id: 'me', name: '当前用户', role: 'owner'),
-            Contact(id: 'alice', name: ''),
-            Contact(id: 'bob', name: '成员'),
+            Contact(id: 'user-alice', name: ''),
+            Contact(id: 'user-bob', name: '成员'),
             Contact(id: 'charlie', name: ''),
+            Contact(
+                id: 'user-dana',
+                name: '成员',
+                email: 'dana@example.com',
+                avatar: '/avatars/dana.webp'),
           ],
         ),
       );
@@ -354,8 +379,8 @@ class _DetailsRepository extends DemoRepository {
   Future<List<Contact>> contacts({String keyword = ''}) async {
     contactRequests++;
     return const [
-      Contact(id: 'alice', name: 'Alice', email: 'alice@example.com'),
-      Contact(id: 'bob', name: 'Bob', email: 'bob@example.com'),
+      Contact(id: 'user-alice', name: 'Alice', email: 'alice@example.com'),
+      Contact(id: 'user-bob', name: 'Bob', email: 'bob@example.com'),
     ];
   }
 
@@ -373,15 +398,19 @@ class _DetailsRepository extends DemoRepository {
     }
     if (conversation.id != 'group-incomplete') return const [];
     return [
-      if (userIds.contains('alice'))
+      if (userIds.contains('user-alice'))
         const Contact(
-            id: 'alice',
+            id: 'user-alice',
             name: 'Alice',
             nickname: '小爱',
             avatar: '/avatars/alice.webp'),
-      if (userIds.contains('bob')) const Contact(id: 'bob', name: 'Bob'),
+      if (userIds.contains('user-bob'))
+        const Contact(id: 'user-bob', name: 'Bob'),
       if (userIds.contains('charlie'))
         const Contact(id: 'charlie', name: '', email: 'charlie@example.com'),
+      if (userIds.contains('user-dana'))
+        const Contact(
+            id: 'user-dana', name: 'Dana', avatar: '/avatars/dana.webp'),
     ];
   }
 

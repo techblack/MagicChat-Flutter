@@ -264,7 +264,7 @@ void main() {
 
     expect(find.text('回复 Bob：原消息提到 @Alice'), findsOneWidget);
     expect(find.text('quoted-message'), findsNothing);
-    expect(find.textContaining('{(@user/alice)}'), findsNothing);
+    expect(find.textContaining('{(@user/user-alice)}'), findsNothing);
   });
 
   testWidgets('实时引用补齐原消息后会刷新回复预览', (tester) async {
@@ -289,7 +289,7 @@ void main() {
         'id': 'reply-message',
         'conversation_id': 'conversation-1',
         'seq': 4,
-        'sender': {'id': 'alice', 'name': 'Alice'},
+        'sender': {'id': 'user-alice', 'name': 'Alice'},
         'body': {'type': 'text', 'content': '收到'},
         'reply_to_message_id': 'quoted-message',
       },
@@ -479,7 +479,7 @@ class _ExperienceRepository extends DemoRepository {
             id: 'text-1',
             conversationId: 'conversation-1',
             sequence: 1,
-            authorId: 'alice',
+            authorId: 'user-alice',
             author: 'Alice',
             text: '可以自由选择复制的正文'),
       ];
@@ -491,7 +491,7 @@ class _ExperienceRepository extends DemoRepository {
 
   @override
   Future<List<Contact>> contacts({String keyword = ''}) async => const [
-        Contact(id: 'alice', name: 'Alice'),
+        Contact(id: 'user-alice', name: 'Alice'),
       ];
 }
 
@@ -615,9 +615,9 @@ class _ReplyReferenceRepository extends _ExperienceRepository {
           id: 'quoted-message',
           conversationId: 'conversation-1',
           sequence: 1,
-          authorId: 'bob',
-          author: 'bob',
-          text: '原消息提到 {(@user/alice)}',
+          authorId: 'user-bob',
+          author: 'user-bob',
+          text: '原消息提到 {(@user/user-alice)}',
         ),
       ];
     }
@@ -626,13 +626,13 @@ class _ReplyReferenceRepository extends _ExperienceRepository {
           id: 'reply-message',
           conversationId: 'conversation-1',
           sequence: 2,
-          authorId: 'alice',
-          author: 'alice',
+          authorId: 'user-alice',
+          author: 'user-alice',
           text: '收到',
           replyTo: MessageReply(
               id: 'quoted-message',
-              authorId: 'bob',
-              author: 'bob',
+              authorId: 'user-bob',
+              author: 'user-bob',
               text: 'quoted-message',
               sequence: 1)),
     ];
@@ -640,8 +640,8 @@ class _ReplyReferenceRepository extends _ExperienceRepository {
 
   @override
   Future<List<Contact>> contacts({String keyword = ''}) async => const [
-        Contact(id: 'alice', name: 'Alice'),
-        Contact(id: 'bob', name: 'Bob'),
+        Contact(id: 'user-alice', name: 'Alice'),
+        Contact(id: 'user-bob', name: 'Bob'),
       ];
 }
 
@@ -655,7 +655,7 @@ class _RealtimeReplyRepository extends _ExperienceRepository {
           id: 'quoted-message',
           conversationId: 'conversation-1',
           sequence: 2,
-          authorId: 'bob',
+          authorId: 'user-bob',
           author: 'Bob',
           text: '原消息正文',
         ),
@@ -666,7 +666,7 @@ class _RealtimeReplyRepository extends _ExperienceRepository {
         id: 'existing-message',
         conversationId: 'conversation-1',
         sequence: 3,
-        authorId: 'bob',
+        authorId: 'user-bob',
         author: 'Bob',
         text: '上一条消息',
       ),
@@ -675,8 +675,8 @@ class _RealtimeReplyRepository extends _ExperienceRepository {
 
   @override
   Future<List<Contact>> contacts({String keyword = ''}) async => const [
-        Contact(id: 'alice', name: 'Alice'),
-        Contact(id: 'bob', name: 'Bob'),
+        Contact(id: 'user-alice', name: 'Alice'),
+        Contact(id: 'user-bob', name: 'Bob'),
       ];
 }
 
