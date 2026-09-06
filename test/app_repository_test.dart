@@ -32,6 +32,26 @@ void main() {
     });
   });
 
+  test('HTTP 仓库按结构化链接类型发送 URL', () async {
+    late http.Request request;
+    final repository = HttpMagicChatRepository(
+      serverUrl: 'https://chat.example.com',
+      sessionToken: 'token',
+      client: MockClient((value) async {
+        request = value;
+        return http.Response('{"data":{}}', 201);
+      }),
+    );
+
+    await repository.sendLink('conversation-1', 'https://example.com/docs',
+        clientMessageId: 'client-link');
+
+    expect(jsonDecode(request.body), {
+      'client_message_id': 'client-link',
+      'body': {'type': 'link', 'url': 'https://example.com/docs'},
+    });
+  });
+
   test('HTTP 消息检索传递会话、发送人和 UTC 时间范围', () async {
     late Uri requestUri;
     final repository = HttpMagicChatRepository(
