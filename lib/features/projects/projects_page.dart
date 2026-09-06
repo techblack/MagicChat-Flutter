@@ -1,14 +1,19 @@
 import 'dart:async';
+import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:pinyin/pinyin.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../data/avatar_processor.dart';
+import '../../data/message_cache_store.dart';
 import '../../data/repository.dart';
 import '../../data/document_collaboration.dart';
 import '../../data/realtime.dart';
 import '../../domain/models.dart';
 import 'document_editor_page.dart';
+import 'project_avatar.dart';
 import 'project_progress.dart';
 import 'project_task_calendar_view.dart';
 import 'project_task_details_page.dart';
@@ -18,6 +23,7 @@ import '../shared/user_facing_error.dart';
 
 typedef DocumentCollaborationFactory = DocumentCollaborationSession? Function(
     ProjectDocument document);
+typedef ProjectAvatarPicker = Future<Uint8List?> Function();
 
 const _projectTaskViewCount = 7;
 
@@ -36,6 +42,9 @@ class ProjectsPage extends StatefulWidget {
       this.initialDocumentId,
       this.onInitialDocumentOpened,
       this.documentCollaborationFactory,
+      this.serverUrl,
+      this.cacheScope,
+      this.projectAvatarPicker,
       super.key});
   final MagicChatRepository repository;
   final RealtimeSession? realtimeSession;
@@ -47,6 +56,9 @@ class ProjectsPage extends StatefulWidget {
   final String? initialDocumentId;
   final VoidCallback? onInitialDocumentOpened;
   final DocumentCollaborationFactory? documentCollaborationFactory;
+  final String? serverUrl;
+  final MessageCacheScope? cacheScope;
+  final ProjectAvatarPicker? projectAvatarPicker;
 
   @override
   State<ProjectsPage> createState() => _ProjectsPageState();
@@ -314,15 +326,12 @@ class _ProjectsPageState extends State<ProjectsPage> {
                             horizontal: 12, vertical: 4),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14)),
-                        leading: CircleAvatar(
-                            backgroundColor: project.isPersonal
-                                ? Theme.of(context).colorScheme.primaryContainer
-                                : Theme.of(context)
-                                    .colorScheme
-                                    .secondaryContainer,
-                            child: Icon(project.isPersonal
-                                ? Icons.person_outline
-                                : Icons.folder_outlined)),
+                        leading: ProjectAvatar(
+                          repository: repository,
+                          project: project,
+                          serverUrl: widget.serverUrl,
+                          cacheScope: widget.cacheScope,
+                        ),
                         title: Row(children: [
                           Flexible(child: Text(project.name)),
                           if (project.isPersonal) ...[
@@ -401,6 +410,21 @@ class _ProjectsPageState extends State<ProjectsPage> {
   }
 
   Future<void> _projectActions(BuildContext context, Project project) async {
+    try {
+      project = await repository.project(project.id);
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('项目详情加载失败：${userFacingError(error)}')));
+      }
+      return;
+    }
+    if (!context.mounted) return;
+    if (!project.canManage) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('只有项目所有者可管理项目')));
+      return;
+    }
     final action = await showModalBottomSheet<String>(
         context: context,
         builder: (context) => SafeArea(
@@ -444,27 +468,27 @@ class _ProjectsPageState extends State<ProjectsPage> {
         _reloadProjects();
       }
     } else {
-      final controller = TextEditingController(text: project.name);
-      final name = await showDialog<String>(
-          context: context,
-          builder: (context) => AlertDialog(
-                  title: const Text('编辑项目'),
-                  content: TextField(controller: controller, autofocus: true),
-                  actions: [
-                    TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('取消')),
-                    FilledButton(
-                        onPressed: () =>
-                            Navigator.pop(context, controller.text.trim()),
-                        child: const Text('保存'))
-                  ]));
-      controller.dispose();
-      if (name != null && name.isNotEmpty && context.mounted) {
-        await repository.updateProject(project.id, name: name);
-        _reloadProjects();
-      }
+      final updated = await _editProject(context, project);
+      if (updated != null) _reloadProjects();
     }
+  }
+
+  Future<Project?> _editProject(BuildContext context, Project project) =>
+      showDialog<Project>(
+        context: context,
+        builder: (context) => _ProjectEditDialog(
+          repository: repository,
+          project: project,
+          serverUrl: widget.serverUrl,
+          cacheScope: widget.cacheScope,
+          imagePicker: widget.projectAvatarPicker ?? _pickProjectAvatar,
+        ),
+      );
+
+  Future<Uint8List?> _pickProjectAvatar() async {
+    final result =
+        await FilePicker.pickFiles(type: FileType.image, withData: true);
+    return result?.files.single.bytes;
   }
 
   Future<void> _createProject(BuildContext context) async {
@@ -618,6 +642,15 @@ class _ProjectsPageState extends State<ProjectsPage> {
   }
 
   Future<void> _showTasks(Project project) async {
+    try {
+      project = await repository.project(project.id);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('项目详情加载失败：${userFacingError(error)}')));
+      }
+      return;
+    }
     var keyword = '';
     var label = '';
     var status = '';
@@ -640,6 +673,19 @@ class _ProjectsPageState extends State<ProjectsPage> {
         builder: (context) => StatefulBuilder(
           builder: (context, setFilterState) => ProjectWorkspacePage(
             project: project,
+            repository: repository,
+            serverUrl: widget.serverUrl,
+            cacheScope: widget.cacheScope,
+            onEditProject: project.canManage
+                ? () async {
+                    final updated = await _editProject(context, project);
+                    if (updated != null && context.mounted) {
+                      project = updated;
+                      setFilterState(() {});
+                      _reloadProjects();
+                    }
+                  }
+                : null,
             onCreateTask: () => _createTask(context, project,
                 onChanged: () => setFilterState(() {})),
             child: FutureBuilder<List<ProjectTask>>(
@@ -1890,6 +1936,181 @@ class _LazyDocumentNodeState extends State<_LazyDocumentNode> {
       onLongPress: () => widget.onDocumentActions(document),
     );
   }
+}
+
+class _ProjectEditDialog extends StatefulWidget {
+  const _ProjectEditDialog({
+    required this.repository,
+    required this.project,
+    required this.imagePicker,
+    this.serverUrl,
+    this.cacheScope,
+  });
+
+  final MagicChatRepository repository;
+  final Project project;
+  final ProjectAvatarPicker imagePicker;
+  final String? serverUrl;
+  final MessageCacheScope? cacheScope;
+
+  @override
+  State<_ProjectEditDialog> createState() => _ProjectEditDialogState();
+}
+
+class _ProjectEditDialogState extends State<_ProjectEditDialog> {
+  late final TextEditingController _nameController =
+      TextEditingController(text: widget.project.name);
+  late final TextEditingController _descriptionController =
+      TextEditingController(text: widget.project.description);
+  Uint8List? _avatar;
+  String _error = '';
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickAvatar() async {
+    try {
+      final source = await widget.imagePicker();
+      if (source == null || !mounted) return;
+      final avatar = const AvatarProcessor().process(source);
+      setState(() {
+        _avatar = avatar;
+        _error = '';
+      });
+    } catch (error) {
+      if (mounted) {
+        setState(() => _error = '头像处理失败：${userFacingError(error)}');
+      }
+    }
+  }
+
+  Future<void> _save() async {
+    final name = _nameController.text.trim();
+    if (!widget.project.isPersonal && name.isEmpty) {
+      setState(() => _error = '项目名称不能为空');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = '';
+    });
+    try {
+      var updated = await widget.repository.updateProject(
+        widget.project.id,
+        name: widget.project.isPersonal ? null : name,
+        description: _descriptionController.text.trim(),
+      );
+      if (_avatar != null) {
+        updated = await widget.repository.uploadProjectAvatar(
+          widget.project.id,
+          AttachmentUpload(
+            path: '',
+            name: 'project-avatar.webp',
+            mimeType: 'image/webp',
+            bytes: _avatar,
+          ),
+        );
+      }
+      if (mounted) Navigator.pop(context, updated);
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _error = '保存失败：${userFacingError(error)}';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+        canPop: !_saving,
+        child: AlertDialog(
+          title: const Text('修改项目信息'),
+          content: SizedBox(
+            width: 440,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    _avatar == null
+                        ? ProjectAvatar(
+                            repository: widget.repository,
+                            project: widget.project,
+                            serverUrl: widget.serverUrl,
+                            cacheScope: widget.cacheScope,
+                            radius: 32,
+                          )
+                        : ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Image.memory(_avatar!,
+                                width: 64, height: 64, fit: BoxFit.cover),
+                          ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (!widget.project.isPersonal)
+                            OutlinedButton.icon(
+                              onPressed: _saving ? null : _pickAvatar,
+                              icon: const Icon(Icons.add_a_photo_outlined),
+                              label: Text(_avatar == null ? '选择项目头像' : '重新选择'),
+                            )
+                          else
+                            const Text('个人项目头像跟随账户头像'),
+                        ],
+                      ),
+                    ),
+                  ]),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _nameController,
+                    enabled: !_saving && !widget.project.isPersonal,
+                    maxLength: 120,
+                    decoration: const InputDecoration(labelText: '项目名称'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _descriptionController,
+                    enabled: !_saving,
+                    minLines: 3,
+                    maxLines: 5,
+                    decoration: const InputDecoration(
+                        labelText: '项目描述', hintText: '暂无说明'),
+                  ),
+                  if (_error.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Text(_error,
+                        key: const ValueKey('project-edit-error'),
+                        style: TextStyle(
+                            color: Theme.of(context).colorScheme.error)),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: _saving ? null : () => Navigator.pop(context),
+                child: const Text('取消')),
+            FilledButton(
+                onPressed: _saving ? null : _save,
+                child: _saving
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Text('保存')),
+          ],
+        ),
+      );
 }
 
 String _projectSearchText(Project project) {

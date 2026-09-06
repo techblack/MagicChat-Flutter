@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -141,6 +142,69 @@ void main() {
         requests.every(
             (item) => item.headers['Authorization'] == 'Bearer test-token'),
         isTrue);
+  });
+
+  test('项目详情解析当前角色且头像使用 multipart 上传', () async {
+    late http.BaseRequest avatarRequest;
+    late String avatarBody;
+    final repository = HttpMagicChatRepository(
+      serverUrl: 'https://chat.example.com',
+      sessionToken: 'test-token',
+      client: MockClient.streaming((request, stream) async {
+        if (request.method == 'GET') {
+          return _streamedJsonResponse({
+            'success': true,
+            'data': {
+              'id': 'project-1',
+              'name': '发布计划',
+              'description': '九月版本',
+              'avatar': '',
+              'is_personal': false,
+              'current_user_role': 'member',
+              'task_counts': {'total': 2},
+            },
+          });
+        }
+        avatarRequest = request;
+        avatarBody = utf8.decode(await stream.toBytes());
+        return _streamedJsonResponse({
+          'success': true,
+          'data': {
+            'id': 'project-1',
+            'name': '发布计划',
+            'description': '九月版本',
+            'avatar': '/assets/avatars/projects/release.webp',
+            'is_personal': false,
+            'current_user_role': 'owner',
+            'task_counts': {'total': 2},
+          },
+        });
+      }),
+    );
+
+    final detail = await repository.project('project-1');
+    final updated = await repository.uploadProjectAvatar(
+      'project-1',
+      AttachmentUpload(
+        path: '',
+        name: 'project-avatar.webp',
+        mimeType: 'image/webp',
+        bytes: Uint8List.fromList([1, 2, 3, 4]),
+      ),
+    );
+
+    expect(detail.currentUserRole, 'member');
+    expect(detail.canManage, isFalse);
+    expect(avatarRequest.method, 'POST');
+    expect(avatarRequest.url.path, '/api/client/projects/project-1/avatar');
+    expect(avatarRequest.headers['authorization'], 'Bearer test-token');
+    expect(avatarRequest.headers['content-type'],
+        startsWith('multipart/form-data;'));
+    expect(avatarBody, contains('name="file"'));
+    expect(avatarBody, contains('filename="project-avatar.webp"'));
+    expect(avatarBody, contains('content-type: image/webp'));
+    expect(updated.avatar, '/assets/avatars/projects/release.webp');
+    expect(updated.canManage, isTrue);
   });
 
   test('项目列表会沿 next_cursor 拉取后续页面', () async {
@@ -625,3 +689,10 @@ void main() {
 http.Response _jsonResponse(Map<String, dynamic> body) =>
     http.Response(jsonEncode(body), 200,
         headers: {'content-type': 'application/json'});
+
+http.StreamedResponse _streamedJsonResponse(Map<String, dynamic> body) =>
+    http.StreamedResponse(
+      http.ByteStream.fromBytes(utf8.encode(jsonEncode(body))),
+      200,
+      headers: const {'content-type': 'application/json'},
+    );

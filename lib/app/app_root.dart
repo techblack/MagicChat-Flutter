@@ -1872,6 +1872,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       ProjectsPage(
           repository: _repository,
           realtimeSession: widget.realtime,
+          serverUrl: widget.serverUrl,
+          cacheScope: _messageCacheScope,
           initialProjectId: _focusProjectId,
           initialTaskProjectId: _focusTaskProjectId,
           initialTaskId: _focusTaskId,
