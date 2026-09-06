@@ -12,6 +12,7 @@ import 'document_editor_page.dart';
 import 'project_progress.dart';
 import 'project_task_calendar_view.dart';
 import 'project_task_details_page.dart';
+import 'project_workspace_page.dart';
 import '../shared/user_facing_error.dart';
 
 typedef DocumentCollaborationFactory = DocumentCollaborationSession? Function(
@@ -578,13 +579,14 @@ class _ProjectsPageState extends State<ProjectsPage> {
       // 视图记忆不可用时仍正常打开项目工作区。
     }
     if (!mounted) return;
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setFilterState) => SafeArea(
-          child: SizedBox(
-            height: MediaQuery.sizeOf(context).height * .7,
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => StatefulBuilder(
+          builder: (context, setFilterState) => ProjectWorkspacePage(
+            project: project,
+            onCreateTask: () => _createTask(context, project,
+                onChanged: () => setFilterState(() {})),
             child: FutureBuilder<List<ProjectTask>>(
               future: _loadProjectTasks(project.id,
                   keyword: keyword,
@@ -611,18 +613,6 @@ class _ProjectsPageState extends State<ProjectsPage> {
                   initialIndex: initialTab,
                   length: 7,
                   child: Column(children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                      child: Row(children: [
-                        Expanded(
-                            child: Text(project.name,
-                                style: Theme.of(context).textTheme.titleLarge)),
-                        IconButton(
-                            onPressed: () => _createTask(context, project),
-                            icon: const Icon(Icons.add),
-                            tooltip: '新建任务'),
-                      ]),
-                    ),
                     Padding(
                         padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                         child: LayoutBuilder(builder: (context, constraints) {
@@ -709,6 +699,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
                     TabBar(
                         isScrollable: true,
                         onTap: (index) async {
+                          initialTab = index;
                           try {
                             final preferences =
                                 await SharedPreferences.getInstance();
@@ -739,18 +730,24 @@ class _ProjectsPageState extends State<ProjectsPage> {
                                       height: 220,
                                       child: Center(child: Text('暂无匹配任务')))
                                   : _taskTile(
-                                      context, project, snapshot.data![index])),
-                      _taskBoard(context, project, snapshot.data!),
+                                      context, project, snapshot.data![index],
+                                      onChanged: () => setFilterState(() {}))),
+                      _taskBoard(context, project, snapshot.data!,
+                          onChanged: () => setFilterState(() {})),
                       ProjectTaskCalendarView(
                           tasks: snapshot.data!,
-                          onOpenTask: (task) => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => ProjectTaskDetailsPage(
-                                      repository: repository,
-                                      project: project,
-                                      task: task)))),
-                      _taskGantt(context, project, snapshot.data!),
+                          onOpenTask: (task) async {
+                            await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => ProjectTaskDetailsPage(
+                                        repository: repository,
+                                        project: project,
+                                        task: task)));
+                            if (context.mounted) setFilterState(() {});
+                          }),
+                      _taskGantt(context, project, snapshot.data!,
+                          onChanged: () => setFilterState(() {})),
                       _documentsView(context, project),
                       _goalsView(context, project, snapshot.data!),
                       _membersView(context, project),
@@ -765,11 +762,13 @@ class _ProjectsPageState extends State<ProjectsPage> {
     );
   }
 
-  Widget _taskTile(BuildContext context, Project project, ProjectTask task) =>
+  Widget _taskTile(BuildContext context, Project project, ProjectTask task,
+          {required VoidCallback onChanged}) =>
       ListTile(
         leading: IconButton(
             tooltip: '推进任务状态',
-            onPressed: () => _cycleTaskStatus(context, project, task),
+            onPressed: () =>
+                _cycleTaskStatus(context, project, task, onChanged),
             icon: Icon(task.status == 'done'
                 ? Icons.check_circle
                 : Icons.radio_button_unchecked)),
@@ -780,7 +779,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
             onSelected: (action) async {
               if (!context.mounted) return;
               if (action == 'edit') {
-                await _editTask(context, project, task);
+                await _editTask(context, project, task, onChanged);
                 return;
               }
               if (action != 'delete') return;
@@ -800,25 +799,26 @@ class _ProjectsPageState extends State<ProjectsPage> {
                       ));
               if (ok == true) {
                 await repository.deleteTask(project.id, task.id);
-                if (context.mounted) {
-                  Navigator.pop(context);
-                }
+                if (context.mounted) onChanged();
               }
             },
             itemBuilder: (context) => const [
                   PopupMenuItem(value: 'edit', child: Text('编辑任务')),
                   PopupMenuItem(value: 'delete', child: Text('删除任务'))
                 ]),
-        onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-                builder: (_) => ProjectTaskDetailsPage(
-                    repository: repository, project: project, task: task))),
+        onTap: () async {
+          await Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (_) => ProjectTaskDetailsPage(
+                      repository: repository, project: project, task: task)));
+          if (context.mounted) onChanged();
+        },
         onLongPress: () => _addComment(context, project, task),
       );
 
-  Future<void> _editTask(
-      BuildContext context, Project project, ProjectTask task) async {
+  Future<void> _editTask(BuildContext context, Project project,
+      ProjectTask task, VoidCallback onChanged) async {
     List<ProjectMember> members;
     try {
       members = await repository.projectMembers(project.id);
@@ -982,16 +982,16 @@ class _ProjectsPageState extends State<ProjectsPage> {
                       if (reminderMode == 'recurring')
                         'frequency': reminderFrequency
                     }));
-      if (context.mounted) {
-        Navigator.pop(context);
-      }
+      if (context.mounted) onChanged();
     }
-    titleController.dispose();
-    descriptionController.dispose();
-    startController.dispose();
-    dueController.dispose();
-    labelsController.dispose();
-    reminderController.dispose();
+    unawaited(Future<void>.delayed(kThemeAnimationDuration, () {
+      titleController.dispose();
+      descriptionController.dispose();
+      startController.dispose();
+      dueController.dispose();
+      labelsController.dispose();
+      reminderController.dispose();
+    }));
   }
 
   Widget _goalsView(
@@ -1391,7 +1391,8 @@ class _ProjectsPageState extends State<ProjectsPage> {
   }
 
   Widget _taskBoard(
-      BuildContext context, Project project, List<ProjectTask> tasks) {
+      BuildContext context, Project project, List<ProjectTask> tasks,
+      {required VoidCallback onChanged}) {
     const statuses = ['todo', 'in_progress', 'done', 'canceled'];
     return SingleChildScrollView(
       padding: const EdgeInsets.all(12),
@@ -1415,8 +1416,9 @@ class _ProjectsPageState extends State<ProjectsPage> {
                                         .textTheme
                                         .titleMedium),
                                 const Divider(),
-                                ...items.map((task) =>
-                                    _taskTile(context, project, task)),
+                                ...items.map((task) => _taskTile(
+                                    context, project, task,
+                                    onChanged: onChanged)),
                               ]))));
             }).toList()),
       ),
@@ -1424,7 +1426,8 @@ class _ProjectsPageState extends State<ProjectsPage> {
   }
 
   Widget _taskGantt(
-      BuildContext context, Project project, List<ProjectTask> tasks) {
+      BuildContext context, Project project, List<ProjectTask> tasks,
+      {required VoidCallback onChanged}) {
     final dated = tasks
         .where((task) => task.startDate != null || task.dueDate != null)
         .toList();
@@ -1460,7 +1463,8 @@ class _ProjectsPageState extends State<ProjectsPage> {
                               : task.status == 'in_progress'
                                   ? .5
                                   : .1)),
-                  onTap: () => _cycleTaskStatus(context, project, task),
+                  onTap: () =>
+                      _cycleTaskStatus(context, project, task, onChanged),
                 );
               }).toList(),
             ),
@@ -1470,18 +1474,19 @@ class _ProjectsPageState extends State<ProjectsPage> {
     );
   }
 
-  Future<void> _cycleTaskStatus(
-      BuildContext context, Project project, ProjectTask task) async {
+  Future<void> _cycleTaskStatus(BuildContext context, Project project,
+      ProjectTask task, VoidCallback onChanged) async {
     final next = task.status == 'todo'
         ? 'in_progress'
         : task.status == 'in_progress'
             ? 'done'
             : 'todo';
     await repository.updateTaskStatus(project.id, task.id, next);
-    if (context.mounted) Navigator.pop(context);
+    if (context.mounted) onChanged();
   }
 
-  Future<void> _createTask(BuildContext context, Project project) async {
+  Future<void> _createTask(BuildContext context, Project project,
+      {required VoidCallback onChanged}) async {
     List<ProjectMember> members;
     try {
       members = await repository.projectMembers(project.id);
@@ -1624,12 +1629,14 @@ class _ProjectsPageState extends State<ProjectsPage> {
                 ],
               ),
             ));
-    titleController.dispose();
-    descriptionController.dispose();
-    startController.dispose();
-    dueController.dispose();
-    labelsController.dispose();
-    reminderController.dispose();
+    unawaited(Future<void>.delayed(kThemeAnimationDuration, () {
+      titleController.dispose();
+      descriptionController.dispose();
+      startController.dispose();
+      dueController.dispose();
+      labelsController.dispose();
+      reminderController.dispose();
+    }));
     if (result == null || !context.mounted) return;
     try {
       await repository.createTask(project.id, result.title,
@@ -1641,7 +1648,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
           labels: result.labels,
           assigneeUserId: result.assigneeUserId,
           reminder: result.reminder);
-      if (context.mounted) Navigator.pop(context);
+      if (context.mounted) onChanged();
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
