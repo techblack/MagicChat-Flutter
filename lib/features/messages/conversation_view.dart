@@ -407,7 +407,11 @@ class _ConversationViewState extends State<ConversationView>
       unawaited(_refreshConversationContacts());
       return cached;
     }
-    return _fetchConversationContacts();
+    // 首屏只需当前会话成员资料；完整组织目录在后台刷新，避免打开第一
+    // 个聊天时同步解析数千名联系人。
+    final initial = await _fetchConversationContacts(fetchDirectory: false);
+    unawaited(_refreshConversationContacts());
+    return initial;
   }
 
   Future<void> _refreshConversationContacts() async {
@@ -440,9 +444,12 @@ class _ConversationViewState extends State<ConversationView>
     }
   }
 
-  Future<List<Contact>> _fetchConversationContacts() async {
+  Future<List<Contact>> _fetchConversationContacts(
+      {bool fetchDirectory = true}) async {
     final results = await Future.wait([
-      widget.repository.contacts(),
+      fetchDirectory
+          ? widget.repository.contacts()
+          : Future.value(const <Contact>[]),
       widget.repository.conversations(),
     ]);
     final contacts = <String, Contact>{
