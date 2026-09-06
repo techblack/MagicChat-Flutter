@@ -74,10 +74,15 @@ class RealtimeSession {
   bool ready = false;
   int _cursor = 0;
   int _attempt = 0;
+  int? _reconnectDelayMs;
   int _requestSequence = 0;
   bool _closed = false;
 
   Stream<Map<String, dynamic>> get events => _events.stream;
+  int get cursor => _cursor;
+  int get reconnectAttempt => _attempt;
+  int? get reconnectDelayMs =>
+      _retry?.isActive == true ? _reconnectDelayMs : null;
 
   Future<void> connect({int cursor = 0}) async {
     _cursor = cursor;
@@ -96,6 +101,7 @@ class RealtimeSession {
 
   Future<void> _open() async {
     if (_closed) return;
+    _reconnectDelayMs = null;
     ready = false;
     status =
         _attempt == 0 ? RealtimeStatus.connecting : RealtimeStatus.reconnecting;
@@ -182,6 +188,7 @@ class RealtimeSession {
         ? 1000
         : delays[_attempt.clamp(0, delays.length - 1).toInt()];
     _attempt++;
+    _reconnectDelayMs = delay;
     _retry = Timer(Duration(milliseconds: delay), _open);
   }
 
@@ -189,6 +196,7 @@ class RealtimeSession {
     _closed = true;
     ready = false;
     _retry?.cancel();
+    _reconnectDelayMs = null;
     _rejectPending(StateError('实时连接已关闭'));
     await _subscription?.cancel();
     await realtime.close();

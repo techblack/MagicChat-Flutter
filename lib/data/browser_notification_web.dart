@@ -2,6 +2,8 @@ import 'dart:js_interop';
 
 import 'package:web/web.dart' as web;
 
+String browserNotificationPermissionStatus() => web.Notification.permission;
+
 Future<bool> browserNotificationRequestPermission() async {
   final current = web.Notification.permission;
   if (current == 'granted') return true;

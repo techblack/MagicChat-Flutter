@@ -74,6 +74,21 @@ import UserNotifications
     )
     notifications.setMethodCallHandler { call, result in
       switch call.method {
+      case "getPermissionStatus":
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+          let status: String
+          switch settings.authorizationStatus {
+          case .authorized, .provisional, .ephemeral:
+            status = "granted"
+          case .denied:
+            status = "denied"
+          case .notDetermined:
+            status = "notDetermined"
+          @unknown default:
+            status = "unknown"
+          }
+          DispatchQueue.main.async { result(status) }
+        }
       case "requestPermission":
         UNUserNotificationCenter.current().requestAuthorization(
           options: [.alert, .sound, .badge]
