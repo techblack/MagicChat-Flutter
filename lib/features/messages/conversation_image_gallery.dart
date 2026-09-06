@@ -1,15 +1,18 @@
 import 'dart:async';
 import 'dart:math';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../data/asset_cache_store.dart';
+import '../../data/image_save_service.dart';
 import '../../data/message_cache_store.dart';
 import '../../data/repository.dart';
 import '../../domain/models.dart';
 import '../shared/user_facing_error.dart';
+
+typedef ConversationImageSaver = Future<ImageSaveResult> Function(
+    Uint8List bytes, String suggestedName, int fallbackIndex);
 
 class ConversationGalleryImage {
   const ConversationGalleryImage({
@@ -100,6 +103,7 @@ class ConversationImageGallery extends StatefulWidget {
     this.initialBytes,
     this.initialUri,
     this.onForward,
+    this.imageSaver,
     super.key,
   });
 
@@ -112,6 +116,7 @@ class ConversationImageGallery extends StatefulWidget {
   final Uint8List? initialBytes;
   final Uri? initialUri;
   final Future<void> Function(String messageId)? onForward;
+  final ConversationImageSaver? imageSaver;
 
   @override
   State<ConversationImageGallery> createState() =>
@@ -317,19 +322,25 @@ class _ConversationImageGalleryState extends State<ConversationImageGallery> {
       final bytes = resource.bytes ??
           await widget.repository.downloadAttachment(image.fileId);
       if (bytes == null || bytes.isEmpty) throw StateError('图片内容为空');
-      final path = await FilePicker.saveFile(
-          dialogTitle: '保存图片',
-          fileName: image.name.isEmpty
-              ? 'MagicChat-image-${image.sequence > 0 ? image.sequence : _currentIndex + 1}.jpg'
-              : image.name,
-          bytes: bytes);
-      if (mounted && path != null) _showMessage('图片已保存');
+      final result = await (widget.imageSaver ?? _saveImage)(bytes, image.name,
+          image.sequence > 0 ? image.sequence : _currentIndex + 1);
+      if (mounted && result.saved) _showMessage(result.message);
     } catch (error) {
-      if (mounted) _showMessage('保存图片失败：${userFacingError(error)}');
+      final reason =
+          error is ImageSaveException ? error.message : userFacingError(error);
+      if (mounted) _showMessage('保存图片失败：$reason');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
+
+  Future<ImageSaveResult> _saveImage(
+          Uint8List bytes, String suggestedName, int fallbackIndex) =>
+      const ImageSaveService().save(
+        bytes,
+        suggestedName: suggestedName,
+        fallbackIndex: fallbackIndex,
+      );
 
   Future<void> _forward() async {
     final image = _current;
@@ -462,7 +473,7 @@ class _ConversationImageGalleryState extends State<ConversationImageGallery> {
                       ),
                     ),
                     IconButton(
-                      tooltip: '保存图片',
+                      tooltip: imageSaveActionLabel(),
                       color: Colors.white,
                       onPressed: image == null || _saving ? null : _save,
                       icon: _saving

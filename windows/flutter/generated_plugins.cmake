@@ -8,6 +8,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   desktop_tray
   file_selector_windows
   flutter_secure_storage_windows
+  gal
   hotkey_manager_windows
   record_windows
   screen_capturer_windows
