@@ -64,12 +64,15 @@ class _ContactsPageState extends State<ContactsPage> {
   List<_ContactDirectoryRow> _cachedHomeRows = const [];
   Timer? _fallbackPollTimer;
   bool _fallbackPollInFlight = false;
+  int _observedUserProfileRevision = 0;
   bool _active = false;
 
   @override
   void initState() {
     super.initState();
     _currentUserId = widget.realtimeStore?.currentUserId ?? '';
+    _observedUserProfileRevision =
+        widget.realtimeStore?.userProfileRevision ?? 0;
     if (widget.active) _activate();
   }
 
@@ -107,13 +110,35 @@ class _ContactsPageState extends State<ContactsPage> {
 
   void _onRealtimeChanged() {
     if (!mounted || !widget.active) return;
-    final currentUserId = widget.realtimeStore?.currentUserId;
+    final store = widget.realtimeStore;
+    final currentUserId = store?.currentUserId;
     final identityChanged =
         currentUserId?.isNotEmpty == true && currentUserId != _currentUserId;
+    final profileChanged = store != null &&
+        store.userProfileRevision != _observedUserProfileRevision;
     if (!identityChanged &&
-        widget.realtimeStore?.lastEvent != 'user.presence.updated') return;
+        !profileChanged &&
+        store?.lastEvent != 'user.presence.updated') return;
+    if (profileChanged && store.lastResolvedUserProfile != null) {
+      final profile = store.lastResolvedUserProfile!;
+      final previous = _directoryFuture;
+      if (previous != null) {
+        _directoryFuture = previous.then((directory) => ContactDirectory(
+            contacts: directory.contacts
+                .map((contact) => contact.id.trim().toLowerCase() ==
+                        profile.id.trim().toLowerCase()
+                    ? profile
+                    : contact)
+                .toList(growable: false),
+            mode: directory.mode));
+        _sectionSource = null;
+      }
+    }
     setState(() {
       if (identityChanged) _currentUserId = currentUserId!;
+      if (profileChanged) {
+        _observedUserProfileRevision = store.userProfileRevision;
+      }
     });
   }
 
@@ -213,6 +238,12 @@ class _ContactsPageState extends State<ContactsPage> {
   @override
   void didUpdateWidget(covariant ContactsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.realtimeStore != widget.realtimeStore) {
+      oldWidget.realtimeStore?.removeListener(_onRealtimeChanged);
+      _observedUserProfileRevision =
+          widget.realtimeStore?.userProfileRevision ?? 0;
+      if (_active) widget.realtimeStore?.addListener(_onRealtimeChanged);
+    }
     if (oldWidget.active != widget.active) {
       if (widget.active) {
         _activate();

@@ -153,7 +153,14 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   void _onRealtimeChanged() {
-    if (widget.realtimeStore?.lastEvent != 'user.profile.updated') return;
+    final store = widget.realtimeStore;
+    if (store?.lastEvent != 'user.profile.updated') return;
+    final updatedUserId = store?.lastProfileUpdatedUserId;
+    final currentUserId = store?.currentUserId;
+    if (updatedUserId == null) return;
+    if (currentUserId != null &&
+        updatedUserId.trim().toLowerCase() !=
+            currentUserId.trim().toLowerCase()) return;
     _reloadUser();
   }
 

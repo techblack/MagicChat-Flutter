@@ -76,6 +76,43 @@ class ContactCacheStore {
     final values = merged.values
         .where((contact) => contact.id.trim().isNotEmpty)
         .toList(growable: false);
+    await _persist(scope, values);
+  }
+
+  Future<void> replaceUserProfiles(
+      MessageCacheScope? scope, Iterable<Contact> profiles) async {
+    if (scope == null) return;
+    final previous = await read(scope);
+    final merged = <String, Contact>{
+      for (final contact in previous) contact.id.trim().toLowerCase(): contact,
+    };
+    for (final profile in profiles) {
+      if (profile.type != 'user' || profile.id.trim().isEmpty) continue;
+      final key = profile.id.trim().toLowerCase();
+      final old = merged[key];
+      merged[key] = old == null
+          ? profile
+          : Contact(
+              id: profile.id,
+              name: profile.name,
+              online: profile.online,
+              type: 'user',
+              role: old.role,
+              nickname: profile.nickname,
+              email: profile.email,
+              phone: profile.phone,
+              avatar: profile.avatar,
+              joined: old.joined,
+              memberCount: old.memberCount,
+              visibility: old.visibility,
+              description: old.description,
+              creatorUserId: old.creatorUserId);
+    }
+    await _persist(scope, merged.values.toList(growable: false));
+  }
+
+  Future<void> _persist(MessageCacheScope scope, List<Contact> values) async {
+    final cacheKey = _scopeKey(scope);
     _memory[cacheKey] = values;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(

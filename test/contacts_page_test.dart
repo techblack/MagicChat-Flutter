@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magicchat_client/main.dart';
 import 'package:magicchat_client/data/repository.dart';
+import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/contacts/contacts_page.dart';
 import 'package:magicchat_client/features/contacts/contact_category_page.dart';
@@ -101,6 +102,25 @@ void main() {
     expect(find.byType(ContactCategoryPage), findsOneWidget);
     expect(find.widgetWithText(ListTile, '我的机器人'), findsOneWidget);
     expect(find.widgetWithText(ListTile, '智能助手'), findsNothing);
+  });
+
+  testWidgets('已解析的实时资料会原位更新联系人而不重载目录', (tester) async {
+    final repository = _CountingDirectoryRepository();
+    final store = RealtimeStore();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: ContactsPage(repository: repository, realtimeStore: store))));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(ListTile, 'Alice'), findsOneWidget);
+
+    store.lastEvent = 'user.profile.updated';
+    store.replaceUserProfile(
+        const Contact(id: 'user-alice', name: '小爱', avatar: '/new.webp'));
+    await tester.pump();
+
+    expect(find.widgetWithText(ListTile, '小爱'), findsOneWidget);
+    expect(find.widgetWithText(ListTile, 'Alice'), findsNothing);
+    expect(repository.requests, 1);
   });
 
   testWidgets('联系人字母索引可跳转到对应分组', (tester) async {
@@ -370,6 +390,16 @@ class _DirectoryRepository extends DemoRepository {
             type: 'group',
             visibility: 'public'),
       ], mode: 'friends');
+}
+
+class _CountingDirectoryRepository extends _DirectoryRepository {
+  int requests = 0;
+
+  @override
+  Future<ContactDirectory> contactDirectory({String keyword = ''}) {
+    requests++;
+    return super.contactDirectory(keyword: keyword);
+  }
 }
 
 class _SelectionRepository extends DemoRepository {

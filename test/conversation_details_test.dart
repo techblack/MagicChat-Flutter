@@ -70,6 +70,13 @@ void main() {
     final alice = tester.widget<CachedAvatar>(find.byWidgetPredicate(
         (widget) => widget is CachedAvatar && widget.name == '小爱'));
     expect(alice.avatarUri, avatarUri);
+
+    realtimeStore.lastEvent = 'user.profile.updated';
+    realtimeStore.replaceUserProfile(const Contact(
+        id: 'user-alice', name: 'Alice', nickname: '新小爱', avatar: ''));
+    await tester.pumpAndSettle();
+    expect(find.text('新小爱'), findsOneWidget);
+    expect(find.text('小爱'), findsNothing);
   });
 
   testWidgets('大群分块补齐时单个失败不影响其他成员', (tester) async {

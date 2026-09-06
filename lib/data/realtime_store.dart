@@ -16,6 +16,9 @@ class RealtimeStore extends ChangeNotifier {
   final _conversationStatusTimers = <String, Timer>{};
   String? currentUserId;
   String? lastEvent;
+  String? lastProfileUpdatedUserId;
+  Contact? lastResolvedUserProfile;
+  int userProfileRevision = 0;
   int cursor = 0;
 
   void setCurrentUserId(String? id) {
@@ -33,12 +36,59 @@ class RealtimeStore extends ChangeNotifier {
     contacts.clear();
     currentUserId = null;
     lastEvent = null;
+    lastProfileUpdatedUserId = null;
+    lastResolvedUserProfile = null;
+    userProfileRevision = 0;
     cursor = 0;
     notifyListeners();
   }
 
   void replaceConversation(ChatConversation conversation) {
     conversations[conversation.id] = conversation;
+    notifyListeners();
+  }
+
+  void replaceUserProfile(Contact profile) {
+    if (profile.type != 'user' || profile.id.trim().isEmpty) return;
+    final profileId = profile.id.trim().toLowerCase();
+    MapEntry<String, Contact>? existingEntry;
+    for (final entry in contacts.entries) {
+      if (entry.key.trim().toLowerCase() == profileId) {
+        existingEntry = entry;
+        break;
+      }
+    }
+    final resolved = existingEntry == null
+        ? profile
+        : _contactWithProfile(existingEntry.value, profile);
+    if (existingEntry != null && existingEntry.key != resolved.id) {
+      contacts.remove(existingEntry.key);
+    }
+    contacts[resolved.id] = resolved;
+    for (final entry in conversations.entries.toList(growable: false)) {
+      final conversation = entry.value;
+      var matched = false;
+      Contact? updatedPeer;
+      final members = conversation.members.map((member) {
+        if (member.type != 'user' ||
+            member.id.trim().toLowerCase() != profileId) return member;
+        matched = true;
+        final updated = _contactWithProfile(member, profile);
+        if (member.id.trim().toLowerCase() !=
+            (currentUserId ?? '').trim().toLowerCase()) updatedPeer = updated;
+        return updated;
+      }).toList(growable: false);
+      final source = conversation.topic?.sourceSender;
+      final sourceMatched = source?.type == 'user' &&
+          source!.id.trim().toLowerCase() == profileId;
+      if (!matched && !sourceMatched) continue;
+      conversations[entry.key] = _conversationWithProfile(conversation,
+          members: members,
+          directPeer: conversation.type == 'direct' ? updatedPeer : null,
+          sourceProfile: sourceMatched ? profile : null);
+    }
+    lastResolvedUserProfile = resolved;
+    userProfileRevision++;
     notifyListeners();
   }
 
@@ -139,6 +189,8 @@ class RealtimeStore extends ChangeNotifier {
         _patchTopic(payload, event);
       case 'user.presence.updated':
         _patchPresence(payload);
+      case 'user.profile.updated':
+        _recordProfileUpdate(payload);
     }
     notifyListeners();
   }
@@ -229,6 +281,12 @@ class RealtimeStore extends ChangeNotifier {
           memberCount: current.memberCount,
           visibility: current.visibility);
     }
+  }
+
+  void _recordProfileUpdate(Map<String, dynamic> payload) {
+    final userId = payload['user_id'];
+    lastProfileUpdatedUserId =
+        userId is String && userId.trim().isNotEmpty ? userId.trim() : null;
   }
 
   void _patchReactions(Map<String, dynamic> payload) {
@@ -601,4 +659,65 @@ class RealtimeConversationStatus {
   final String text;
   final String senderId;
   final String senderType;
+}
+
+Contact _contactWithProfile(Contact current, Contact profile) => Contact(
+      id: profile.id,
+      name: profile.name,
+      online: profile.online,
+      type: 'user',
+      role: current.role,
+      nickname: profile.nickname,
+      email: profile.email,
+      phone: profile.phone,
+      avatar: profile.avatar,
+      joined: current.joined,
+      memberCount: current.memberCount,
+      visibility: current.visibility,
+      description: current.description,
+      creatorUserId: current.creatorUserId,
+    );
+
+ChatConversation _conversationWithProfile(ChatConversation conversation,
+    {required List<Contact> members,
+    Contact? directPeer,
+    Contact? sourceProfile}) {
+  final topic = conversation.topic;
+  final source = topic?.sourceSender;
+  return ChatConversation(
+      id: conversation.id,
+      title: directPeer?.displayName ?? conversation.title,
+      preview: conversation.preview,
+      announcement: conversation.announcement,
+      isPublic: conversation.isPublic,
+      avatar: directPeer?.avatar ?? conversation.avatar,
+      createdAt: conversation.createdAt,
+      unread: conversation.unread,
+      pinned: conversation.pinned,
+      muted: conversation.muted,
+      lastMessageAt: conversation.lastMessageAt,
+      lastMessageSeq: conversation.lastMessageSeq,
+      lastReadSeq: conversation.lastReadSeq,
+      lastMentionedSeq: conversation.lastMentionedSeq,
+      lastChoiceSeq: conversation.lastChoiceSeq,
+      type: conversation.type,
+      memberCount: conversation.memberCount,
+      members: members,
+      projects: conversation.projects,
+      canSend: conversation.canSend,
+      topic: topic == null || source == null || sourceProfile == null
+          ? topic
+          : TopicMetadata(
+              archived: topic.archived,
+              parentConversationId: topic.parentConversationId,
+              parentConversationName: topic.parentConversationName,
+              parentConversationType: topic.parentConversationType,
+              participating: topic.participating,
+              sourceMessageId: topic.sourceMessageId,
+              sourceMessageSeq: topic.sourceMessageSeq,
+              sourceSender: TopicSourceSender(
+                  id: sourceProfile.id,
+                  type: 'user',
+                  name: sourceProfile.displayName,
+                  avatar: sourceProfile.avatar)));
 }
