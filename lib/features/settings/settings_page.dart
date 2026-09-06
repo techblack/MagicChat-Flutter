@@ -24,6 +24,7 @@ import '../../domain/models.dart';
 import '../shared/user_facing_error.dart';
 import '../qr_scanner_page.dart';
 import '../shared/cached_avatar.dart';
+import 'about_magicchat_page.dart';
 import 'account_deactivation_page.dart';
 import 'app_update_dialog.dart';
 import 'desktop_screenshot_shortcut_dialog.dart';
@@ -835,8 +836,15 @@ class _SettingsPageState extends State<SettingsPage> {
                       ? Icons.chevron_right
                       : Icons.refresh),
               onTap: _checkingForUpdate ? null : _checkForUpdate),
-          const ListTile(
-              leading: Icon(Icons.info_outline), title: Text('关于 MagicChat')),
+          ListTile(
+              leading: const Icon(Icons.info_outline),
+              title: const Text('关于 MagicChat'),
+              subtitle: const Text('版本、平台、法律与开源许可'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push<void>(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const AboutMagicChatPage()))),
         ])),
         if (widget.onLogout != null)
           Padding(
