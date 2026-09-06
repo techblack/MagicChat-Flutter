@@ -3,6 +3,7 @@ import FlutterMacOS
 
 class MainFlutterWindow: NSWindow {
   override func awakeFromNib() {
+    let startHidden = CommandLine.arguments.contains("--hidden")
     let flutterViewController = FlutterViewController()
     let windowFrame = self.frame
     self.contentViewController = flutterViewController
@@ -48,5 +49,11 @@ class MainFlutterWindow: NSWindow {
     }
 
     super.awakeFromNib()
+    if startHidden {
+      orderOut(nil)
+      DispatchQueue.main.async { [weak self] in
+        self?.orderOut(nil)
+      }
+    }
   }
 }

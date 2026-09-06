@@ -6,6 +6,7 @@ import '../../data/auth_service.dart';
 import '../../data/avatar_processor.dart';
 import '../../data/chat_preferences.dart';
 import '../../data/chat_appearance_preferences.dart';
+import '../../data/desktop_auto_launch.dart';
 import '../../data/local_notification_service.dart';
 import '../../data/realtime_store.dart';
 import '../../data/repository.dart';
@@ -51,6 +52,7 @@ class SettingsPage extends StatefulWidget {
       this.onNotificationPrivacyChanged,
       this.themeMode = ThemeMode.system,
       this.sendMessageShortcut = MessageSendShortcut.enter,
+      this.desktopAutoLaunch,
       super.key});
   final Future<void> Function()? onLogout;
   final Future<void> Function(String code)? onDeactivateAccount;
@@ -70,6 +72,7 @@ class SettingsPage extends StatefulWidget {
   final ValueChanged<MessageNotificationPrivacy>? onNotificationPrivacyChanged;
   final ThemeMode themeMode;
   final MessageSendShortcut sendMessageShortcut;
+  final DesktopAutoLaunchController? desktopAutoLaunch;
   @override
   State<SettingsPage> createState() => _SettingsPageState();
 }
@@ -80,12 +83,16 @@ class _SettingsPageState extends State<SettingsPage> {
   late bool _messageSoundEnabled;
   late MessageNotificationPrivacy _notificationPrivacy;
   late MessageSendShortcut _sendMessageShortcut;
+  late final DesktopAutoLaunchController _desktopAutoLaunch;
+  bool _autoLaunchEnabled = false;
+  bool _autoLaunchLoading = true;
   @override
   void initState() {
     super.initState();
     _sendMessageShortcut = widget.sendMessageShortcut;
     _messageSoundEnabled = widget.messageSoundEnabled;
     _notificationPrivacy = widget.notificationPrivacy;
+    _desktopAutoLaunch = widget.desktopAutoLaunch ?? DesktopAutoLaunchService();
     widget.realtimeStore?.addListener(_onRealtimeChanged);
     _userFuture = widget.repository.currentUser();
     SharedPreferences.getInstance().then((prefs) {
@@ -93,6 +100,7 @@ class _SettingsPageState extends State<SettingsPage> {
         setState(() => _notificationsEnabled =
             prefs.getBool('magicchat.notifications.enabled') ?? true);
     });
+    _loadAutoLaunch();
   }
 
   void _onRealtimeChanged() {
@@ -144,6 +152,40 @@ class _SettingsPageState extends State<SettingsPage> {
     }
     await prefs.setBool('magicchat.notifications.enabled', value);
     if (mounted) setState(() => _notificationsEnabled = value);
+  }
+
+  Future<void> _loadAutoLaunch() async {
+    if (!_desktopAutoLaunch.isSupported) {
+      if (mounted) setState(() => _autoLaunchLoading = false);
+      return;
+    }
+    try {
+      final enabled = await _desktopAutoLaunch.isEnabled();
+      if (mounted) setState(() => _autoLaunchEnabled = enabled);
+    } catch (_) {
+      // 读取系统启动项失败时保持默认关闭，不影响其他设置。
+    } finally {
+      if (mounted) setState(() => _autoLaunchLoading = false);
+    }
+  }
+
+  Future<void> _setAutoLaunch(bool value) async {
+    final previous = _autoLaunchEnabled;
+    setState(() {
+      _autoLaunchEnabled = value;
+      _autoLaunchLoading = true;
+    });
+    try {
+      await _desktopAutoLaunch.setEnabled(value);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _autoLaunchEnabled = previous);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('开机自动启动设置失败：$error')));
+      }
+    } finally {
+      if (mounted) setState(() => _autoLaunchLoading = false);
+    }
   }
 
   Future<void> _setSendMessageShortcut(MessageSendShortcut value) async {
@@ -523,6 +565,13 @@ class _SettingsPageState extends State<SettingsPage> {
         const SizedBox(height: 12),
         Card(
             child: Column(children: [
+          if (_desktopAutoLaunch.isSupported)
+            SwitchListTile(
+                secondary: const Icon(Icons.power_settings_new_outlined),
+                title: const Text('开机自动启动'),
+                subtitle: const Text('登录系统后在后台静默启动'),
+                value: _autoLaunchEnabled,
+                onChanged: _autoLaunchLoading ? null : _setAutoLaunch),
           ListTile(
               leading: const Icon(Icons.palette_outlined),
               title: const Text('外观'),

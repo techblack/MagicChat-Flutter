@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/data/chat_preferences.dart';
+import 'package:magicchat_client/data/desktop_auto_launch.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/settings/settings_page.dart';
 import 'package:magicchat_client/features/settings/account_deactivation_page.dart';
@@ -188,6 +189,61 @@ void main() {
         MessageSendShortcut.commandOrControlEnter);
   });
 
+  testWidgets('桌面设置页可启用开机静默自启动', (tester) async {
+    final autoLaunch = _FakeDesktopAutoLaunch();
+    await tester.binding.setSurfaceSize(const Size(800, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SettingsPage(
+                repository: DemoRepository(),
+                serverUrl: 'https://chat.example.com',
+                desktopAutoLaunch: autoLaunch))));
+    await tester.pumpAndSettle();
+
+    final toggle = find.widgetWithText(SwitchListTile, '开机自动启动');
+    expect(toggle, findsOneWidget);
+    expect(find.text('登录系统后在后台静默启动'), findsOneWidget);
+    expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+
+    expect(autoLaunch.changes, [true]);
+    expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+  });
+
+  testWidgets('开机自启动设置失败时回滚并提示', (tester) async {
+    final autoLaunch = _FakeDesktopAutoLaunch(failChanges: true);
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SettingsPage(
+                repository: DemoRepository(),
+                serverUrl: 'https://chat.example.com',
+                desktopAutoLaunch: autoLaunch))));
+    await tester.pumpAndSettle();
+
+    final toggle = find.widgetWithText(SwitchListTile, '开机自动启动');
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+    expect(find.textContaining('开机自动启动设置失败'), findsOneWidget);
+  });
+
+  testWidgets('移动和 Web 能力缺失时不展示开机自启动', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SettingsPage(
+                repository: DemoRepository(),
+                serverUrl: 'https://chat.example.com',
+                desktopAutoLaunch:
+                    _FakeDesktopAutoLaunch(isSupported: false)))));
+    await tester.pumpAndSettle();
+
+    expect(find.text('开机自动启动'), findsNothing);
+  });
+
   testWidgets('账户信息加载失败可重试', (tester) async {
     final repository = _RetryProfileRepository();
     await tester.pumpWidget(MaterialApp(
@@ -259,5 +315,25 @@ class _RetryProfileRepository extends DemoRepository {
     if (attempts == 1) throw StateError('offline');
     return const CurrentUser(
         id: 'user-1', name: '恢复后的用户', email: 'user@example.com');
+  }
+}
+
+class _FakeDesktopAutoLaunch implements DesktopAutoLaunchController {
+  _FakeDesktopAutoLaunch({this.isSupported = true, this.failChanges = false});
+
+  @override
+  final bool isSupported;
+  final bool failChanges;
+  final changes = <bool>[];
+  bool enabled = false;
+
+  @override
+  Future<bool> isEnabled() async => enabled;
+
+  @override
+  Future<void> setEnabled(bool enabled) async {
+    changes.add(enabled);
+    if (failChanges) throw StateError('denied');
+    this.enabled = enabled;
   }
 }
