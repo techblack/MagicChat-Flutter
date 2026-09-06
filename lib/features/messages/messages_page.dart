@@ -666,23 +666,33 @@ class _ConversationListState extends State<_ConversationList> {
         }
         // 先物化筛选结果，避免 ListView.builder 在大量会话下反复对
         // lazy Iterable 调用 elementAt 造成 O(n²) 遍历。
-        final conversations = orderConversations(merged.values)
+        final ordered = orderConversations(merged.values);
+        final matchingTopicParents = ordered
             .where((item) =>
+                item.type == 'topic' &&
                 matchesConversationFilter(item, _filter) &&
                 matchesConversationQuery(item, _query))
-            .toList(growable: false);
+            .map((item) => item.topic?.parentConversationId)
+            .whereType<String>()
+            .toSet();
+        final filtered = ordered.where((item) {
+          if (!matchesConversationFilter(item, _filter)) return false;
+          if (matchesConversationQuery(item, _query)) return true;
+          return item.type != 'topic' && matchingTopicParents.contains(item.id);
+        });
+        final rows = buildConversationRows(filtered);
         return RefreshIndicator(
           onRefresh: _refresh,
           child: ListView.separated(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-              itemCount: conversations.isEmpty ? 2 : conversations.length + 1,
+              itemCount: rows.isEmpty ? 2 : rows.length + 1,
               separatorBuilder: (_, __) => const SizedBox(height: 2),
               itemBuilder: (context, i) {
                 if (i == 0) {
                   return _conversationFilters(context);
                 }
-                if (conversations.isEmpty) {
+                if (rows.isEmpty) {
                   final colors = Theme.of(context).colorScheme;
                   return Padding(
                       padding: const EdgeInsets.all(32),
@@ -699,7 +709,8 @@ class _ConversationListState extends State<_ConversationList> {
                                 ?.copyWith(color: colors.onSurfaceVariant)),
                       ])));
                 }
-                final c = conversations.elementAt(i - 1);
+                final row = rows.elementAt(i - 1);
+                final c = row.conversation;
                 final mentionUnread = c.lastMentionedSeq > c.lastReadSeq;
                 final choiceUnread = c.lastChoiceSeq > c.lastReadSeq;
                 final hasUnread = c.unread > 0 || mentionUnread || choiceUnread;
@@ -736,22 +747,24 @@ class _ConversationListState extends State<_ConversationList> {
                         child: Icon(Icons.notifications_off,
                             semanticLabel: '消息免打扰', size: 16)),
                 ];
-                return ListTile(
-                    minVerticalPadding: 10,
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14)),
-                    selected: c.id == widget.selectedId,
-                    selectedTileColor:
-                        Theme.of(context).colorScheme.primaryContainer,
-                    leading: ConversationAvatar(
-                        repository: widget.repository,
-                        cacheScope: widget.cacheScope,
-                        serverUrl: widget.serverUrl,
-                        conversation: c,
-                        radius: 23),
-                    title: statusIcons.isEmpty
+                final title = row.nested
+                    ? Row(children: [
+                        Padding(
+                          padding: const EdgeInsets.only(right: 4),
+                          child: Icon(Icons.subdirectory_arrow_right,
+                              size: 16,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant),
+                        ),
+                        Expanded(
+                            child: Text(c.displayTitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: titleStyle)),
+                        ...statusIcons,
+                      ])
+                    : statusIcons.isEmpty
                         ? Text(c.displayTitle,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -763,7 +776,27 @@ class _ConversationListState extends State<_ConversationList> {
                                     overflow: TextOverflow.ellipsis,
                                     style: titleStyle)),
                             ...statusIcons,
-                          ]),
+                          ]);
+                return ListTile(
+                    key: ValueKey('conversation-row-${c.id}'),
+                    minVerticalPadding: 10,
+                    contentPadding: EdgeInsets.only(
+                        left: row.nested ? 30 : 12,
+                        right: 12,
+                        top: 2,
+                        bottom: 2),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                    selected: c.id == widget.selectedId,
+                    selectedTileColor:
+                        Theme.of(context).colorScheme.primaryContainer,
+                    leading: ConversationAvatar(
+                        repository: widget.repository,
+                        cacheScope: widget.cacheScope,
+                        serverUrl: widget.serverUrl,
+                        conversation: c,
+                        radius: 23),
+                    title: title,
                     subtitle: Text(preview,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -795,7 +828,9 @@ class _ConversationListState extends State<_ConversationList> {
                         }
                       }
                     },
-                    onLongPress: () => _showConversationActions(context, c));
+                    onLongPress: row.nested
+                        ? null
+                        : () => _showConversationActions(context, c));
               }),
         );
       });

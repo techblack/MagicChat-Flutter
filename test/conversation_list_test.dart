@@ -108,6 +108,35 @@ class _MarkAllReadRepository extends DemoRepository {
   }
 }
 
+class _NestedTopicRepository extends DemoRepository {
+  @override
+  Future<List<ChatConversation>> conversations() async => const [
+        ChatConversation(
+          id: 'parent-group',
+          title: '产品群',
+          type: 'group',
+          lastMessageSeq: 3,
+        ),
+        ChatConversation(
+          id: 'topic-1',
+          title: '发布计划',
+          type: 'topic',
+          lastMessageSeq: 2,
+          topic: TopicMetadata(
+            archived: false,
+            parentConversationId: 'parent-group',
+            parentConversationName: '产品群',
+            parentConversationType: 'group',
+            participating: true,
+            sourceMessageId: 'source-1',
+            sourceMessageSeq: 1,
+            sourceSender:
+                TopicSourceSender(id: 'alice', type: 'user', name: 'Alice'),
+          ),
+        ),
+      ];
+}
+
 class _ConversationPreviewRepository extends DemoRepository {
   var contactRequests = 0;
 
@@ -149,6 +178,28 @@ void main() {
         orderConversations([direct, pinnedApp, unreadGroup])
             .map((item) => item.id),
         ['app', 'group', 'direct']);
+  });
+
+  test('话题会话挂在对应父会话下并保留嵌套标记', () {
+    const parent = ChatConversation(
+        id: 'parent', title: '群聊', type: 'group', lastMessageSeq: 3);
+    const topic = ChatConversation(
+        id: 'topic',
+        title: '话题',
+        type: 'topic',
+        topic: TopicMetadata(
+            archived: false,
+            parentConversationId: 'parent',
+            parentConversationName: '群聊',
+            parentConversationType: 'group',
+            participating: true,
+            sourceMessageId: 'source',
+            sourceMessageSeq: 1,
+            sourceSender:
+                TopicSourceSender(id: 'alice', type: 'user', name: 'Alice')));
+    final rows = buildConversationRows([topic, parent]);
+    expect(rows.map((row) => row.conversation.id), ['parent', 'topic']);
+    expect(rows.map((row) => row.nested), [false, true]);
   });
 
   test('有最后消息时间时按时间倒序排列', () {
@@ -322,6 +373,19 @@ void main() {
     await tester.enterText(find.byType(TextField).first, '不存在');
     await tester.pumpAndSettle();
     expect(find.text('没有匹配的会话'), findsOneWidget);
+  });
+
+  testWidgets('会话列表以层级展示父会话和话题', (tester) async {
+    final repository = _NestedTopicRepository();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: MessagesPage(
+                repository: repository, selectedId: null, onSelect: (_) {}))));
+    await tester.pumpAndSettle();
+
+    expect(find.text('产品群'), findsOneWidget);
+    expect(find.text('发布计划'), findsOneWidget);
+    expect(find.byIcon(Icons.subdirectory_arrow_right), findsOneWidget);
   });
 
   testWidgets('会话预览使用会话成员资料，不加载完整通讯录', (tester) async {
