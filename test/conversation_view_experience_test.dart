@@ -108,6 +108,47 @@ void main() {
     expect(repository.sentCaptions, ['本周进度', '', '']);
   });
 
+  testWidgets('Android 进程恢复后只恢复一次待发送图片', (tester) async {
+    final repository = _PickedImageRepository();
+    var recoveryCount = 0;
+    SharedPreferences.setMockInitialValues({
+      mobileImageRecoveryConversationKey: 'conversation-1',
+    });
+    await tester.binding.setSurfaceSize(const Size(600, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ConversationView(
+          repository: repository,
+          conversationId: 'conversation-1',
+          mobileLostImageRetriever: () async {
+            recoveryCount++;
+            return [
+              XFile.fromData(
+                repository.imageBytes,
+                path: '已恢复.png',
+                mimeType: 'image/png',
+              ),
+            ];
+          },
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(recoveryCount, 1);
+    expect(find.text('发送图片'), findsOneWidget);
+    expect(
+        (await SharedPreferences.getInstance())
+            .containsKey(mobileImageRecoveryConversationKey),
+        isFalse);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+
+    expect(recoveryCount, 1);
+    expect(repository.sentUploads, isEmpty);
+  });
+
   testWidgets('双击消息打开可选择复制的独立详情', (tester) async {
     await _pumpConversation(tester, _ExperienceRepository());
 

@@ -26,6 +26,10 @@ bool supportsMobileImagePicker({
 
 typedef MobileImagePicker = Future<XFile?> Function(ImageSource source);
 typedef MobileGalleryImagePicker = Future<List<XFile>> Function();
+typedef MobileLostImageRetriever = Future<List<XFile>> Function();
+
+const mobileImageRecoveryConversationKey =
+    'magicchat.mobile-image-picker.recovery-conversation.v1';
 
 enum _OptimisticMessageKind { text, image, file, voice }
 
@@ -125,6 +129,7 @@ class ConversationView extends StatefulWidget {
       this.screenshotRequestToken = 0,
       this.mobileImagePicker,
       this.mobileGalleryImagePicker,
+      this.mobileLostImageRetriever,
       required this.conversationId,
       this.focusMessageId,
       this.focusMessageSequence,
@@ -146,6 +151,7 @@ class ConversationView extends StatefulWidget {
   final int screenshotRequestToken;
   final MobileImagePicker? mobileImagePicker;
   final MobileGalleryImagePicker? mobileGalleryImagePicker;
+  final MobileLostImageRetriever? mobileLostImageRetriever;
   final String? conversationId;
   final String? focusMessageId;
   final int? focusMessageSequence;
@@ -320,6 +326,10 @@ class _ConversationViewState extends State<ConversationView>
       if (id != null && !_historyMode) _requestLatestRead(id);
     });
     unawaited(_restoreDraft());
+    if (_supportsMobileImageRecovery) {
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => unawaited(_recoverLostMobileImages()));
+    }
   }
 
   Iterable<String> _realtimeConversationMessages() {
@@ -2648,11 +2658,66 @@ class _ConversationViewState extends State<ConversationView>
         platform: defaultTargetPlatform,
       );
 
+  bool get _supportsMobileImageRecovery =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+  Future<void> _rememberMobileImageRecoveryTarget(String conversationId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(mobileImageRecoveryConversationKey, conversationId);
+  }
+
+  Future<void> _clearMobileImageRecoveryTarget(String conversationId) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getString(mobileImageRecoveryConversationKey) == conversationId) {
+      await prefs.remove(mobileImageRecoveryConversationKey);
+    }
+  }
+
+  Future<List<XFile>> _retrieveLostMobileImages() async {
+    final custom = widget.mobileLostImageRetriever;
+    if (custom != null) return custom();
+    final response = await ImagePicker().retrieveLostData();
+    final error = response.exception;
+    if (error != null) throw error;
+    return response.files ?? [if (response.file != null) response.file!];
+  }
+
+  Future<void> _recoverLostMobileImages() async {
+    final conversationId = widget.conversationId;
+    if (!_supportsMobileImageRecovery || conversationId == null || _sendingFile)
+      return;
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getString(mobileImageRecoveryConversationKey) != conversationId) {
+      return;
+    }
+    // 先消费恢复标记，避免 rebuild 或重复进入会话时再次弹出同一批图片。
+    await prefs.remove(mobileImageRecoveryConversationKey);
+    if (!mounted || widget.conversationId != conversationId) return;
+    setState(() => _sendingFile = true);
+    try {
+      final images = await _retrieveLostMobileImages();
+      if (!mounted || widget.conversationId != conversationId) return;
+      if (images.isNotEmpty) {
+        await _previewAndSendImages(conversationId, images.take(9).toList());
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('恢复待发送图片失败：${userFacingError(error)}')));
+      }
+    } finally {
+      if (mounted) setState(() => _sendingFile = false);
+    }
+  }
+
   Future<void> _pickAndSendImage(
       String conversationId, ImageSource source) async {
     if (_sendingFile || !_conversationCanSend(conversationId)) return;
     setState(() => _sendingFile = true);
     try {
+      if (_supportsMobileImageRecovery) {
+        await _rememberMobileImageRecoveryTarget(conversationId);
+      }
       final picked = widget.mobileImagePicker == null
           ? await ImagePicker().pickImage(
               source: source,
@@ -2670,6 +2735,9 @@ class _ConversationViewState extends State<ConversationView>
             SnackBar(content: Text('图片选择失败：${userFacingError(error)}')));
       }
     } finally {
+      if (_supportsMobileImageRecovery) {
+        await _clearMobileImageRecoveryTarget(conversationId);
+      }
       if (mounted) setState(() => _sendingFile = false);
     }
   }
@@ -2678,6 +2746,9 @@ class _ConversationViewState extends State<ConversationView>
     if (_sendingFile || !_conversationCanSend(conversationId)) return;
     setState(() => _sendingFile = true);
     try {
+      if (_supportsMobileImageRecovery) {
+        await _rememberMobileImageRecoveryTarget(conversationId);
+      }
       final images = widget.mobileGalleryImagePicker != null
           ? await widget.mobileGalleryImagePicker!()
           : widget.mobileImagePicker != null
@@ -2699,6 +2770,9 @@ class _ConversationViewState extends State<ConversationView>
             SnackBar(content: Text('图片选择失败：${userFacingError(error)}')));
       }
     } finally {
+      if (_supportsMobileImageRecovery) {
+        await _clearMobileImageRecoveryTarget(conversationId);
+      }
       if (mounted) setState(() => _sendingFile = false);
     }
   }
