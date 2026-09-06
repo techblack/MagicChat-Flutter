@@ -31,7 +31,7 @@ typedef MobileLostImageRetriever = Future<List<XFile>> Function();
 const mobileImageRecoveryConversationKey =
     'magicchat.mobile-image-picker.recovery-conversation.v1';
 
-enum _OptimisticMessageKind { text, image, file, voice }
+enum _OptimisticMessageKind { text, markdown, image, file, voice }
 
 enum _OptimisticMessageStatus { sending, sent, failed }
 
@@ -60,6 +60,10 @@ class _OptimisticSendDescriptor {
     final body = switch (kind) {
       _OptimisticMessageKind.text => <String, dynamic>{
           'type': 'text',
+          'content': text
+        },
+      _OptimisticMessageKind.markdown => <String, dynamic>{
+          'type': 'markdown',
           'content': text
         },
       _OptimisticMessageKind.image => <String, dynamic>{
@@ -92,6 +96,7 @@ class _OptimisticSendDescriptor {
       rawBody: body,
       text: switch (kind) {
         _OptimisticMessageKind.text => text,
+        _OptimisticMessageKind.markdown => text,
         _OptimisticMessageKind.image => text.isEmpty ? '[图片]' : '[图片] $text',
         _OptimisticMessageKind.file => '[文件] ${upload?.name ?? ''}'.trim(),
         _OptimisticMessageKind.voice => '[语音]',
@@ -192,6 +197,7 @@ class _ConversationViewState extends State<ConversationView>
   bool _sendingFile = false;
   bool _draggingFile = false;
   bool _capturingScreenshot = false;
+  bool _markdownMode = false;
   Future<List<Contact>>? _contactsFuture;
   Future<List<Contact>>? _allContactsFuture;
   final _olderMessages = <ChatMessage>[];
@@ -1607,6 +1613,14 @@ class _ConversationViewState extends State<ConversationView>
             clientMessageId: clientMessageId,
           );
           break;
+        case _OptimisticMessageKind.markdown:
+          await widget.repository.sendMarkdown(
+            conversationId,
+            descriptor.text,
+            replyToMessageId: descriptor.replyTo?.id,
+            clientMessageId: clientMessageId,
+          );
+          break;
         case _OptimisticMessageKind.image:
           await widget.repository.sendImage(
             conversationId,
@@ -2276,7 +2290,11 @@ class _ConversationViewState extends State<ConversationView>
                             ? (_) => unawaited(_sendMessage(conversationId))
                             : null,
                         decoration: InputDecoration(
-                            hintText: canSend ? '输入消息…' : '话题已关闭',
+                            hintText: canSend
+                                ? _markdownMode
+                                    ? '输入 Markdown…'
+                                    : '输入消息…'
+                                : '话题已关闭',
                             isDense: true)),
                   )),
                   const SizedBox(width: 6),
@@ -2293,106 +2311,124 @@ class _ConversationViewState extends State<ConversationView>
                 const SizedBox(height: 2),
                 Align(
                   alignment: Alignment.centerLeft,
-                  child: Wrap(spacing: 0, runSpacing: 0, children: [
-                    IconButton(
-                      icon: const Icon(Icons.emoji_emotions_outlined),
-                      tooltip: '选择表情',
-                      onPressed: canSend ? _showEmojiPicker : null,
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.folder_outlined),
-                      tooltip: '历史附件',
-                      onPressed: _sendingFile
-                          ? null
-                          : () => showHistoryAttachmentsDialog(
-                                context,
-                                repository: widget.repository,
-                                conversationId: conversationId,
-                              ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.forum_outlined),
-                      tooltip: '话题列表',
-                      onPressed: widget.onOpenConversation == null
-                          ? null
-                          : () => showConversationTopicsDialog(
-                                context,
-                                repository: widget.repository,
-                                conversationId: conversationId,
-                                onOpenTopic: widget.onOpenConversation,
-                              ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.alternate_email),
-                      tooltip: '提及成员',
-                      onPressed: !canSend || _sendingFile ? null : _pickMention,
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.attach_file),
-                      tooltip: '发送文件',
-                      onPressed: !canSend || _sendingFile
-                          ? null
-                          : () => _pickAndSendFile(conversationId),
-                    ),
-                    if (_supportsMobileImagePicker) ...[
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(children: [
                       IconButton(
-                        icon: const Icon(Icons.photo_library_outlined),
-                        tooltip: '从相册选择图片',
-                        onPressed: !canSend || _sendingFile
-                            ? null
-                            : () => _pickAndSendImages(conversationId),
+                        icon: const Icon(Icons.emoji_emotions_outlined),
+                        tooltip: '选择表情',
+                        onPressed: canSend ? _showEmojiPicker : null,
                       ),
                       IconButton(
-                        icon: const Icon(Icons.photo_camera_outlined),
-                        tooltip: '拍照发送',
-                        onPressed: !canSend || _sendingFile
+                        icon: const Icon(Icons.folder_outlined),
+                        tooltip: '历史附件',
+                        onPressed: _sendingFile
                             ? null
-                            : () => _pickAndSendImage(
-                                  conversationId,
-                                  ImageSource.camera,
+                            : () => showHistoryAttachmentsDialog(
+                                  context,
+                                  repository: widget.repository,
+                                  conversationId: conversationId,
                                 ),
                       ),
-                    ],
-                    if (widget.screenshotController?.isSupported == true)
-                      PopupMenuButton<DesktopScreenshotMode>(
-                        tooltip: '截图',
-                        enabled:
-                            canSend && !_sendingFile && !_capturingScreenshot,
-                        icon: _capturingScreenshot
-                            ? const SizedBox.square(
-                                dimension: 18,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2))
-                            : const Icon(Icons.crop_free),
-                        onSelected: (mode) =>
-                            unawaited(_captureScreenshot(conversationId, mode)),
-                        itemBuilder: (_) => const [
-                          PopupMenuItem(
-                            value: DesktopScreenshotMode.region,
-                            child: ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              leading: Icon(Icons.crop_free),
-                              title: Text('选择区域截图'),
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: DesktopScreenshotMode.screen,
-                            child: ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              leading: Icon(Icons.desktop_windows_outlined),
-                              title: Text('截取整个屏幕'),
-                            ),
-                          ),
-                        ],
+                      IconButton(
+                        icon: const Icon(Icons.forum_outlined),
+                        tooltip: '话题列表',
+                        onPressed: widget.onOpenConversation == null
+                            ? null
+                            : () => showConversationTopicsDialog(
+                                  context,
+                                  repository: widget.repository,
+                                  conversationId: conversationId,
+                                  onOpenTopic: widget.onOpenConversation,
+                                ),
                       ),
-                    IconButton(
-                      icon: const Icon(Icons.mic_none),
-                      tooltip: '语音输入',
-                      onPressed: !canSend || _sendingFile
-                          ? null
-                          : () => _showVoiceComposer(conversationId),
-                    ),
-                  ]),
+                      IconButton(
+                        icon: const Icon(Icons.alternate_email),
+                        tooltip: '提及成员',
+                        onPressed:
+                            !canSend || _sendingFile ? null : _pickMention,
+                      ),
+                      IconButton(
+                        key: const ValueKey('markdown-mode-toggle'),
+                        icon: Icon(
+                            _markdownMode ? Icons.code : Icons.code_outlined),
+                        tooltip:
+                            _markdownMode ? '关闭 Markdown 模式' : 'Markdown 模式',
+                        color: _markdownMode
+                            ? Theme.of(context).colorScheme.primary
+                            : null,
+                        onPressed: !canSend || _sendingFile
+                            ? null
+                            : () =>
+                                setState(() => _markdownMode = !_markdownMode),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.attach_file),
+                        tooltip: '发送文件',
+                        onPressed: !canSend || _sendingFile
+                            ? null
+                            : () => _pickAndSendFile(conversationId),
+                      ),
+                      if (_supportsMobileImagePicker) ...[
+                        IconButton(
+                          icon: const Icon(Icons.photo_library_outlined),
+                          tooltip: '从相册选择图片',
+                          onPressed: !canSend || _sendingFile
+                              ? null
+                              : () => _pickAndSendImages(conversationId),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.photo_camera_outlined),
+                          tooltip: '拍照发送',
+                          onPressed: !canSend || _sendingFile
+                              ? null
+                              : () => _pickAndSendImage(
+                                    conversationId,
+                                    ImageSource.camera,
+                                  ),
+                        ),
+                      ],
+                      if (widget.screenshotController?.isSupported == true)
+                        PopupMenuButton<DesktopScreenshotMode>(
+                          tooltip: '截图',
+                          enabled:
+                              canSend && !_sendingFile && !_capturingScreenshot,
+                          icon: _capturingScreenshot
+                              ? const SizedBox.square(
+                                  dimension: 18,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.crop_free),
+                          onSelected: (mode) => unawaited(
+                              _captureScreenshot(conversationId, mode)),
+                          itemBuilder: (_) => const [
+                            PopupMenuItem(
+                              value: DesktopScreenshotMode.region,
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(Icons.crop_free),
+                                title: Text('选择区域截图'),
+                              ),
+                            ),
+                            PopupMenuItem(
+                              value: DesktopScreenshotMode.screen,
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(Icons.desktop_windows_outlined),
+                                title: Text('截取整个屏幕'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      IconButton(
+                        icon: const Icon(Icons.mic_none),
+                        tooltip: '语音输入',
+                        onPressed: !canSend || _sendingFile
+                            ? null
+                            : () => _showVoiceComposer(conversationId),
+                      ),
+                    ]),
+                  ),
                 ),
               ],
             ),
@@ -3063,7 +3099,9 @@ class _ConversationViewState extends State<ConversationView>
     if (text.isEmpty) return;
     final descriptor = _OptimisticSendDescriptor(
       clientMessageId: newMessageClientId(),
-      kind: _OptimisticMessageKind.text,
+      kind: _markdownMode
+          ? _OptimisticMessageKind.markdown
+          : _OptimisticMessageKind.text,
       text: text,
       replyTo: _replyTo,
     );
@@ -3602,6 +3640,20 @@ class _OptimisticMessageBubble extends StatelessWidget {
               contacts.map(
                   (contact) => (id: contact.id, name: contact.displayName))),
           style: TextStyle(color: color),
+        );
+      case _OptimisticMessageKind.markdown:
+        return MarkdownBody(
+          data: formatMentionText(
+              descriptor.text,
+              contacts.map(
+                  (contact) => (id: contact.id, name: contact.displayName))),
+          styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+            p: Theme.of(context).textTheme.bodyMedium?.copyWith(color: color),
+            a: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(color: color, decoration: TextDecoration.underline),
+          ),
         );
       case _OptimisticMessageKind.image:
         final bytes = descriptor.upload?.bytes;
