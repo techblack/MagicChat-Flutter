@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'contact_directory_realtime_sync.dart';
 import '../domain/message_content.dart';
 import '../domain/models.dart';
 
@@ -19,6 +20,9 @@ class RealtimeStore extends ChangeNotifier {
   String? lastProfileUpdatedUserId;
   Contact? lastResolvedUserProfile;
   int userProfileRevision = 0;
+  int friendDataRevision = 0;
+  int contactDirectoryRevision = 0;
+  FriendDataRefreshIntent? lastFriendDataRefreshIntent;
   int cursor = 0;
 
   void setCurrentUserId(String? id) {
@@ -39,6 +43,9 @@ class RealtimeStore extends ChangeNotifier {
     lastProfileUpdatedUserId = null;
     lastResolvedUserProfile = null;
     userProfileRevision = 0;
+    friendDataRevision = 0;
+    contactDirectoryRevision = 0;
+    lastFriendDataRefreshIntent = null;
     cursor = 0;
     notifyListeners();
   }
@@ -191,9 +198,54 @@ class RealtimeStore extends ChangeNotifier {
         _patchPresence(payload);
       case 'user.profile.updated':
         _recordProfileUpdate(payload);
+      case 'friend.request.created':
+      case 'friend.request.updated':
+      case 'friendship.created':
+      case 'friendship.deleted':
+      case 'contact.directory.mode.updated':
+        _recordFriendDataEvent(event, payload);
     }
     notifyListeners();
   }
+
+  void _recordFriendDataEvent(String event, Map<String, dynamic> payload) {
+    final intent = switch (event) {
+      'friend.request.created' ||
+      'friend.request.updated' =>
+        _isValidFriendRequestEvent(payload)
+            ? FriendDataRefreshIntent.requests
+            : null,
+      'friendship.created' ||
+      'friendship.deleted' =>
+        _isValidFriendshipEvent(payload)
+            ? FriendDataRefreshIntent.directory
+            : null,
+      'contact.directory.mode.updated' => _isValidDirectoryModeEvent(payload)
+          ? FriendDataRefreshIntent.directory
+          : null,
+      _ => null,
+    };
+    if (intent == null) {
+      return;
+    }
+    lastFriendDataRefreshIntent = intent;
+    friendDataRevision++;
+    if (intent == FriendDataRefreshIntent.directory) {
+      contactDirectoryRevision++;
+    }
+  }
+
+  bool _isValidFriendRequestEvent(Map<String, dynamic> payload) =>
+      payload['request_id'] is String &&
+      (payload['request_id'] as String).trim().isNotEmpty;
+
+  bool _isValidFriendshipEvent(Map<String, dynamic> payload) =>
+      !payload.containsKey('request_id') ||
+      (payload['request_id'] is String &&
+          (payload['request_id'] as String).trim().isNotEmpty);
+
+  bool _isValidDirectoryModeEvent(Map<String, dynamic> payload) =>
+      payload['mode'] == 'organization' || payload['mode'] == 'friends';
 
   void _patchConversationStatus(Map<String, dynamic> payload) {
     final conversationId = payload['conversation_id'];

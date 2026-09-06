@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../data/realtime_store.dart';
 import '../../data/realtime.dart';
 import '../../data/repository.dart';
+import '../../data/contact_directory_realtime_sync.dart';
 import '../../data/contact_cache_store.dart';
 import '../../data/message_cache_store.dart';
 import '../../domain/models.dart';
@@ -65,6 +66,9 @@ class _ContactsPageState extends State<ContactsPage> {
   Timer? _fallbackPollTimer;
   bool _fallbackPollInFlight = false;
   int _observedUserProfileRevision = 0;
+  int _observedContactDirectoryRevision = 0;
+  late final ContactDirectoryRefreshScheduler _realtimeRefreshScheduler;
+  bool _friendDialogOpen = false;
   bool _active = false;
 
   @override
@@ -73,6 +77,10 @@ class _ContactsPageState extends State<ContactsPage> {
     _currentUserId = widget.realtimeStore?.currentUserId ?? '';
     _observedUserProfileRevision =
         widget.realtimeStore?.userProfileRevision ?? 0;
+    _observedContactDirectoryRevision =
+        widget.realtimeStore?.contactDirectoryRevision ?? 0;
+    _realtimeRefreshScheduler =
+        ContactDirectoryRefreshScheduler(_refreshFromRealtime);
     if (widget.active) _activate();
   }
 
@@ -86,6 +94,14 @@ class _ContactsPageState extends State<ContactsPage> {
     }
     final currentUserId = widget.realtimeStore?.currentUserId;
     if (currentUserId?.isNotEmpty == true) _currentUserId = currentUserId!;
+    final store = widget.realtimeStore;
+    if (store != null &&
+        store.contactDirectoryRevision != _observedContactDirectoryRevision) {
+      _observedContactDirectoryRevision = store.contactDirectoryRevision;
+      if (_directoryFuture != null) {
+        _realtimeRefreshScheduler.request(FriendDataRefreshIntent.directory);
+      }
+    }
     if (_currentUserId.isEmpty) unawaited(_loadCurrentUser());
     _directoryFuture ??= _loadDirectory();
   }
@@ -116,9 +132,19 @@ class _ContactsPageState extends State<ContactsPage> {
         currentUserId?.isNotEmpty == true && currentUserId != _currentUserId;
     final profileChanged = store != null &&
         store.userProfileRevision != _observedUserProfileRevision;
+    final directoryChanged = store != null &&
+        store.contactDirectoryRevision != _observedContactDirectoryRevision;
+    if (directoryChanged) {
+      _observedContactDirectoryRevision = store.contactDirectoryRevision;
+      if (!_friendDialogOpen) {
+        _realtimeRefreshScheduler.request(FriendDataRefreshIntent.directory);
+      }
+    }
     if (!identityChanged &&
         !profileChanged &&
-        store?.lastEvent != 'user.presence.updated') return;
+        store?.lastEvent != 'user.presence.updated') {
+      return;
+    }
     if (profileChanged && store.lastResolvedUserProfile != null) {
       final profile = store.lastResolvedUserProfile!;
       final previous = _directoryFuture;
@@ -242,6 +268,8 @@ class _ContactsPageState extends State<ContactsPage> {
       oldWidget.realtimeStore?.removeListener(_onRealtimeChanged);
       _observedUserProfileRevision =
           widget.realtimeStore?.userProfileRevision ?? 0;
+      _observedContactDirectoryRevision =
+          widget.realtimeStore?.contactDirectoryRevision ?? 0;
       if (_active) widget.realtimeStore?.addListener(_onRealtimeChanged);
     }
     if (oldWidget.active != widget.active) {
@@ -284,7 +312,28 @@ class _ContactsPageState extends State<ContactsPage> {
     _indexLabelTimer?.cancel();
     _searchController.dispose();
     _scrollController.dispose();
+    _realtimeRefreshScheduler.dispose();
     super.dispose();
+  }
+
+  Future<void> _refreshFromRealtime(FriendDataRefreshIntent intent) async {
+    if (intent != FriendDataRefreshIntent.directory ||
+        !mounted ||
+        !widget.active ||
+        _friendDialogOpen) {
+      return;
+    }
+    final directory = await _loadDirectory();
+    if (!mounted || !widget.active || _friendDialogOpen) {
+      return;
+    }
+    for (final contact in directory.contacts) {
+      widget.realtimeStore?.contacts[contact.id] = contact;
+    }
+    setState(() {
+      _directoryFuture = Future.value(directory);
+      _sectionSource = null;
+    });
   }
 
   Future<void> _pollFallback() async {
@@ -680,14 +729,22 @@ class _ContactsPageState extends State<ContactsPage> {
   }
 
   Future<void> _showFriendManagement(ContactDirectory directory) async {
-    await showDialog<void>(
-        context: context,
-        builder: (_) => FriendManagementDialog(
-            repository: widget.repository,
-            friends: directory.contacts
-                .where((contact) => contact.type == 'user')
-                .toList()));
-    if (mounted) _load();
+    _friendDialogOpen = true;
+    try {
+      await showDialog<void>(
+          context: context,
+          builder: (_) => FriendManagementDialog(
+              repository: widget.repository,
+              realtimeStore: widget.realtimeStore,
+              friends: directory.contacts
+                  .where((contact) => contact.type == 'user')
+                  .toList()));
+    } finally {
+      _friendDialogOpen = false;
+      if (mounted) {
+        _load();
+      }
+    }
   }
 }
 

@@ -1,15 +1,21 @@
 import 'package:flutter/material.dart';
 
+import '../../data/contact_directory_realtime_sync.dart';
+import '../../data/realtime_store.dart';
 import '../../data/repository.dart';
 import '../../domain/models.dart';
 import '../shared/user_facing_error.dart';
 
 class FriendManagementDialog extends StatefulWidget {
   const FriendManagementDialog(
-      {required this.repository, required this.friends, super.key});
+      {required this.repository,
+      required this.friends,
+      this.realtimeStore,
+      super.key});
 
   final MagicChatRepository repository;
   final List<Contact> friends;
+  final RealtimeStore? realtimeStore;
 
   @override
   State<FriendManagementDialog> createState() => _FriendManagementDialogState();
@@ -17,15 +23,80 @@ class FriendManagementDialog extends StatefulWidget {
 
 class _FriendManagementDialogState extends State<FriendManagementDialog> {
   final _queryController = TextEditingController();
-  late Future<_FriendManagementData> _dataFuture = _loadData();
+  late Future<_FriendManagementData> _dataFuture;
+  late List<Contact> _friends;
+  late final ContactDirectoryRefreshScheduler _realtimeRefreshScheduler;
+  int _observedFriendDataRevision = 0;
+  _FriendManagementData? _realtimeData;
   List<Contact> _searchResults = const [];
   bool _searching = false;
   String _updatingKey = '';
 
   @override
+  void initState() {
+    super.initState();
+    _friends = List.of(widget.friends);
+    _dataFuture = _loadData();
+    _observedFriendDataRevision = widget.realtimeStore?.friendDataRevision ?? 0;
+    _realtimeRefreshScheduler =
+        ContactDirectoryRefreshScheduler(_refreshFromRealtime);
+    widget.realtimeStore?.addListener(_onRealtimeChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant FriendManagementDialog oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.realtimeStore != widget.realtimeStore) {
+      oldWidget.realtimeStore?.removeListener(_onRealtimeChanged);
+      _observedFriendDataRevision =
+          widget.realtimeStore?.friendDataRevision ?? 0;
+      widget.realtimeStore?.addListener(_onRealtimeChanged);
+    }
+  }
+
+  @override
   void dispose() {
+    widget.realtimeStore?.removeListener(_onRealtimeChanged);
+    _realtimeRefreshScheduler.dispose();
     _queryController.dispose();
     super.dispose();
+  }
+
+  void _onRealtimeChanged() {
+    final store = widget.realtimeStore;
+    if (!mounted ||
+        store == null ||
+        store.friendDataRevision == _observedFriendDataRevision) {
+      return;
+    }
+    _observedFriendDataRevision = store.friendDataRevision;
+    final intent = store.lastFriendDataRefreshIntent;
+    if (intent != null) {
+      _realtimeRefreshScheduler.request(intent);
+    }
+  }
+
+  Future<void> _refreshFromRealtime(FriendDataRefreshIntent intent) async {
+    final results = await Future.wait([
+      _loadData(),
+      if (intent == FriendDataRefreshIntent.directory)
+        widget.repository.contactDirectory(),
+    ]);
+    if (!mounted) {
+      return;
+    }
+    final data = results[0] as _FriendManagementData;
+    if (intent == FriendDataRefreshIntent.directory) {
+      final directory = results[1] as ContactDirectory;
+      if (!directory.supportsFriendManagement) {
+        Navigator.pop(context);
+        return;
+      }
+      _friends = directory.contacts
+          .where((contact) => contact.type == 'user')
+          .toList(growable: false);
+    }
+    setState(() => _realtimeData = data);
   }
 
   Future<_FriendManagementData> _loadData() async {
@@ -69,6 +140,7 @@ class _FriendManagementDialogState extends State<FriendManagementDialog> {
       if (!mounted) return;
       _showMessage(success);
       setState(() {
+        _realtimeData = null;
         _dataFuture = _loadData();
       });
     } catch (error) {
@@ -145,11 +217,11 @@ class _FriendManagementDialogState extends State<FriendManagementDialog> {
                     future: _dataFuture,
                     builder: (context, snapshot) => Column(
                         children: _searchResults
-                            .map((user) =>
-                                _searchResultTile(user, snapshot.data))
+                            .map((user) => _searchResultTile(
+                                user, _realtimeData ?? snapshot.data))
                             .toList())),
               ],
-              if (widget.friends.isNotEmpty) ...[
+              if (_friends.isNotEmpty) ...[
                 Align(
                     alignment: Alignment.centerLeft,
                     child: Text('我的好友',
@@ -158,10 +230,10 @@ class _FriendManagementDialogState extends State<FriendManagementDialog> {
                 Flexible(
                   child: ListView.separated(
                     shrinkWrap: true,
-                    itemCount: widget.friends.length,
+                    itemCount: _friends.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 6),
                     itemBuilder: (context, index) {
-                      final friend = widget.friends[index];
+                      final friend = _friends[index];
                       return _FriendTile(
                         user: friend,
                         subtitle: friend.email.isEmpty ? '未提供邮箱' : friend.email,
@@ -188,19 +260,20 @@ class _FriendManagementDialogState extends State<FriendManagementDialog> {
                 child: FutureBuilder<_FriendManagementData>(
                   future: _dataFuture,
                   builder: (context, snapshot) {
-                    if (snapshot.hasError) {
+                    final data = _realtimeData ?? snapshot.data;
+                    if (snapshot.hasError && data == null) {
                       return Center(
                           child: TextButton.icon(
                               onPressed: () => setState(() {
+                                    _realtimeData = null;
                                     _dataFuture = _loadData();
                                   }),
                               icon: const Icon(Icons.refresh),
                               label: const Text('加载失败，点击重试')));
                     }
-                    if (!snapshot.hasData) {
+                    if (data == null) {
                       return const Center(child: CircularProgressIndicator());
                     }
-                    final data = snapshot.data!;
                     final requests = [
                       ...data.incoming
                           .map((request) => _FriendRequestEntry(request, true)),
@@ -228,7 +301,7 @@ class _FriendManagementDialogState extends State<FriendManagementDialog> {
       );
 
   Widget _searchResultTile(Contact user, _FriendManagementData? data) {
-    final friendIds = widget.friends.map((friend) => friend.id).toSet();
+    final friendIds = _friends.map((friend) => friend.id).toSet();
     final pendingIds = <String>{
       ...?data?.incoming
           .where((request) => request.status == 'pending')
@@ -295,6 +368,7 @@ class _FriendManagementDialogState extends State<FriendManagementDialog> {
           child: const Text('取消申请'));
     }
     return _FriendTile(
+        key: ValueKey('friend-request-${request.id}'),
         // 好友资料暂时不可用时也不要把内部用户 ID 直接展示给用户。
         user: user ?? Contact(id: request.userId, name: '成员'),
         subtitle: entry.incoming ? '请求添加你为好友' : '你发出了好友申请',
@@ -326,7 +400,10 @@ class _FriendRequestEntry {
 
 class _FriendTile extends StatelessWidget {
   const _FriendTile(
-      {required this.user, required this.subtitle, required this.trailing});
+      {required this.user,
+      required this.subtitle,
+      required this.trailing,
+      super.key});
 
   final Contact user;
   final String subtitle;
