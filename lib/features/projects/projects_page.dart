@@ -97,7 +97,15 @@ class _ProjectsPageState extends State<ProjectsPage> {
         break;
       }
     }
-    if (project == null) return;
+    if (project == null) {
+      _openedInitialProjectId = id;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.initialProjectId == id) {
+          widget.onInitialProjectOpened?.call();
+        }
+      });
+      return;
+    }
     final target = project;
     _openedInitialProjectId = id;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -149,10 +157,13 @@ class _ProjectsPageState extends State<ProjectsPage> {
       );
       widget.onInitialTaskOpened?.call();
     } catch (error) {
-      _openedInitialTaskKey = null;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('任务加载失败：${userFacingError(error)}')));
+        if (widget.initialTaskProjectId == projectId &&
+            widget.initialTaskId == taskId) {
+          widget.onInitialTaskOpened?.call();
+        }
       }
     }
   }
@@ -177,10 +188,12 @@ class _ProjectsPageState extends State<ProjectsPage> {
       );
       widget.onInitialDocumentOpened?.call();
     } catch (error) {
-      _openedInitialDocumentId = null;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('文档加载失败：${userFacingError(error)}')));
+        if (widget.initialDocumentId == documentId) {
+          widget.onInitialDocumentOpened?.call();
+        }
       }
     }
   }
@@ -232,6 +245,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
             future: _projects,
             builder: (context, snapshot) {
               if (snapshot.hasError) {
+                _completeFailedInitialTargets();
                 return Center(
                     child: Column(mainAxisSize: MainAxisSize.min, children: [
                   const Icon(Icons.cloud_off_outlined, size: 40),
@@ -344,6 +358,46 @@ class _ProjectsPageState extends State<ProjectsPage> {
                 tooltip: '新建项目',
                 child: const Icon(Icons.create_new_folder))),
       ]);
+
+  void _completeFailedInitialTargets() {
+    final projectId = widget.initialProjectId;
+    if (projectId != null &&
+        projectId.isNotEmpty &&
+        projectId != _openedInitialProjectId) {
+      _openedInitialProjectId = projectId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.initialProjectId == projectId) {
+          widget.onInitialProjectOpened?.call();
+        }
+      });
+    }
+    final taskProjectId = widget.initialTaskProjectId;
+    final taskId = widget.initialTaskId;
+    final taskKey = '$taskProjectId:$taskId';
+    if (taskProjectId?.isNotEmpty == true &&
+        taskId?.isNotEmpty == true &&
+        taskKey != _openedInitialTaskKey) {
+      _openedInitialTaskKey = taskKey;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted &&
+            widget.initialTaskProjectId == taskProjectId &&
+            widget.initialTaskId == taskId) {
+          widget.onInitialTaskOpened?.call();
+        }
+      });
+    }
+    final documentId = widget.initialDocumentId;
+    if (documentId != null &&
+        documentId.isNotEmpty &&
+        documentId != _openedInitialDocumentId) {
+      _openedInitialDocumentId = documentId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.initialDocumentId == documentId) {
+          widget.onInitialDocumentOpened?.call();
+        }
+      });
+    }
+  }
 
   Future<void> _projectActions(BuildContext context, Project project) async {
     final action = await showModalBottomSheet<String>(

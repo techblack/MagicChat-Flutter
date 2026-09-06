@@ -4622,7 +4622,7 @@ class _MessageBubble extends StatelessWidget {
               ? (repository as HttpMagicChatRepository).baseUri.toString()
               : null,
           cacheScope: cacheScope,
-          onOpenConversation: onOpenTopic,
+          onOpenConversation: (id, _) => onOpenTopic?.call(id),
         ),
       ),
     );

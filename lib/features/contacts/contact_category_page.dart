@@ -17,6 +17,8 @@ class ContactCategoryPage extends StatefulWidget {
     required this.currentUserId,
     this.serverUrl,
     this.cacheScope,
+    this.initialContactId,
+    this.onInitialContactOpened,
     this.onOpenConversation,
     super.key,
   });
@@ -27,7 +29,9 @@ class ContactCategoryPage extends StatefulWidget {
   final String currentUserId;
   final String? serverUrl;
   final MessageCacheScope? cacheScope;
-  final ValueChanged<String>? onOpenConversation;
+  final String? initialContactId;
+  final VoidCallback? onInitialContactOpened;
+  final ContactConversationCallback? onOpenConversation;
 
   @override
   State<ContactCategoryPage> createState() => _ContactCategoryPageState();
@@ -36,9 +40,33 @@ class ContactCategoryPage extends StatefulWidget {
 class _ContactCategoryPageState extends State<ContactCategoryPage> {
   late List<Contact> _contacts = widget.initialContacts;
   bool _refreshing = false;
+  String? _openedInitialContactId;
 
   List<Contact> get _visible =>
       contactsForCategory(widget.category, _contacts, widget.currentUserId);
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _openInitialContact());
+  }
+
+  Future<void> _openInitialContact() async {
+    final id = widget.initialContactId;
+    if (!mounted || id == null || id.isEmpty || id == _openedInitialContactId) {
+      return;
+    }
+    _openedInitialContactId = id;
+    final contact = _visible.where((item) => item.id == id).firstOrNull;
+    if (contact == null) {
+      widget.onInitialContactOpened?.call();
+      return;
+    }
+    await _openDetails(contact);
+    if (mounted && widget.initialContactId == id) {
+      widget.onInitialContactOpened?.call();
+    }
+  }
 
   Future<void> _refresh() async {
     if (_refreshing) return;
@@ -78,9 +106,10 @@ class _ContactCategoryPageState extends State<ContactCategoryPage> {
             contact: contact,
             serverUrl: widget.serverUrl,
             cacheScope: widget.cacheScope,
-            onOpenConversation: (id) {
+            sourceCategory: widget.category,
+            onOpenConversation: (id, sourceContact) {
               Navigator.pop(context);
-              widget.onOpenConversation?.call(id);
+              widget.onOpenConversation?.call(id, sourceContact);
             },
           ),
         ),

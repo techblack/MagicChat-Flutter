@@ -25,6 +25,7 @@ class ContactsPage extends StatefulWidget {
       this.serverUrl,
       this.cacheScope,
       this.initialContactId,
+      this.initialContactCategory,
       this.onInitialContactOpened,
       this.onOpenConversation,
       this.active = true,
@@ -36,8 +37,9 @@ class ContactsPage extends StatefulWidget {
   final String? serverUrl;
   final MessageCacheScope? cacheScope;
   final String? initialContactId;
+  final ContactDirectoryCategory? initialContactCategory;
   final VoidCallback? onInitialContactOpened;
-  final ValueChanged<String>? onOpenConversation;
+  final ContactConversationCallback? onOpenConversation;
   final bool active;
 
   @override
@@ -152,16 +154,60 @@ class _ContactsPageState extends State<ContactsPage> {
         break;
       }
     }
-    if (contact == null) return;
+    if (contact == null) {
+      _openedInitialContactId = id;
+      _completeInitialContact(id);
+      return;
+    }
+    final category = widget.initialContactCategory;
+    if (category != null) {
+      _openedInitialContactId = id;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.initialContactId == id) {
+          unawaited(_openInitialCategory(category, id, directory.contacts));
+        }
+      });
+      return;
+    }
     final target = contact;
     _openedInitialContactId = id;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         unawaited(_openContactDetails(target).whenComplete(() {
-          widget.onInitialContactOpened?.call();
+          if (widget.initialContactId == id) {
+            widget.onInitialContactOpened?.call();
+          }
         }));
       }
     });
+  }
+
+  void _completeInitialContact(String id) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && widget.initialContactId == id) {
+        widget.onInitialContactOpened?.call();
+      }
+    });
+  }
+
+  Future<void> _openInitialCategory(ContactDirectoryCategory category,
+      String contactId, List<Contact> contacts) async {
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ContactCategoryPage(
+          repository: widget.repository,
+          category: category,
+          initialContacts: contacts,
+          currentUserId: _currentUserId,
+          serverUrl: widget.serverUrl,
+          cacheScope: widget.cacheScope,
+          initialContactId: contactId,
+          onInitialContactOpened: widget.onInitialContactOpened,
+          onOpenConversation: widget.onOpenConversation,
+        ),
+      ),
+    );
   }
 
   @override
@@ -175,7 +221,9 @@ class _ContactsPageState extends State<ContactsPage> {
       }
     }
     if (widget.initialContactId == null) _openedInitialContactId = null;
-    if (oldWidget.initialContactId != widget.initialContactId &&
+    if ((oldWidget.initialContactId != widget.initialContactId ||
+            oldWidget.initialContactCategory !=
+                widget.initialContactCategory) &&
         _directoryFuture != null) {
       unawaited(_directoryFuture!.then(_openInitialContact));
     }
@@ -274,6 +322,11 @@ class _ContactsPageState extends State<ContactsPage> {
 
   Widget _buildDirectory(AsyncSnapshot<ContactDirectory> snapshot) {
     if (snapshot.hasError) {
+      final id = widget.initialContactId;
+      if (id != null && id.isNotEmpty && id != _openedInitialContactId) {
+        _openedInitialContactId = id;
+        _completeInitialContact(id);
+      }
       return Center(
           child: TextButton.icon(
               onPressed: _load,
@@ -516,7 +569,7 @@ class _ContactsPageState extends State<ContactsPage> {
           .createGroupConversation(name.trim(), memberIds: memberIds);
       if (!mounted) return;
       setState(_selectedContactIds.clear);
-      widget.onOpenConversation?.call(conversation.id);
+      widget.onOpenConversation?.call(conversation.id, null);
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
