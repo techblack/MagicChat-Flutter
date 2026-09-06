@@ -97,7 +97,7 @@ class _FakeTray implements DesktopSystemTrayController {
     required int unreadCount,
     required Iterable<ChatConversation> conversations,
     required MessageNotificationPrivacy privacy,
-    Iterable<Contact> contacts = const [],
+    Map<String, Contact> contacts = const {},
   }) async {}
 
   @override

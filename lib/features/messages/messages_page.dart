@@ -635,6 +635,9 @@ class _ConversationListState extends State<_ConversationList> {
   void _onRealtimeChanged() {
     if (!mounted) return;
     final event = widget.realtimeStore?.lastEvent;
+    // 在线状态只改变 contacts.online，不影响会话排序、未读数或预览。
+    // 2000 人组织中若继续重建会话列表和托盘，会放大为高频全量工作。
+    if (event == 'user.presence.updated') return;
     if (event == 'conversation.removed' || event == 'topic.created') {
       setState(_reload);
       return;
@@ -767,22 +770,16 @@ class _ConversationListState extends State<_ConversationList> {
                 final subtitleStyle =
                     TextStyle(fontWeight: hasUnread ? FontWeight.w600 : null);
                 final messageTime = _conversationTime(c);
-                final previewContacts = <String, Contact>{
-                  // 会话列表不应为了预览提及而拉取整本组织通讯录。服务端
-                  // 会话已经带有成员资料，实时缓存则补充最近更新的昵称/头像。
-                  for (final contact in widget.realtimeStore?.contacts.values ??
-                      const <Contact>[])
-                    contact.id: contact,
-                  for (final member in c.members) member.id: member,
-                }.values;
+                final previewContent = c.announcement.isNotEmpty
+                    ? '公告：${c.announcement}'
+                    : c.preview;
                 final preview = formatMentionText(
-                    c.announcement.isNotEmpty
-                        ? '公告：${c.announcement}'
-                        : c.preview,
-                    previewContacts.map((contact) => (
-                          id: contact.id,
-                          name: contact.displayName,
-                        )));
+                    previewContent,
+                    conversationPreviewMentionLabels(
+                        previewContent,
+                        c,
+                        widget.realtimeStore?.contacts ??
+                            const <String, Contact>{}));
                 final statusIcons = <Widget>[
                   if (c.pinned)
                     const Padding(

@@ -56,6 +56,29 @@ int totalConversationUnread(Iterable<ChatConversation> conversations) =>
     conversations.fold(
         0, (total, item) => total + conversationUnreadCount(item));
 
+/// 只为预览中实际出现的提及解析联系人名称，避免每个可见会话都复制
+/// 整个组织通讯录。会话成员继续优先于实时缓存，保持原有展示语义。
+Iterable<({String id, String name})> conversationPreviewMentionLabels(
+    String content,
+    ChatConversation conversation,
+    Map<String, Contact> liveContacts) sync* {
+  final ids = RegExp(r'\{\(@(?:user|app)/([^}]+)\)\}')
+      .allMatches(content)
+      .map((match) => match.group(1))
+      .whereType<String>()
+      .where((id) => id.isNotEmpty && id != 'all')
+      .toSet();
+  if (ids.isEmpty) return;
+  final members = <String, Contact>{
+    for (final member in conversation.members)
+      if (ids.contains(member.id)) member.id: member,
+  };
+  for (final id in ids) {
+    final contact = members[id] ?? liveContacts[id];
+    if (contact != null) yield (id: id, name: contact.displayName);
+  }
+}
+
 class ConversationListRow {
   const ConversationListRow({required this.conversation, this.nested = false});
 

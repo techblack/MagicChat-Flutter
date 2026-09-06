@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magicchat_client/data/chat_preferences.dart';
 import 'package:magicchat_client/data/desktop_tray_model.dart';
@@ -46,7 +48,7 @@ void main() {
             unread: 1),
       ],
       MessageNotificationPrivacy.preview,
-      contacts: const [Contact(id: 'alice', name: 'Alice')],
+      contacts: const {'alice': Contact(id: 'alice', name: 'Alice')},
     ).single;
 
     expect(item.label, '研发群  [1] — @Alice 请查看');
@@ -57,4 +59,52 @@ void main() {
     expect(desktopTrayToolTip(0), 'MagicChat');
     expect(desktopTrayToolTip(12000), 'MagicChat（9999 条未读）');
   });
+
+  test('托盘预览按提及 ID 查找联系人，不遍历 2000 人目录', () {
+    final contacts = _LookupOnlyContactMap({
+      for (var index = 0; index < 2000; index++)
+        'user-$index': Contact(id: 'user-$index', name: '成员 $index'),
+    });
+
+    final item = desktopTrayMessages(
+      const [
+        ChatConversation(
+            id: 'mentions',
+            title: '群聊',
+            preview: '{(@user/user-1999)} 请查看',
+            unread: 1),
+      ],
+      MessageNotificationPrivacy.preview,
+      contacts: contacts,
+    ).single;
+
+    expect(item.label, contains('@成员 1999'));
+    expect(contacts.lookups, 1);
+  });
+}
+
+class _LookupOnlyContactMap extends MapBase<String, Contact> {
+  _LookupOnlyContactMap(this._values);
+
+  final Map<String, Contact> _values;
+  int lookups = 0;
+
+  @override
+  Contact? operator [](Object? key) {
+    lookups++;
+    return _values[key];
+  }
+
+  @override
+  void operator []=(String key, Contact value) =>
+      throw UnsupportedError('read only');
+
+  @override
+  void clear() => throw UnsupportedError('read only');
+
+  @override
+  Iterable<String> get keys => throw StateError('不应遍历完整联系人 Map');
+
+  @override
+  Contact? remove(Object? key) => throw UnsupportedError('read only');
 }

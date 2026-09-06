@@ -10,7 +10,7 @@ abstract interface class DesktopSystemTrayController {
     required int unreadCount,
     required Iterable<ChatConversation> conversations,
     required MessageNotificationPrivacy privacy,
-    Iterable<Contact> contacts = const [],
+    Map<String, Contact> contacts = const {},
   });
 
   Future<void> handleMenuAction(String? key);

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:magicchat_client/main.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/contacts/contacts_page.dart';
@@ -8,6 +9,28 @@ import 'package:magicchat_client/features/contacts/entity_details_page.dart';
 import 'package:magicchat_client/features/contacts/contact_directory_tile.dart';
 
 void main() {
+  testWidgets('AppShell 未打开联系人页时不加载 2000 人通讯录', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final repository = _LargeDirectoryRepository();
+
+    await tester
+        .pumpWidget(MaterialApp(home: AppShell(repository: repository)));
+    await tester.pumpAndSettle();
+
+    expect(repository.requests, 0);
+    expect(
+        find.byKey(const ValueKey('contacts-page-inactive'),
+            skipOffstage: false),
+        findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.people_outline));
+    await tester.pumpAndSettle();
+
+    expect(repository.requests, 1);
+    expect(find.byType(ContactDirectoryTile).evaluate().length, lessThan(200));
+  });
+
   testWidgets('2000 人通讯录只构建视口附近的联系人条目', (tester) async {
     await tester.binding.setSurfaceSize(const Size(500, 700));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -483,10 +506,14 @@ class _SearchContactsRepository extends DemoRepository {
 }
 
 class _LargeDirectoryRepository extends DemoRepository {
+  var requests = 0;
+
   @override
-  Future<ContactDirectory> contactDirectory({String keyword = ''}) async =>
-      ContactDirectory(contacts: [
-        for (var index = 0; index < 2000; index++)
-          Contact(id: 'user-$index', name: '成员 $index')
-      ], mode: 'organization');
+  Future<ContactDirectory> contactDirectory({String keyword = ''}) async {
+    requests++;
+    return ContactDirectory(contacts: [
+      for (var index = 0; index < 2000; index++)
+        Contact(id: 'user-$index', name: '成员 $index')
+    ], mode: 'organization');
+  }
 }
