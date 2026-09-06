@@ -70,6 +70,14 @@ class AuthService {
     if (data is! Map<String, dynamic>) {
       throw const FormatException('服务器信息响应格式不正确');
     }
+    final appName = data['app_name'];
+    final organizationName = data['organization_name'];
+    if (appName is! String ||
+        appName.trim().isEmpty ||
+        organizationName is! String ||
+        organizationName.trim().isEmpty) {
+      throw const FormatException('服务器信息响应格式不正确');
+    }
     final providers = <ClientThirdPartyProvider>[];
     final rawProviders = data.containsKey('third_party_providers')
         ? data['third_party_providers']
@@ -91,6 +99,9 @@ class AuthService {
       }
     }
     return ClientAppInfo(
+      appName: appName.trim(),
+      organizationName: organizationName.trim(),
+      authenticated: data['authenticated'] == true,
       emailCodeLoginEnabled: data['email_code_login_enabled'] == true,
       passwordLoginEnabled: data['password_login_enabled'] != false,
       thirdPartyProviders: providers,
@@ -335,10 +346,16 @@ class AccountDeactivationCodeResult {
 
 class ClientAppInfo {
   const ClientAppInfo({
+    required this.appName,
+    required this.organizationName,
+    required this.authenticated,
     required this.emailCodeLoginEnabled,
     required this.passwordLoginEnabled,
     required this.thirdPartyProviders,
   });
+  final String appName;
+  final String organizationName;
+  final bool authenticated;
   final bool emailCodeLoginEnabled;
   final bool passwordLoginEnabled;
   final List<ClientThirdPartyProvider> thirdPartyProviders;

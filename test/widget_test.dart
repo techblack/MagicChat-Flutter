@@ -111,8 +111,9 @@ void main() {
   testWidgets('登录表单校验输入并规范化服务器地址', (tester) async {
     final service = AuthService(
         client: MockClient((_) async => http.Response(
-            '{"data":{"password_login_enabled":true,"email_code_login_enabled":false,"third_party_providers":[]}}',
-            200)));
+            '{"data":{"app_name":"星环协作","organization_name":"长亭科技","authenticated":false,"password_login_enabled":true,"email_code_login_enabled":false,"third_party_providers":[]}}',
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'})));
     String? submittedServer;
     await tester.pumpWidget(MaterialApp(
       home: LoginPage(
@@ -123,6 +124,10 @@ void main() {
       ),
     ));
     await tester.pumpAndSettle();
+
+    expect(find.text('星环协作 智能协作平台'), findsOneWidget);
+    expect(find.text('长亭科技 的工作空间'), findsOneWidget);
+    expect(find.text('登录 MagicChat'), findsNothing);
 
     await tester.tap(find.text('登录'));
     await tester.pump();
@@ -145,9 +150,12 @@ void main() {
     const store = ServerStore();
     await store.add('团队服务器', 'https://team.example.com/base');
     final service = AuthService(
-        client: MockClient((_) async => http.Response(
-            '{"data":{"password_login_enabled":true,"email_code_login_enabled":false,"third_party_providers":[]}}',
-            200)));
+        client: MockClient((request) async => http.Response(
+            request.url.host == 'team.example.com'
+                ? '{"data":{"app_name":"团队协作","organization_name":"研发中心","authenticated":false,"password_login_enabled":true,"email_code_login_enabled":false,"third_party_providers":[]}}'
+                : '{"data":{"app_name":"即应","organization_name":"团队","authenticated":false,"password_login_enabled":true,"email_code_login_enabled":false,"third_party_providers":[]}}',
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'})));
     await tester.pumpWidget(MaterialApp(
       home: LoginPage(
         initialServer: officialServerUrl,
@@ -167,13 +175,16 @@ void main() {
     final serverField = find.widgetWithText(TextFormField, '服务器地址');
     expect(tester.widget<TextFormField>(serverField).controller?.text,
         'https://team.example.com/base');
+    expect(find.text('团队协作 智能协作平台'), findsOneWidget);
+    expect(find.text('研发中心 的工作空间'), findsOneWidget);
   });
 
   testWidgets('登录页显示会话过期提示', (tester) async {
     final service = AuthService(
         client: MockClient((_) async => http.Response(
-            '{"data":{"password_login_enabled":true,"email_code_login_enabled":false,"third_party_providers":[]}}',
-            200)));
+            '{"data":{"app_name":"即应","organization_name":"团队","authenticated":false,"password_login_enabled":true,"email_code_login_enabled":false,"third_party_providers":[]}}',
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'})));
     await tester.pumpWidget(MaterialApp(
       home: LoginPage(
         initialServer: 'https://chat.example.com',
@@ -192,8 +203,11 @@ void main() {
     final service = AuthService(
         client: MockClient((request) async => request.url.path.endsWith('/info')
             ? http.Response(
-                '{"data":{"password_login_enabled":true,"email_code_login_enabled":true,"third_party_providers":[]}}',
-                200)
+                '{"data":{"app_name":"即应","organization_name":"团队","authenticated":false,"password_login_enabled":true,"email_code_login_enabled":true,"third_party_providers":[]}}',
+                200,
+                headers: {
+                    'content-type': 'application/json; charset=utf-8'
+                  })
             : http.Response(
                 '{"success":true,"data":{"expires_in_seconds":600,"retry_after_seconds":0}}',
                 200)));
