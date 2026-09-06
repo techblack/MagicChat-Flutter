@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magicchat_client/data/chat_preferences.dart';
+import 'package:magicchat_client/data/desktop_window_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -53,5 +54,15 @@ void main() {
         await preferences.readInterfaceFontScale(), InterfaceFontScale.large);
     expect(InterfaceFontScale.medium.ratio, 1.2);
     expect(InterfaceFontScale.large.label, '较大 130%');
+  });
+
+  test('桌面关闭行为默认后台运行并可持久化退出应用', () async {
+    SharedPreferences.setMockInitialValues({});
+    const preferences = ChatPreferences();
+    expect(await preferences.readDesktopCloseBehavior(),
+        DesktopCloseBehavior.background);
+    await preferences.writeDesktopCloseBehavior(DesktopCloseBehavior.quit);
+    expect(await preferences.readDesktopCloseBehavior(),
+        DesktopCloseBehavior.quit);
   });
 }

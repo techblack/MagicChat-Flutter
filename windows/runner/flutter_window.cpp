@@ -50,6 +50,11 @@ bool FlutterWindow::OnCreate() {
           const auto* ready = std::get_if<bool>(call.arguments());
           tray_ready_ = ready != nullptr && *ready;
           result->Success();
+        } else if (method == "setCloseBehavior") {
+          const auto* behavior = std::get_if<std::string>(call.arguments());
+          quit_on_close_preference_ =
+              behavior != nullptr && *behavior == "quit";
+          result->Success();
         } else if (method == "quit") {
           result->Success();
           PostMessage(GetHandle(), kQuitFromTrayMessage, 0, 0);
@@ -100,6 +105,10 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
       DestroyWindow(hwnd);
       return 0;
     case WM_CLOSE:
+      if (quit_on_close_preference_) {
+        DestroyWindow(hwnd);
+        return 0;
+      }
       // 托盘可用时隐藏窗口；托盘不可用时保留任务栏入口，避免窗口无法恢复。
       ShowWindow(hwnd, tray_ready_ ? SW_HIDE : SW_MINIMIZE);
       return 0;

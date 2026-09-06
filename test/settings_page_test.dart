@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/data/chat_preferences.dart';
 import 'package:magicchat_client/data/desktop_auto_launch.dart';
+import 'package:magicchat_client/data/desktop_window_controller.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/settings/settings_page.dart';
 import 'package:magicchat_client/features/settings/account_deactivation_page.dart';
@@ -156,6 +158,32 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(selected, InterfaceFontScale.medium);
+  });
+
+  testWidgets('桌面关闭窗口行为可以切换为退出应用', (tester) async {
+    DesktopCloseBehavior? selected;
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    await tester.binding.setSurfaceSize(const Size(800, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SettingsPage(
+                repository: DemoRepository(),
+                serverUrl: 'https://chat.example.com',
+                desktopAutoLaunch: _FakeDesktopAutoLaunch(isSupported: false),
+                onDesktopCloseBehaviorChanged: (value) => selected = value))));
+    await tester.pumpAndSettle();
+
+    final dropdown = find.byType(DropdownButton<DesktopCloseBehavior>);
+    expect(dropdown, findsOneWidget);
+    await tester.ensureVisible(dropdown);
+    await tester.tap(dropdown);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('退出应用').last);
+    await tester.pumpAndSettle();
+
+    debugDefaultTargetPlatformOverride = null;
+    expect(selected, DesktopCloseBehavior.quit);
   });
 
   testWidgets('退出登录需要二次确认', (tester) async {

@@ -13,6 +13,7 @@ struct _MyApplication {
   GtkWindow* window;
   FlMethodChannel* desktop_window_channel;
   gboolean tray_ready;
+  gboolean quit_on_close;
   gboolean start_hidden;
 };
 
@@ -29,6 +30,10 @@ static gboolean window_delete_cb(GtkWidget* widget, GdkEvent* event,
                                  gpointer user_data) {
   (void)event;
   MyApplication* self = MY_APPLICATION(user_data);
+  if (self->quit_on_close) {
+    g_application_quit(G_APPLICATION(self));
+    return TRUE;
+  }
   // 托盘可用时隐藏窗口；不可用时保留任务栏入口，避免窗口无法恢复。
   if (self->tray_ready) {
     gtk_widget_hide(widget);
@@ -55,6 +60,12 @@ static void desktop_window_method_call_cb(FlMethodChannel* channel,
     self->tray_ready = args != nullptr &&
                        fl_value_get_type(args) == FL_VALUE_TYPE_BOOL &&
                        fl_value_get_bool(args);
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+  } else if (strcmp(method, "setCloseBehavior") == 0) {
+    FlValue* args = fl_method_call_get_args(method_call);
+    self->quit_on_close =
+        args != nullptr && fl_value_get_type(args) == FL_VALUE_TYPE_STRING &&
+        strcmp(fl_value_get_string(args), "quit") == 0;
     response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
   } else if (strcmp(method, "quit") == 0) {
     response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
@@ -211,6 +222,7 @@ static void my_application_class_init(MyApplicationClass* klass) {
 
 static void my_application_init(MyApplication* self) {
   self->tray_ready = FALSE;
+  self->quit_on_close = FALSE;
   self->start_hidden = FALSE;
 }
 

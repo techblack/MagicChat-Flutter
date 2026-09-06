@@ -118,4 +118,7 @@ class _FakeWindow implements DesktopWindowController {
 
   @override
   Future<void> setTrayReady(bool ready) async {}
+
+  @override
+  Future<void> setCloseBehavior(DesktopCloseBehavior behavior) async {}
 }

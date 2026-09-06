@@ -76,11 +76,14 @@ void main() {
 
     const controller = PlatformDesktopWindowController();
     await controller.setTrayReady(true);
+    await controller.setCloseBehavior(DesktopCloseBehavior.quit);
     await controller.show();
     await controller.quit();
 
-    expect(calls.map((call) => call.method), ['setTrayReady', 'show', 'quit']);
+    expect(calls.map((call) => call.method),
+        ['setTrayReady', 'setCloseBehavior', 'show', 'quit']);
     expect(calls.first.arguments, isTrue);
+    expect(calls[1].arguments, 'quit');
   });
 }
 
@@ -97,4 +100,7 @@ class _FakeDesktopWindowController implements DesktopWindowController {
 
   @override
   Future<void> setTrayReady(bool ready) async => trayReady = ready;
+
+  @override
+  Future<void> setCloseBehavior(DesktopCloseBehavior behavior) async {}
 }

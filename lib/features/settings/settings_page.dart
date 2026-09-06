@@ -10,6 +10,7 @@ import '../../data/chat_appearance_preferences.dart';
 import '../../data/desktop_auto_launch.dart';
 import '../../data/desktop_screenshot.dart';
 import '../../data/desktop_screenshot_preferences.dart';
+import '../../data/desktop_window_controller.dart';
 import '../../data/local_notification_service.dart';
 import '../../data/realtime.dart';
 import '../../data/realtime_store.dart';
@@ -65,6 +66,8 @@ class SettingsPage extends StatefulWidget {
       this.onNotificationPrivacyChanged,
       this.interfaceFontScale = InterfaceFontScale.normal,
       this.onInterfaceFontScaleChanged,
+      this.desktopCloseBehavior = DesktopCloseBehavior.background,
+      this.onDesktopCloseBehaviorChanged,
       this.themeMode = ThemeMode.system,
       this.sendMessageShortcut = MessageSendShortcut.enter,
       this.desktopAutoLaunch,
@@ -93,6 +96,8 @@ class SettingsPage extends StatefulWidget {
   final ValueChanged<MessageNotificationPrivacy>? onNotificationPrivacyChanged;
   final InterfaceFontScale interfaceFontScale;
   final ValueChanged<InterfaceFontScale>? onInterfaceFontScaleChanged;
+  final DesktopCloseBehavior desktopCloseBehavior;
+  final ValueChanged<DesktopCloseBehavior>? onDesktopCloseBehaviorChanged;
   final ThemeMode themeMode;
   final MessageSendShortcut sendMessageShortcut;
   final DesktopAutoLaunchController? desktopAutoLaunch;
@@ -653,6 +658,29 @@ class _SettingsPageState extends State<SettingsPage> {
                 subtitle: const Text('登录系统后在后台静默启动'),
                 value: _autoLaunchEnabled,
                 onChanged: _autoLaunchLoading ? null : _setAutoLaunch),
+          if (!kIsWeb &&
+              (defaultTargetPlatform == TargetPlatform.windows ||
+                  defaultTargetPlatform == TargetPlatform.macOS ||
+                  defaultTargetPlatform == TargetPlatform.linux))
+            ListTile(
+              leading: const Icon(Icons.close_fullscreen_outlined),
+              title: const Text('关闭窗口时'),
+              subtitle: const Text('选择继续在后台运行或完全退出应用'),
+              trailing: DropdownButton<DesktopCloseBehavior>(
+                value: widget.desktopCloseBehavior,
+                onChanged: (value) {
+                  if (value != null) {
+                    widget.onDesktopCloseBehaviorChanged?.call(value);
+                  }
+                },
+                items: DesktopCloseBehavior.values
+                    .map((value) => DropdownMenuItem(
+                          value: value,
+                          child: Text(value.label),
+                        ))
+                    .toList(growable: false),
+              ),
+            ),
           ListTile(
               leading: const Icon(Icons.palette_outlined),
               title: const Text('外观'),
