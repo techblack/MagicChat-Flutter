@@ -38,7 +38,11 @@ class LocalNotificationService {
   }) async {
     if (kIsWeb && _channel.name == channelName) {
       await browserNotificationShow(
-          title: title, body: body, tag: conversationId);
+          title: title,
+          body: body,
+          tag: conversationId,
+          conversationId: conversationId,
+          messageId: messageId);
       return;
     }
     try {

@@ -1411,14 +1411,20 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   Future<void> _resolveNotificationRoute() async {
     final urlToken = Uri.base.queryParameters['route_token'];
+    final urlConversationId = Uri.base.queryParameters['conversation_id'];
+    final urlMessageId = Uri.base.queryParameters['message_id'];
     final pending = await _pushTokenProvider.takePendingRoute();
     final routeToken = urlToken?.trim().isNotEmpty == true
         ? urlToken!.trim()
         : pending?.routeToken ?? '';
     await _openPendingPushRoute(PendingPushRoute(
         routeToken: routeToken,
-        conversationId: pending?.conversationId ?? '',
-        messageId: pending?.messageId ?? ''));
+        conversationId: urlConversationId?.trim().isNotEmpty == true
+            ? urlConversationId!.trim()
+            : pending?.conversationId ?? '',
+        messageId: urlMessageId?.trim().isNotEmpty == true
+            ? urlMessageId!.trim()
+            : pending?.messageId ?? ''));
   }
 
   Future<void> _openPendingPushRoute(PendingPushRoute pending) async {
