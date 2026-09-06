@@ -17,11 +17,8 @@ class DesktopTrayMessageItem {
 List<DesktopTrayMessageItem> desktopTrayMessages(
   Iterable<ChatConversation> conversations,
   MessageNotificationPrivacy privacy, {
-  Iterable<Contact> contacts = const [],
+  Map<String, Contact> contacts = const {},
 }) {
-  final contactNames = <String, String>{
-    for (final contact in contacts) contact.id: contact.displayName,
-  };
   final unread = conversations
       .where((conversation) => _trayUnreadCount(conversation) > 0)
       .toList()
@@ -35,12 +32,8 @@ List<DesktopTrayMessageItem> desktopTrayMessages(
       MessageNotificationPrivacy.hidden => '你收到了一条新消息',
       MessageNotificationPrivacy.metadata => '有新消息',
       MessageNotificationPrivacy.preview => _truncateTrayText(
-          formatMentionText(conversation.preview, <({String id, String name})>[
-            for (final entry in contactNames.entries)
-              (id: entry.key, name: entry.value),
-            for (final member in conversation.members)
-              (id: member.id, name: member.displayName),
-          ]),
+          formatMentionText(
+              conversation.preview, _trayMentionLabels(conversation, contacts)),
           24,
           fallback: '有新消息'),
     };
@@ -49,6 +42,25 @@ List<DesktopTrayMessageItem> desktopTrayMessages(
       label: '$name  [${_trayBadge(count)}] — $summary',
     );
   }).toList(growable: false);
+}
+
+Iterable<({String id, String name})> _trayMentionLabels(
+    ChatConversation conversation, Map<String, Contact> contacts) sync* {
+  final ids = RegExp(r'\{\(@(?:user|app)/([^}]+)\)\}')
+      .allMatches(conversation.preview)
+      .map((match) => match.group(1))
+      .whereType<String>()
+      .where((id) => id.isNotEmpty && id != 'all')
+      .toSet();
+  if (ids.isEmpty) return;
+  final members = <String, Contact>{
+    for (final member in conversation.members)
+      if (ids.contains(member.id)) member.id: member,
+  };
+  for (final id in ids) {
+    final contact = members[id] ?? contacts[id];
+    if (contact != null) yield (id: id, name: contact.displayName);
+  }
 }
 
 String desktopTrayToolTip(int unreadCount) {

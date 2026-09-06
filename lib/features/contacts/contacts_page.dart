@@ -27,6 +27,7 @@ class ContactsPage extends StatefulWidget {
       this.initialContactId,
       this.onInitialContactOpened,
       this.onOpenConversation,
+      this.active = true,
       super.key});
 
   final MagicChatRepository repository;
@@ -37,6 +38,7 @@ class ContactsPage extends StatefulWidget {
   final String? initialContactId;
   final VoidCallback? onInitialContactOpened;
   final ValueChanged<String>? onOpenConversation;
+  final bool active;
 
   @override
   State<ContactsPage> createState() => _ContactsPageState();
@@ -55,21 +57,41 @@ class _ContactsPageState extends State<ContactsPage> {
   final _selectedContactIds = <String>{};
   ContactDirectory? _sectionSource;
   List<ContactDirectorySection> _cachedSections = const [];
+  String _cachedHomeUserId = '';
+  List<ContactDirectoryHomeEntry> _cachedHomeEntries = const [];
+  List<_ContactDirectoryRow> _cachedHomeRows = const [];
   Timer? _fallbackPollTimer;
   bool _fallbackPollInFlight = false;
+  bool _active = false;
 
   @override
   void initState() {
     super.initState();
+    _currentUserId = widget.realtimeStore?.currentUserId ?? '';
+    if (widget.active) _activate();
+  }
+
+  void _activate() {
+    if (_active) return;
+    _active = true;
     widget.realtimeStore?.addListener(_onRealtimeChanged);
     if (widget.realtimeSession != null) {
       _fallbackPollTimer = Timer.periodic(
           const Duration(minutes: 1), (_) => unawaited(_pollFallback()));
     }
-    _currentUserId = widget.realtimeStore?.currentUserId ?? '';
-    unawaited(_primeCachedContacts());
+    final currentUserId = widget.realtimeStore?.currentUserId;
+    if (currentUserId?.isNotEmpty == true) _currentUserId = currentUserId!;
     if (_currentUserId.isEmpty) unawaited(_loadCurrentUser());
-    _load();
+    _directoryFuture ??= _loadDirectory();
+  }
+
+  void _deactivate() {
+    if (!_active) return;
+    _active = false;
+    _fallbackPollTimer?.cancel();
+    _fallbackPollTimer = null;
+    _searchDebounce?.cancel();
+    widget.realtimeStore?.removeListener(_onRealtimeChanged);
   }
 
   Future<void> _loadCurrentUser() async {
@@ -81,24 +103,20 @@ class _ContactsPageState extends State<ContactsPage> {
     }
   }
 
-  Future<void> _primeCachedContacts() async {
-    final cached = await _contactCacheStore.read(widget.cacheScope);
-    if (!mounted) return;
-    for (final contact in cached) {
-      widget.realtimeStore?.contacts[contact.id] = contact;
-    }
-  }
-
   void _onRealtimeChanged() {
-    if (!mounted) return;
+    if (!mounted || !widget.active) return;
     final currentUserId = widget.realtimeStore?.currentUserId;
+    final identityChanged =
+        currentUserId?.isNotEmpty == true && currentUserId != _currentUserId;
+    if (!identityChanged &&
+        widget.realtimeStore?.lastEvent != 'user.presence.updated') return;
     setState(() {
-      if (currentUserId?.isNotEmpty == true) _currentUserId = currentUserId!;
+      if (identityChanged) _currentUserId = currentUserId!;
     });
   }
 
   void _load({bool cancelPendingSearch = true}) {
-    if (!mounted) return;
+    if (!mounted || !widget.active) return;
     if (cancelPendingSearch) _searchDebounce?.cancel();
     setState(() {
       _directoryFuture = _loadDirectory();
@@ -149,6 +167,13 @@ class _ContactsPageState extends State<ContactsPage> {
   @override
   void didUpdateWidget(covariant ContactsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.active != widget.active) {
+      if (widget.active) {
+        _activate();
+      } else {
+        _deactivate();
+      }
+    }
     if (widget.initialContactId == null) _openedInitialContactId = null;
     if (oldWidget.initialContactId != widget.initialContactId &&
         _directoryFuture != null) {
@@ -175,8 +200,7 @@ class _ContactsPageState extends State<ContactsPage> {
 
   @override
   void dispose() {
-    _fallbackPollTimer?.cancel();
-    widget.realtimeStore?.removeListener(_onRealtimeChanged);
+    _deactivate();
     _searchDebounce?.cancel();
     _indexLabelTimer?.cancel();
     _searchController.dispose();
@@ -187,6 +211,7 @@ class _ContactsPageState extends State<ContactsPage> {
   Future<void> _pollFallback() async {
     final session = widget.realtimeSession;
     if (!mounted ||
+        !widget.active ||
         session == null ||
         session.ready ||
         _fallbackPollInFlight ||
@@ -202,45 +227,50 @@ class _ContactsPageState extends State<ContactsPage> {
   }
 
   @override
-  Widget build(BuildContext context) => FutureBuilder<ContactDirectory>(
-        future: _directoryFuture,
-        builder: (context, snapshot) {
-          final directory = snapshot.data;
-          if (directory != null) _openInitialContact(directory);
-          return Column(children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-              child: TextField(
-                controller: _searchController,
-                textInputAction: TextInputAction.search,
-                onSubmitted: (_) => _load(),
-                onChanged: _onSearchChanged,
-                decoration: InputDecoration(
-                  hintText: '搜索联系人、应用或群组',
-                  prefixIcon: const Icon(Icons.search),
-                  suffixIcon: Row(mainAxisSize: MainAxisSize.min, children: [
-                    if (_searchController.text.isNotEmpty)
-                      IconButton(
-                          tooltip: '清除搜索',
-                          onPressed: () {
-                            _searchController.clear();
-                            _scrollToTop();
-                            _load();
-                          },
-                          icon: const Icon(Icons.clear)),
+  Widget build(BuildContext context) {
+    if (!widget.active) {
+      return const SizedBox.shrink(key: ValueKey('contacts-page-inactive'));
+    }
+    return FutureBuilder<ContactDirectory>(
+      future: _directoryFuture,
+      builder: (context, snapshot) {
+        final directory = snapshot.data;
+        if (directory != null) _openInitialContact(directory);
+        return Column(children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: TextField(
+              controller: _searchController,
+              textInputAction: TextInputAction.search,
+              onSubmitted: (_) => _load(),
+              onChanged: _onSearchChanged,
+              decoration: InputDecoration(
+                hintText: '搜索联系人、应用或群组',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: Row(mainAxisSize: MainAxisSize.min, children: [
+                  if (_searchController.text.isNotEmpty)
                     IconButton(
-                        tooltip: '刷新',
-                        onPressed: _load,
-                        icon: const Icon(Icons.refresh)),
-                  ]),
-                ),
+                        tooltip: '清除搜索',
+                        onPressed: () {
+                          _searchController.clear();
+                          _scrollToTop();
+                          _load();
+                        },
+                        icon: const Icon(Icons.clear)),
+                  IconButton(
+                      tooltip: '刷新',
+                      onPressed: _load,
+                      icon: const Icon(Icons.refresh)),
+                ]),
               ),
             ),
-            if (_selectedContactIds.isNotEmpty) _buildSelectionBar(),
-            Expanded(child: _buildDirectory(snapshot)),
-          ]);
-        },
-      );
+          ),
+          if (_selectedContactIds.isNotEmpty) _buildSelectionBar(),
+          Expanded(child: _buildDirectory(snapshot)),
+        ]);
+      },
+    );
+  }
 
   Widget _buildDirectory(AsyncSnapshot<ContactDirectory> snapshot) {
     if (snapshot.hasError) {
@@ -301,60 +331,65 @@ class _ContactsPageState extends State<ContactsPage> {
 
   Widget _buildHomeDirectory(
       ContactDirectory directory, List<Contact> contacts) {
-    // realtimeStore 的在线状态变化会触发本页重绘。分组和拼音排序只依赖
-    // 服务端目录快照，复用它可避免每次状态事件都扫描/排序数千个联系人。
-    if (!identical(_sectionSource, directory)) {
+    // 分组、分类统计和虚拟行都只依赖目录快照与当前账号。在线状态更新
+    // 只需重建视口中的联系人组件，不能重新物化整个 2000 人目录。
+    final normalizedUserId = _currentUserId.trim().toLowerCase();
+    if (!identical(_sectionSource, directory) ||
+        _cachedHomeUserId != normalizedUserId) {
       _sectionSource = directory;
+      _cachedHomeUserId = normalizedUserId;
       _cachedSections = buildContactSections(contacts);
+      final userCount = _cachedSections.fold<int>(
+          0, (count, section) => count + section.contacts.length);
+      var myApps = 0;
+      var allApps = 0;
+      var joinedGroups = 0;
+      var publicGroups = 0;
+      for (final contact in contacts) {
+        if (contact.type == 'app') {
+          allApps++;
+          if (normalizedUserId.isNotEmpty &&
+              contact.creatorUserId?.trim().toLowerCase() == normalizedUserId) {
+            myApps++;
+          }
+        } else if (contact.type == 'group') {
+          if (contact.joined) joinedGroups++;
+          if (contact.visibility == 'public') publicGroups++;
+        }
+      }
+      _cachedHomeEntries = <ContactDirectoryHomeEntry>[
+        if (directory.supportsFriendManagement)
+          const ContactDirectoryHomeEntry(
+              category: ContactDirectoryCategory.newFriends, count: 0),
+        ContactDirectoryHomeEntry(
+            category: ContactDirectoryCategory.myApps, count: myApps),
+        ContactDirectoryHomeEntry(
+            category: ContactDirectoryCategory.allApps, count: allApps),
+        ContactDirectoryHomeEntry(
+            category: ContactDirectoryCategory.joinedGroups,
+            count: joinedGroups),
+        ContactDirectoryHomeEntry(
+            category: ContactDirectoryCategory.publicGroups,
+            count: publicGroups),
+      ];
+      final rows = <_ContactDirectoryRow>[
+        const _ContactDirectoryRow.header(),
+        const _ContactDirectoryRow.spacer(),
+      ];
+      if (_cachedSections.isEmpty) {
+        rows.add(const _ContactDirectoryRow.empty());
+      }
+      for (final section in _cachedSections) {
+        rows.add(_ContactDirectoryRow.section(section.label));
+        rows.addAll(section.contacts
+            .map((contact) => _ContactDirectoryRow.contact(contact)));
+      }
+      if (userCount > 0) rows.add(_ContactDirectoryRow.footer(userCount));
+      _cachedHomeRows = rows;
     }
     final sections = _cachedSections;
-    final userCount = sections.fold<int>(
-        0, (count, section) => count + section.contacts.length);
-    var myApps = 0;
-    var allApps = 0;
-    var joinedGroups = 0;
-    var publicGroups = 0;
-    final normalizedUserId = _currentUserId.trim().toLowerCase();
-    for (final contact in contacts) {
-      if (contact.type == 'app') {
-        allApps++;
-        if (normalizedUserId.isNotEmpty &&
-            contact.creatorUserId?.trim().toLowerCase() == normalizedUserId) {
-          myApps++;
-        }
-      } else if (contact.type == 'group') {
-        if (contact.joined) joinedGroups++;
-        if (contact.visibility == 'public') publicGroups++;
-      }
-    }
-    final entries = <ContactDirectoryHomeEntry>[
-      if (directory.supportsFriendManagement)
-        const ContactDirectoryHomeEntry(
-            category: ContactDirectoryCategory.newFriends, count: 0),
-      ContactDirectoryHomeEntry(
-          category: ContactDirectoryCategory.myApps, count: myApps),
-      ContactDirectoryHomeEntry(
-          category: ContactDirectoryCategory.allApps, count: allApps),
-      ContactDirectoryHomeEntry(
-          category: ContactDirectoryCategory.joinedGroups, count: joinedGroups),
-      ContactDirectoryHomeEntry(
-          category: ContactDirectoryCategory.publicGroups, count: publicGroups),
-    ];
-    final rows = <_ContactDirectoryRow>[
-      const _ContactDirectoryRow.header(),
-      const _ContactDirectoryRow.spacer(),
-    ];
-    if (sections.isEmpty) {
-      rows.add(const _ContactDirectoryRow.empty());
-    }
-    for (final section in sections) {
-      rows.add(_ContactDirectoryRow.section(section.label));
-      rows.addAll(section.contacts
-          .map((contact) => _ContactDirectoryRow.contact(contact)));
-    }
-    if (userCount > 0) {
-      rows.add(_ContactDirectoryRow.footer(userCount));
-    }
+    final entries = _cachedHomeEntries;
+    final rows = _cachedHomeRows;
     return Stack(children: [
       RefreshIndicator(
         onRefresh: _refresh,

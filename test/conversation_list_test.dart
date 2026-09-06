@@ -1,9 +1,14 @@
+import 'dart:collection';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
+import 'package:magicchat_client/data/chat_preferences.dart';
+import 'package:magicchat_client/data/desktop_system_tray.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/main.dart';
 import 'package:magicchat_client/domain/models.dart';
+import 'package:magicchat_client/domain/message_content.dart';
 import 'package:magicchat_client/features/messages/conversation_list.dart';
 
 class _MentionDemoRepository extends DemoRepository {
@@ -168,6 +173,50 @@ void main() {
       id: 'group', title: '工程群', type: 'group', unread: 2, lastMessageSeq: 8);
   const pinnedApp = ChatConversation(
       id: 'app', title: '助手', type: 'app', pinned: true, lastMessageSeq: 1);
+
+  test('会话预览只查找实际提及，不遍历 2000 个实时联系人', () {
+    final contacts = _LookupOnlyContactMap({
+      for (var index = 0; index < 2000; index++)
+        'user-$index': Contact(id: 'user-$index', name: '成员 $index'),
+    });
+    const conversation = ChatConversation(
+        id: 'large-preview',
+        title: '大型组织群',
+        preview: '请 {(@user/user-1999)} 查看');
+
+    final labels = conversationPreviewMentionLabels(
+            conversation.preview, conversation, contacts)
+        .toList(growable: false);
+
+    expect(formatMentionText(conversation.preview, labels), '请 @成员 1999 查看');
+    expect(contacts.lookups, 1);
+  });
+
+  testWidgets('2000 人在线状态事件不重建会话托盘', (tester) async {
+    final store = RealtimeStore();
+    for (var index = 0; index < 2000; index++) {
+      store.contacts['user-$index'] =
+          Contact(id: 'user-$index', name: '成员 $index');
+    }
+    final tray = _CountingDesktopTray();
+    await tester.pumpWidget(MaterialApp(
+        home: AppShell(
+            repository: _RealtimeConversationRepository(),
+            realtimeStore: store,
+            desktopTray: tray)));
+    await tester.pumpAndSettle();
+    final updatesBeforePresence = tray.updates;
+
+    store.apply({
+      'event': 'user.presence.updated',
+      'cursor': 1,
+      'payload': {'user_id': 'user-1999', 'online': true},
+    });
+    await tester.pump();
+
+    expect(store.contacts['user-1999']?.online, isTrue);
+    expect(tray.updates, updatesBeforePresence);
+  });
   const choiceUnread = ChatConversation(
       id: 'choice', title: '选择题', lastMessageSeq: 4, lastChoiceSeq: 5);
   const mentionUnread = ChatConversation(
@@ -516,4 +565,55 @@ void main() {
     await expectLater(find.byKey(const ValueKey('conversation-mention-golden')),
         matchesGoldenFile('evidence/conversation_mention.png'));
   });
+}
+
+class _LookupOnlyContactMap extends MapBase<String, Contact> {
+  _LookupOnlyContactMap(this._values);
+
+  final Map<String, Contact> _values;
+  int lookups = 0;
+
+  @override
+  Contact? operator [](Object? key) {
+    lookups++;
+    return _values[key];
+  }
+
+  @override
+  void operator []=(String key, Contact value) =>
+      throw UnsupportedError('read only');
+
+  @override
+  void clear() => throw UnsupportedError('read only');
+
+  @override
+  Iterable<String> get keys => throw StateError('不应遍历完整联系人 Map');
+
+  @override
+  Contact? remove(Object? key) => throw UnsupportedError('read only');
+}
+
+class _CountingDesktopTray implements DesktopSystemTrayController {
+  int updates = 0;
+
+  @override
+  Future<bool> initialize(
+          {required void Function(String conversationId)
+              onOpenConversation}) async =>
+      true;
+
+  @override
+  Future<void> update(
+      {required int unreadCount,
+      required Iterable<ChatConversation> conversations,
+      required MessageNotificationPrivacy privacy,
+      Map<String, Contact> contacts = const {}}) async {
+    updates++;
+  }
+
+  @override
+  Future<void> handleMenuAction(String? key) async {}
+
+  @override
+  Future<void> dispose() async {}
 }

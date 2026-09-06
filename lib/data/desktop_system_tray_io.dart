@@ -71,7 +71,7 @@ class DesktopSystemTray
     required int unreadCount,
     required Iterable<ChatConversation> conversations,
     required MessageNotificationPrivacy privacy,
-    Iterable<Contact> contacts = const [],
+    Map<String, Contact> contacts = const {},
   }) async {
     _unreadCount = unreadCount.clamp(0, 9999).toInt();
     _messages = desktopTrayMessages(conversations, privacy, contacts: contacts);

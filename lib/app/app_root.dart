@@ -1392,7 +1392,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     unawaited(tray.update(
       unreadCount: _unreadCount,
       conversations: widget.realtimeStore?.conversations.values ?? const [],
-      contacts: widget.realtimeStore?.contacts.values ?? const [],
+      contacts: widget.realtimeStore?.contacts ?? const {},
       privacy: widget.notificationPrivacy,
     ));
   }
@@ -1755,6 +1755,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
               }),
       ContactsPage(
           repository: _repository,
+          active: _index == 1,
           realtimeSession: widget.realtime,
           realtimeStore: widget.realtimeStore,
           serverUrl: widget.serverUrl,
