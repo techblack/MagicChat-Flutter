@@ -17,6 +17,13 @@ String? formatMessageTime(String value, {DateTime? now}) {
       : '${local.year}-$date $time';
 }
 
+bool supportsMobileImagePicker({
+  required bool isWeb,
+  required TargetPlatform platform,
+}) =>
+    !isWeb &&
+    (platform == TargetPlatform.android || platform == TargetPlatform.iOS);
+
 enum _OptimisticMessageKind { text, image, file, voice }
 
 enum _OptimisticMessageStatus { sending, sent, failed }
@@ -2307,6 +2314,28 @@ class _ConversationViewState extends State<ConversationView>
                           ? null
                           : () => _pickAndSendFile(conversationId),
                     ),
+                    if (_supportsMobileImagePicker) ...[
+                      IconButton(
+                        icon: const Icon(Icons.photo_library_outlined),
+                        tooltip: '从相册选择图片',
+                        onPressed: !canSend || _sendingFile
+                            ? null
+                            : () => _pickAndSendImage(
+                                  conversationId,
+                                  ImageSource.gallery,
+                                ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.photo_camera_outlined),
+                        tooltip: '拍照发送',
+                        onPressed: !canSend || _sendingFile
+                            ? null
+                            : () => _pickAndSendImage(
+                                  conversationId,
+                                  ImageSource.camera,
+                                ),
+                      ),
+                    ],
                     if (widget.screenshotController?.isSupported == true)
                       PopupMenuButton<DesktopScreenshotMode>(
                         tooltip: '截图',
@@ -2601,6 +2630,58 @@ class _ConversationViewState extends State<ConversationView>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('无法读取附件：${userFacingError(error)}')));
+      }
+    } finally {
+      if (mounted) setState(() => _sendingFile = false);
+    }
+  }
+
+  bool get _supportsMobileImagePicker => supportsMobileImagePicker(
+        isWeb: kIsWeb,
+        platform: defaultTargetPlatform,
+      );
+
+  Future<void> _pickAndSendImage(
+      String conversationId, ImageSource source) async {
+    if (_sendingFile || !_conversationCanSend(conversationId)) return;
+    setState(() => _sendingFile = true);
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: source,
+        imageQuality: 92,
+        maxWidth: 4096,
+        maxHeight: 4096,
+      );
+      if (picked == null ||
+          !mounted ||
+          widget.conversationId != conversationId) {
+        return;
+      }
+      final bytes = await picked.readAsBytes();
+      if (!mounted || widget.conversationId != conversationId) return;
+      if (bytes.isEmpty) {
+        throw StateError('图片内容为空');
+      }
+      if (bytes.length > 200 * 1024 * 1024) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('图片不能超过 200MiB')));
+        return;
+      }
+      final name = picked.name.trim().isEmpty ? 'image.jpg' : picked.name;
+      _enqueueAttachment(
+        conversationId,
+        AttachmentUpload(
+          path: kIsWeb ? '' : picked.path,
+          name: name,
+          mimeType: _mimeType(name.split('.').last),
+          bytes: bytes,
+        ),
+        bytes.length,
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('图片选择失败：${userFacingError(error)}')));
       }
     } finally {
       if (mounted) setState(() => _sendingFile = false);
