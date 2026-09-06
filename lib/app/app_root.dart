@@ -1694,6 +1694,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
               }),
       ContactsPage(
           repository: _repository,
+          realtimeSession: widget.realtime,
           realtimeStore: widget.realtimeStore,
           serverUrl: widget.serverUrl,
           cacheScope: _messageCacheScope,
@@ -1708,6 +1709,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           }),
       ProjectsPage(
           repository: _repository,
+          realtimeSession: widget.realtime,
           initialProjectId: _focusProjectId,
           initialTaskProjectId: _focusTaskProjectId,
           initialTaskId: _focusTaskId,

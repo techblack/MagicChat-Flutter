@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../data/realtime_store.dart';
+import '../../data/realtime.dart';
 import '../../data/repository.dart';
 import '../../data/contact_cache_store.dart';
 import '../../data/message_cache_store.dart';
@@ -18,6 +19,7 @@ import 'friend_management_dialog.dart';
 class ContactsPage extends StatefulWidget {
   const ContactsPage(
       {required this.repository,
+      this.realtimeSession,
       this.realtimeStore,
       this.serverUrl,
       this.cacheScope,
@@ -27,6 +29,7 @@ class ContactsPage extends StatefulWidget {
       super.key});
 
   final MagicChatRepository repository;
+  final RealtimeSession? realtimeSession;
   final RealtimeStore? realtimeStore;
   final String? serverUrl;
   final MessageCacheScope? cacheScope;
@@ -51,11 +54,17 @@ class _ContactsPageState extends State<ContactsPage> {
   final _selectedContactIds = <String>{};
   ContactDirectory? _sectionSource;
   List<ContactDirectorySection> _cachedSections = const [];
+  Timer? _fallbackPollTimer;
+  bool _fallbackPollInFlight = false;
 
   @override
   void initState() {
     super.initState();
     widget.realtimeStore?.addListener(_onRealtimeChanged);
+    if (widget.realtimeSession != null) {
+      _fallbackPollTimer = Timer.periodic(
+          const Duration(minutes: 1), (_) => unawaited(_pollFallback()));
+    }
     _currentUserId = widget.realtimeStore?.currentUserId ?? '';
     unawaited(_primeCachedContacts());
     if (_currentUserId.isEmpty) unawaited(_loadCurrentUser());
@@ -165,12 +174,30 @@ class _ContactsPageState extends State<ContactsPage> {
 
   @override
   void dispose() {
+    _fallbackPollTimer?.cancel();
     widget.realtimeStore?.removeListener(_onRealtimeChanged);
     _searchDebounce?.cancel();
     _indexLabelTimer?.cancel();
     _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pollFallback() async {
+    final session = widget.realtimeSession;
+    if (!mounted ||
+        session == null ||
+        session.ready ||
+        _fallbackPollInFlight ||
+        _searchController.text.trim().isNotEmpty) return;
+    _fallbackPollInFlight = true;
+    try {
+      await _refresh();
+    } catch (_) {
+      // 下一周期继续尝试，缓存和当前目录保持可用。
+    } finally {
+      _fallbackPollInFlight = false;
+    }
   }
 
   @override
