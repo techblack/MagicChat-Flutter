@@ -1,10 +1,58 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as image;
+import 'package:magicchat_client/data/asset_cache_store.dart';
+import 'package:magicchat_client/data/message_cache_store.dart';
+import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/messages/conversation_details_page.dart';
+import 'package:magicchat_client/features/shared/cached_avatar.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  testWidgets('群聊详情只批量补齐当前群缺失的成员名称和头像', (tester) async {
+    final repository = _DetailsRepository.incompleteMembers();
+    const scope =
+        MessageCacheScope(serverUrl: 'https://chat.example.com', userId: 'me');
+    final avatarUri = Uri.parse('https://chat.example.com/avatars/alice.webp');
+    final avatarCacheKey =
+        'avatar|${scope.serverUrl}|${scope.userId}|$avatarUri';
+    final avatarCache = LocalAssetCache();
+    avatarCache.writeMemory(avatarCacheKey,
+        Uint8List.fromList(image.encodePng(image.Image(width: 1, height: 1))));
+    addTearDown(() => avatarCache.removeMemory(avatarCacheKey));
+    final realtimeStore = RealtimeStore()
+      ..contacts['alice'] = const Contact(
+          id: 'alice',
+          name: 'Alice',
+          nickname: '小爱',
+          avatar: '/avatars/alice.webp');
+    await tester.pumpWidget(MaterialApp(
+        home: ConversationDetailsPage(
+      repository: repository,
+      conversationId: repository.conversation.id,
+      initialConversation: repository.conversation,
+      serverUrl: 'https://chat.example.com',
+      cacheScope: scope,
+      realtimeStore: realtimeStore,
+    )));
+    await tester.pumpAndSettle();
+
+    expect(repository.resolvedUserIds, ['bob']);
+    expect(repository.contactRequests, 0);
+    expect(find.text('小爱'), findsOneWidget);
+    expect(find.text('Bob'), findsOneWidget);
+    expect(find.text('成员'), findsNothing);
+    final alice = tester.widget<CachedAvatar>(find.byWidgetPredicate(
+        (widget) => widget is CachedAvatar && widget.name == '小爱'));
+    expect(alice.avatarUri, avatarUri);
+  });
+
   testWidgets('群主可以在聊天详情关联和解除项目', (tester) async {
     final repository = _DetailsRepository.group('owner', projects: const [
       Project(id: '1', name: 'MagicChat Flutter 重构'),
@@ -212,6 +260,19 @@ class _DetailsRepository extends DemoRepository {
         ),
       );
 
+  factory _DetailsRepository.incompleteMembers() => _DetailsRepository._(
+        const ChatConversation(
+          id: 'group-incomplete',
+          title: '大群',
+          type: 'group',
+          members: [
+            Contact(id: 'me', name: '当前用户', role: 'owner'),
+            Contact(id: 'alice', name: ''),
+            Contact(id: 'bob', name: '成员'),
+          ],
+        ),
+      );
+
   factory _DetailsRepository.topic() => _DetailsRepository._(
         const ChatConversation(
           id: 'topic',
@@ -234,6 +295,8 @@ class _DetailsRepository extends DemoRepository {
   bool left = false;
   String? createdName;
   List<String> createdMemberIds = const [];
+  List<String> resolvedUserIds = const [];
+  int contactRequests = 0;
 
   @override
   Future<void> bindConversationProject(
@@ -260,10 +323,31 @@ class _DetailsRepository extends DemoRepository {
   Future<List<ChatConversation>> conversations() async => [conversation];
 
   @override
-  Future<List<Contact>> contacts({String keyword = ''}) async => const [
-        Contact(id: 'alice', name: 'Alice', email: 'alice@example.com'),
-        Contact(id: 'bob', name: 'Bob', email: 'bob@example.com'),
-      ];
+  Future<List<Contact>> contacts({String keyword = ''}) async {
+    contactRequests++;
+    return const [
+      Contact(id: 'alice', name: 'Alice', email: 'alice@example.com'),
+      Contact(id: 'bob', name: 'Bob', email: 'bob@example.com'),
+    ];
+  }
+
+  @override
+  Future<List<Contact>> resolveUsers(List<String> userIds) async {
+    resolvedUserIds = List.of(userIds);
+    return [
+      if (userIds.contains('alice'))
+        const Contact(
+            id: 'alice',
+            name: 'Alice',
+            nickname: '小爱',
+            avatar: '/avatars/alice.webp'),
+      if (userIds.contains('bob')) const Contact(id: 'bob', name: 'Bob'),
+    ];
+  }
+
+  @override
+  Future<Uint8List?> downloadResource(Uri uri) async =>
+      Uint8List.fromList(image.encodePng(image.Image(width: 1, height: 1)));
 
   @override
   Future<void> renameGroupConversation(
