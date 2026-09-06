@@ -69,4 +69,22 @@ void main() {
             .check(),
         throwsFormatException);
   });
+
+  test('Linux arm64 选择对应架构的安装包', () async {
+    final client = MockClient((request) async => http.Response(
+        '{"tag_name":"v0.3.25","assets":['
+        '{"name":"MagicChat-Linux-x64.tar.gz","size":10,"browser_download_url":"https://example.com/linux-x64.tar.gz"},'
+        '{"name":"MagicChat-Linux-arm64.tar.gz","size":12,"browser_download_url":"https://example.com/linux-arm64.tar.gz"}]}',
+        200));
+
+    final release = await UpdateService(
+            client: client,
+            platform: AppUpdatePlatform.linux,
+            desktopArchitecture: 'arm64')
+        .check();
+
+    expect(release?.assetName, 'MagicChat-Linux-arm64.tar.gz');
+    expect(release?.url, 'https://example.com/linux-arm64.tar.gz');
+    expect(release?.size, 12);
+  });
 }

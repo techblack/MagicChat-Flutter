@@ -19,10 +19,13 @@ bool _isDesktopPlatform(AppUpdatePlatform platform) =>
     platform == AppUpdatePlatform.macos ||
     platform == AppUpdatePlatform.linux;
 
-String _desktopAssetName(AppUpdatePlatform platform) => switch (platform) {
+String _desktopAssetName(AppUpdatePlatform platform, String architecture) =>
+    switch (platform) {
       AppUpdatePlatform.windows => 'MagicChat-Windows-x64.zip',
       AppUpdatePlatform.macos => 'MagicChat-macOS.zip',
-      AppUpdatePlatform.linux => 'MagicChat-Linux-x64.tar.gz',
+      AppUpdatePlatform.linux => architecture == 'arm64'
+          ? 'MagicChat-Linux-arm64.tar.gz'
+          : 'MagicChat-Linux-x64.tar.gz',
       _ => '',
     };
 
@@ -45,9 +48,14 @@ class AppRelease {
 }
 
 class UpdateService {
-  const UpdateService({http.Client? client, this.platform}) : _client = client;
+  const UpdateService(
+      {http.Client? client,
+      this.platform,
+      this.desktopArchitecture = compiledDesktopArchitecture})
+      : _client = client;
   final http.Client? _client;
   final AppUpdatePlatform? platform;
+  final String desktopArchitecture;
   static const releaseManifestUrl = 'https://jiying.chat/releases/version.json';
   static const desktopReleaseApiUrl =
       'https://api.github.com/repos/techblack/MagicChat-Flutter/releases/latest';
@@ -58,6 +66,8 @@ class UpdateService {
           String.fromEnvironment('UPDATE_SOURCE', defaultValue: 'release'));
   static const currentBuild = 37;
   static const currentVersion = '0.3.24';
+  static const compiledDesktopArchitecture =
+      String.fromEnvironment('MAGICCHAT_DESKTOP_ARCH', defaultValue: 'x64');
 
   static String get manifestUrl =>
       updateSource == 'release' ? releaseManifestUrl : updateSource;
@@ -166,7 +176,12 @@ class UpdateService {
     final version = tag is String && tag.trim().startsWith('v')
         ? tag.trim().substring(1)
         : '';
-    final assetName = _desktopAssetName(target);
+    if (target == AppUpdatePlatform.linux &&
+        desktopArchitecture != 'x64' &&
+        desktopArchitecture != 'arm64') {
+      throw const FormatException('桌面架构配置不正确');
+    }
+    final assetName = _desktopAssetName(target, desktopArchitecture);
     final assets = decoded['assets'];
     if (version.isEmpty || !_isStableVersion(version) || assets is! List) {
       throw const FormatException('桌面版本响应格式不正确');
