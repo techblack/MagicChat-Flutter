@@ -130,6 +130,7 @@ class _SettingsPageState extends State<SettingsPage> {
   String? _updateError;
   late DesktopScreenshotShortcut _screenshotShortcut;
   late DesktopSearchShortcut _searchShortcut;
+  bool _searchShortcutUpdating = false;
   @override
   void initState() {
     super.initState();
@@ -279,31 +280,37 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _applySearchShortcut(DesktopSearchShortcut shortcut) async {
+    if (_searchShortcutUpdating) return;
+    setState(() => _searchShortcutUpdating = true);
     final update = widget.onSearchShortcutChanged;
-    DesktopShortcutUpdateStatus status;
-    if (update == null) {
-      try {
-        await const DesktopSearchShortcutPreferences().write(shortcut);
-        status = DesktopShortcutUpdateStatus.updated;
-      } catch (_) {
-        status = DesktopShortcutUpdateStatus.saveFailed;
+    try {
+      DesktopShortcutUpdateStatus status;
+      if (update == null) {
+        try {
+          await const DesktopSearchShortcutPreferences().write(shortcut);
+          status = DesktopShortcutUpdateStatus.updated;
+        } catch (_) {
+          status = DesktopShortcutUpdateStatus.saveFailed;
+        }
+      } else {
+        status = await update(shortcut);
       }
-    } else {
-      status = await update(shortcut);
+      if (!mounted) return;
+      if (status == DesktopShortcutUpdateStatus.updated) {
+        setState(() => _searchShortcut = shortcut);
+        return;
+      }
+      final message = switch (status) {
+        DesktopShortcutUpdateStatus.conflict => '该快捷键已被系统或其他应用占用',
+        DesktopShortcutUpdateStatus.saveFailed => '快捷键保存失败，已恢复原设置',
+        DesktopShortcutUpdateStatus.restoreFailed => '快捷键设置失败，原快捷键也未能恢复，请重新设置',
+        DesktopShortcutUpdateStatus.updated => '',
+      };
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    } finally {
+      if (mounted) setState(() => _searchShortcutUpdating = false);
     }
-    if (!mounted) return;
-    if (status == DesktopShortcutUpdateStatus.updated) {
-      setState(() => _searchShortcut = shortcut);
-      return;
-    }
-    final message = switch (status) {
-      DesktopShortcutUpdateStatus.conflict => '该快捷键已被系统或其他应用占用',
-      DesktopShortcutUpdateStatus.saveFailed => '快捷键保存失败，已恢复原设置',
-      DesktopShortcutUpdateStatus.restoreFailed => '快捷键设置失败，原快捷键也未能恢复，请重新设置',
-      DesktopShortcutUpdateStatus.updated => '',
-    };
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _editSearchShortcut() async {
@@ -850,15 +857,21 @@ class _SettingsPageState extends State<SettingsPage> {
                   ? '${_searchShortcut.label(defaultTargetPlatform)} · 全局打开综合搜索'
                   : '已禁用'),
               value: _searchShortcut.enabled,
-              onChanged: (enabled) => _applySearchShortcut(
-                  _searchShortcut.copyWith(enabled: enabled)),
+              onChanged: _searchShortcutUpdating
+                  ? null
+                  : (enabled) => _applySearchShortcut(
+                      _searchShortcut.copyWith(enabled: enabled)),
             ),
             ListTile(
               leading: const Icon(Icons.keyboard_command_key),
               title: const Text('修改全局搜索快捷键'),
               subtitle: Text(_searchShortcut.label(defaultTargetPlatform)),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: _editSearchShortcut,
+              trailing: _searchShortcutUpdating
+                  ? const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.chevron_right),
+              onTap: _searchShortcutUpdating ? null : _editSearchShortcut,
             ),
             SwitchListTile(
               secondary: const Icon(Icons.crop_free),

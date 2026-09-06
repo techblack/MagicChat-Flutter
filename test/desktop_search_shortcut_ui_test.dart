@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -118,6 +120,45 @@ void main() {
 
     expect(find.text('该快捷键已被系统或其他应用占用'), findsOneWidget);
     expect(find.text('Ctrl+Shift+F · 全局打开综合搜索'), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('搜索快捷键更新期间重复触发只执行一次', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    await tester.binding.setSurfaceSize(const Size(800, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final pending = Completer<DesktopShortcutUpdateStatus>();
+    var calls = 0;
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SettingsPage(
+                repository: DemoRepository(),
+                serverUrl: 'https://chat.example.com',
+                searchShortcut:
+                    DesktopSearchShortcut.defaultFor(TargetPlatform.linux),
+                onSearchShortcutChanged: (_) {
+                  calls++;
+                  return pending.future;
+                }))));
+    await tester.pumpAndSettle();
+
+    final toggle = find.widgetWithText(SwitchListTile, '全局搜索快捷键');
+    await tester.ensureVisible(toggle);
+    final trigger = tester.widget<SwitchListTile>(toggle).onChanged!;
+    trigger(false);
+    trigger(false);
+    await tester.pump();
+
+    expect(calls, 1);
+    expect(tester.widget<SwitchListTile>(toggle).onChanged, isNull);
+    expect(
+        tester
+            .widget<ListTile>(find.widgetWithText(ListTile, '修改全局搜索快捷键'))
+            .onTap,
+        isNull);
+    pending.complete(DesktopShortcutUpdateStatus.updated);
+    await tester.pumpAndSettle();
+    expect(find.text('已禁用'), findsWidgets);
     debugDefaultTargetPlatformOverride = null;
   });
 }
