@@ -19,7 +19,7 @@ class TopicReplyPreview extends StatelessWidget {
       builder: (context, snapshot) {
         final contacts = {
           for (final contact in snapshot.data ?? const <Contact>[])
-            contact.id: contact
+            contact.id.toLowerCase(): contact
         };
         return InkWell(
           onTap: onOpen == null ? null : () => onOpen!(topic.conversationId),
@@ -79,17 +79,8 @@ class TopicReplyPreview extends StatelessWidget {
   }
 
   String _senderName(TopicSourceSender sender, Map<String, Contact> contacts) {
-    final contact = contacts[sender.id];
-    if (contact != null &&
-        contact.displayName.trim().isNotEmpty &&
-        contact.displayName.trim() != contact.id.trim()) {
-      return contact.displayName.trim();
-    }
-    if (sender.name.trim().isNotEmpty &&
-        sender.name.trim() != sender.id.trim()) {
-      return sender.name.trim();
-    }
-    return sender.type == 'app' ? '应用' : '成员';
+    final contact = contacts[sender.id.toLowerCase()];
+    return contact?.displayName ?? sender.displayName;
   }
 }
 

@@ -200,6 +200,7 @@ void main() {
     expect(find.text('alice@example.com'), findsOneWidget);
     expect(find.text('+8613800000000'), findsOneWidget);
     expect(find.text('user-alice'), findsNothing);
+    expect(find.text('USER-ALICE'), findsNothing);
     expect(repository.directUserId, isNull);
 
     await tester.tap(find.text('发消息'));
@@ -446,7 +447,7 @@ class _UserDetailsRepository extends DemoRepository {
   Future<List<Contact>> resolveUsers(List<String> userIds) async => const [
         Contact(
           id: 'user-alice',
-          name: 'Alice',
+          name: 'USER-ALICE',
           nickname: '小爱',
           email: 'alice@example.com',
           phone: '+8613800000000',

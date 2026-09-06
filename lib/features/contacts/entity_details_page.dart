@@ -366,7 +366,12 @@ List<_ProfileField> _profileFields(Contact contact, String? developerName) {
 
 String _fieldValue(String value, String id) {
   final text = value.trim();
-  return text.isEmpty || text == id ? '未设置' : text;
+  return text.isEmpty ||
+          text.toLowerCase() == id.trim().toLowerCase() ||
+          text == '成员' ||
+          text == '用户'
+      ? '未设置'
+      : text;
 }
 
 String _profileKind(Contact contact) => switch (contact.type) {

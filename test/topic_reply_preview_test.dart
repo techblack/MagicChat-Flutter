@@ -21,7 +21,7 @@ void main() {
             body: TopicReplyPreview(
                 topic: topic,
                 contactsFuture: Future.value(const [
-                  Contact(id: 'u1', name: 'Alice'),
+                  Contact(id: 'U1', name: 'Alice'),
                   Contact(id: 'u2', name: 'Bob'),
                 ]),
                 onOpen: (id) => opened = id))));

@@ -39,7 +39,7 @@ void main() {
     expect(update.description, '**新的说明**');
     expect(update.status, 'in_progress');
     expect(update.priority, 3);
-    expect(update.assigneeUserId, 'bob');
+    expect(update.assigneeUserId, 'user-bob');
     expect(update.startDate, '2026-09-08');
     expect(update.dueDate, '2026-09-10');
     expect(update.labels, ['发布', '客户端']);
@@ -277,7 +277,7 @@ class _EditingRepository extends DemoRepository {
   @override
   Future<List<ProjectMember>> projectMembers(String projectId) async => const [
         ProjectMember(
-          id: 'bob',
+          id: 'user-bob',
           name: 'Bob',
           email: 'bob@example.com',
           status: 'active',
@@ -306,8 +306,8 @@ class _EditingRepository extends DemoRepository {
       startDate: update.startDate,
       dueDate: update.dueDate,
       labels: update.labels,
-      assignee: update.assigneeUserId == 'bob'
-          ? const ProjectUser(id: 'bob', name: 'Bob')
+      assignee: update.assigneeUserId == 'user-bob'
+          ? const ProjectUser(id: 'user-bob', name: 'Bob')
           : null,
       reminder: update.reminder,
     );
@@ -335,7 +335,7 @@ class _EditingRepository extends DemoRepository {
         projectId: 'project-1',
         taskId: 'task-1',
         type: 'updated',
-        actor: ProjectUser(id: 'alice', name: 'Alice'),
+        actor: ProjectUser(id: 'user-alice', name: 'Alice'),
         createdAt: '2026-09-07T10:00:00Z',
         changes: [
           ProjectTaskActivityChange(field: 'title', from: '原始任务', to: '更新后的任务'),

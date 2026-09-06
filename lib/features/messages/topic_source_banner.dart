@@ -17,26 +17,21 @@ class TopicSourceBanner extends StatelessWidget {
     final body = source.revokedAt != null
         ? '消息已撤回'
         : MessageContent.parse(source.body).text;
-    final senderName =
-        source.sender.name.isEmpty || source.sender.name == source.sender.id
-            ? source.sender.type == 'app'
-                ? '应用'
-                : source.sender.type == 'system'
-                    ? '系统'
-                    : '用户'
-            : source.sender.name;
+    final senderName = source.sender.displayName;
     return FutureBuilder<List<Contact>>(
       future: contactsFuture,
       builder: (context, snapshot) {
         final contacts = snapshot.data ?? const <Contact>[];
         final names = {
-          for (final contact in contacts) contact.id: contact.displayName,
+          for (final contact in contacts)
+            contact.id.toLowerCase(): contact.displayName,
         };
         final labels = contacts.map((contact) => (
               id: contact.id,
               name: contact.displayName,
             ));
-        final resolvedSenderName = names[source.sender.id] ?? senderName;
+        final resolvedSenderName =
+            names[source.sender.id.toLowerCase()] ?? senderName;
         return Material(
           color: Theme.of(context).colorScheme.surfaceContainerHighest,
           child: Padding(
@@ -56,7 +51,7 @@ class TopicSourceBanner extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '来自 ${detail.parentConversation.name == detail.parentConversation.id ? '会话' : detail.parentConversation.name} 的来源消息',
+                        '来自 ${detail.parentConversation.displayName} 的来源消息',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.labelMedium,
@@ -80,7 +75,7 @@ class TopicSourceBanner extends StatelessWidget {
                       ),
                       if (source.replyTo != null)
                         Text(
-                          '回复 ${names[source.replyTo!.sender.id] ?? _replySenderName(source.replyTo!.sender)}：${formatMessageReferenceText(source.replyTo!.summary, labels, messageId: source.replyTo!.id)}',
+                          '回复 ${names[source.replyTo!.sender.id.toLowerCase()] ?? source.replyTo!.sender.displayName}：${formatMessageReferenceText(source.replyTo!.summary, labels, messageId: source.replyTo!.id)}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.bodySmall,
@@ -102,15 +97,6 @@ class TopicSourceBanner extends StatelessWidget {
         );
       },
     );
-  }
-
-  String _replySenderName(TopicSourceSender sender) {
-    if (sender.name.isNotEmpty && sender.name != sender.id) return sender.name;
-    return sender.type == 'app'
-        ? '应用'
-        : sender.type == 'system'
-            ? '系统'
-            : '用户';
   }
 
   String _formatTime(String value) {

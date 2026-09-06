@@ -123,6 +123,24 @@ void main() {
     expect(reply.text, '原消息正文');
   });
 
+  test('引用作者不展示大小写变体 ID', () {
+    final resolved = MessageReply.fromJson({
+      'id': 'message-1',
+      'author': 'USER-1',
+      'display_name': '可读作者',
+      'sender': {'id': 'user-1', 'nickname': 'User-1', 'name': 'Alice'},
+      'summary': '原消息',
+    });
+    final unresolved = MessageReply.fromJson({
+      'id': 'message-2',
+      'sender': {'id': 'USER-2', 'name': 'user-2'},
+      'summary': '原消息',
+    });
+
+    expect(resolved.author, '可读作者');
+    expect(unresolved.author, '用户');
+  });
+
   test('引用复杂消息时使用消息类型摘要而不是原始消息 ID', () {
     final reply = MessageReply.fromJson({
       'id': 'message-1',

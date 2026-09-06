@@ -52,6 +52,12 @@ void main() {
       },
     });
     expect(systemReply.replyTo?.sender.type, 'system');
+    expect(
+        const TopicSourceSender(id: 'USER-1', type: 'user', name: 'user-1')
+            .displayName,
+        '成员');
+    expect(
+        const TopicReference(id: 'GROUP-1', name: 'group-1').displayName, '会话');
 
     final page = TopicPage.fromJson({
       'topics': [_conversationJson()],
