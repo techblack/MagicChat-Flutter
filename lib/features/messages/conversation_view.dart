@@ -25,6 +25,7 @@ bool supportsMobileImagePicker({
     (platform == TargetPlatform.android || platform == TargetPlatform.iOS);
 
 typedef MobileImagePicker = Future<XFile?> Function(ImageSource source);
+typedef MobileGalleryImagePicker = Future<List<XFile>> Function();
 
 enum _OptimisticMessageKind { text, image, file, voice }
 
@@ -123,6 +124,7 @@ class ConversationView extends StatefulWidget {
       this.screenshotController,
       this.screenshotRequestToken = 0,
       this.mobileImagePicker,
+      this.mobileGalleryImagePicker,
       required this.conversationId,
       this.focusMessageId,
       this.focusMessageSequence,
@@ -143,6 +145,7 @@ class ConversationView extends StatefulWidget {
   final DesktopScreenshotController? screenshotController;
   final int screenshotRequestToken;
   final MobileImagePicker? mobileImagePicker;
+  final MobileGalleryImagePicker? mobileGalleryImagePicker;
   final String? conversationId;
   final String? focusMessageId;
   final int? focusMessageSequence;
@@ -2327,10 +2330,7 @@ class _ConversationViewState extends State<ConversationView>
                         tooltip: '从相册选择图片',
                         onPressed: !canSend || _sendingFile
                             ? null
-                            : () => _pickAndSendImage(
-                                  conversationId,
-                                  ImageSource.gallery,
-                                ),
+                            : () => _pickAndSendImages(conversationId),
                       ),
                       IconButton(
                         icon: const Icon(Icons.photo_camera_outlined),
@@ -2661,44 +2661,9 @@ class _ConversationViewState extends State<ConversationView>
               maxHeight: 4096,
             )
           : await widget.mobileImagePicker!(source);
-      if (picked == null ||
-          !mounted ||
-          widget.conversationId != conversationId) {
-        return;
+      if (picked != null) {
+        await _previewAndSendImages(conversationId, [picked]);
       }
-      final bytes = await picked.readAsBytes();
-      if (!mounted || widget.conversationId != conversationId) return;
-      if (bytes.isEmpty) {
-        throw StateError('图片内容为空');
-      }
-      if (bytes.length > 200 * 1024 * 1024) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('图片不能超过 200MiB')));
-        return;
-      }
-      final name = picked.name.trim().isEmpty ? 'image.jpg' : picked.name;
-      final preview = await showMobileImageSendPreviewDialog(
-        context,
-        bytes: bytes,
-        fileName: name,
-      );
-      if (preview == null ||
-          !mounted ||
-          widget.conversationId != conversationId ||
-          !_conversationCanSend(conversationId)) {
-        return;
-      }
-      _enqueueAttachment(
-        conversationId,
-        AttachmentUpload(
-          path: kIsWeb ? '' : picked.path,
-          name: name,
-          mimeType: _mimeType(name.split('.').last),
-          bytes: bytes,
-        ),
-        bytes.length,
-        caption: preview.caption,
-      );
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2706,6 +2671,90 @@ class _ConversationViewState extends State<ConversationView>
       }
     } finally {
       if (mounted) setState(() => _sendingFile = false);
+    }
+  }
+
+  Future<void> _pickAndSendImages(String conversationId) async {
+    if (_sendingFile || !_conversationCanSend(conversationId)) return;
+    setState(() => _sendingFile = true);
+    try {
+      final images = widget.mobileGalleryImagePicker != null
+          ? await widget.mobileGalleryImagePicker!()
+          : widget.mobileImagePicker != null
+              ? [
+                  if (await widget.mobileImagePicker!(ImageSource.gallery)
+                      case final image?)
+                    image,
+                ]
+              : await ImagePicker().pickMultiImage(
+                  imageQuality: 92,
+                  maxWidth: 4096,
+                  maxHeight: 4096,
+                  limit: 9,
+                );
+      await _previewAndSendImages(conversationId, images.take(9).toList());
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('图片选择失败：${userFacingError(error)}')));
+      }
+    } finally {
+      if (mounted) setState(() => _sendingFile = false);
+    }
+  }
+
+  Future<void> _previewAndSendImages(
+      String conversationId, List<XFile> images) async {
+    if (images.isEmpty || !mounted || widget.conversationId != conversationId)
+      return;
+    final prepared = <({AttachmentUpload upload, int size})>[];
+    for (var index = 0; index < images.length; index++) {
+      final image = images[index];
+      final bytes = await image.readAsBytes();
+      if (!mounted || widget.conversationId != conversationId) return;
+      if (bytes.isEmpty) throw StateError('图片内容为空');
+      if (bytes.length > 200 * 1024 * 1024) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('图片不能超过 200MiB')));
+        return;
+      }
+      final name = image.name.trim().isEmpty
+          ? 'image-${index + 1}.jpg'
+          : image.name.trim();
+      final declaredMime = image.mimeType?.trim();
+      prepared.add((
+        upload: AttachmentUpload(
+          path: kIsWeb ? '' : image.path,
+          name: name,
+          mimeType: declaredMime?.startsWith('image/') == true
+              ? declaredMime!
+              : _mimeType(name.split('.').last),
+          bytes: bytes,
+        ),
+        size: bytes.length,
+      ));
+    }
+    final preview = await showMobileImageSendPreviewDialog(
+      context,
+      images: prepared
+          .map((item) => MobileImageSendPreviewItem(
+                bytes: item.upload.bytes!,
+                fileName: item.upload.name,
+              ))
+          .toList(growable: false),
+    );
+    if (preview == null ||
+        !mounted ||
+        widget.conversationId != conversationId ||
+        !_conversationCanSend(conversationId)) return;
+    for (var index = 0; index < prepared.length; index++) {
+      final item = prepared[index];
+      _enqueueAttachment(
+        conversationId,
+        item.upload,
+        item.size,
+        caption: index == 0 ? preview.caption : '',
+      );
     }
   }
 
