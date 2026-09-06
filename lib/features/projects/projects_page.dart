@@ -703,11 +703,18 @@ class _ProjectsPageState extends State<ProjectsPage> {
                         ]),
                     Expanded(
                         child: TabBarView(children: [
-                      ListView(
+                      ListView.builder(
                           padding: const EdgeInsets.all(16),
-                          children: snapshot.data!
-                              .map((task) => _taskTile(context, project, task))
-                              .toList()),
+                          itemCount: snapshot.data!.isEmpty
+                              ? 1
+                              : snapshot.data!.length,
+                          itemBuilder: (context, index) =>
+                              snapshot.data!.isEmpty
+                                  ? const SizedBox(
+                                      height: 220,
+                                      child: Center(child: Text('暂无匹配任务')))
+                                  : _taskTile(
+                                      context, project, snapshot.data![index])),
                       _taskBoard(context, project, snapshot.data!),
                       ProjectTaskCalendarView(
                           tasks: snapshot.data!,
