@@ -55,6 +55,20 @@ static void desktop_window_method_call_cb(FlMethodChannel* channel,
     gtk_window_deiconify(self->window);
     gtk_window_present(self->window);
     response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+  } else if (strcmp(method, "setTitle") == 0) {
+    FlValue* args = fl_method_call_get_args(method_call);
+    if (args == nullptr || fl_value_get_type(args) != FL_VALUE_TYPE_STRING) {
+      response = FL_METHOD_RESPONSE(fl_method_error_response_new(
+          "invalid_args", "setTitle expects a string", nullptr));
+    } else {
+      const gchar* title = fl_value_get_string(args);
+      gtk_window_set_title(self->window, title);
+      GtkWidget* title_bar = gtk_window_get_titlebar(self->window);
+      if (GTK_IS_HEADER_BAR(title_bar)) {
+        gtk_header_bar_set_title(GTK_HEADER_BAR(title_bar), title);
+      }
+      response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+    }
   } else if (strcmp(method, "setTrayReady") == 0) {
     FlValue* args = fl_method_call_get_args(method_call);
     self->tray_ready = args != nullptr &&

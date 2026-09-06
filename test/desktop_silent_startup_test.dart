@@ -117,6 +117,9 @@ class _FakeWindow implements DesktopWindowController {
   Future<void> quit() async {}
 
   @override
+  Future<void> setTitle(String title) async {}
+
+  @override
   Future<void> setTrayReady(bool ready) async {}
 
   @override

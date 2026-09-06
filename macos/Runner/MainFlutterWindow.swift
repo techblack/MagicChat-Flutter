@@ -36,6 +36,17 @@ class MainFlutterWindow: NSWindow {
         self?.makeKeyAndOrderFront(nil)
         NSApplication.shared.activate(ignoringOtherApps: true)
         result(true)
+      case "setTitle":
+        guard let title = call.arguments as? String else {
+          result(FlutterError(
+            code: "invalid_args",
+            message: "setTitle expects a string",
+            details: nil
+          ))
+          return
+        }
+        self?.title = title
+        result(true)
       case "setTrayReady":
         result(true)
       case "setCloseBehavior":

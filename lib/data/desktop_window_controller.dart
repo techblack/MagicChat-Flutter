@@ -12,6 +12,7 @@ extension DesktopCloseBehaviorLabel on DesktopCloseBehavior {
 abstract interface class DesktopWindowController {
   Future<void> show();
   Future<void> quit();
+  Future<void> setTitle(String title);
   Future<void> setTrayReady(bool ready);
   Future<void> setCloseBehavior(DesktopCloseBehavior behavior);
 }
@@ -26,6 +27,10 @@ class PlatformDesktopWindowController implements DesktopWindowController {
 
   @override
   Future<void> quit() => _channel.invokeMethod<void>('quit');
+
+  @override
+  Future<void> setTitle(String title) =>
+      _channel.invokeMethod<void>('setTitle', title);
 
   @override
   Future<void> setTrayReady(bool ready) =>

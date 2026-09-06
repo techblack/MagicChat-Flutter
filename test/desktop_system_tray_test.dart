@@ -62,7 +62,7 @@ void main() {
     expect(calls.any((call) => call.method == 'destroy'), isTrue);
   });
 
-  test('桌面窗口桥接 show、托盘就绪和退出方法', () async {
+  test('桌面窗口桥接标题、show、托盘就绪和退出方法', () async {
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     final calls = <MethodCall>[];
@@ -75,15 +75,17 @@ void main() {
         const MethodChannel('magicchat/desktop_window'), null));
 
     const controller = PlatformDesktopWindowController();
+    await controller.setTitle('(3) 工程群 - MagicChat');
     await controller.setTrayReady(true);
     await controller.setCloseBehavior(DesktopCloseBehavior.quit);
     await controller.show();
     await controller.quit();
 
     expect(calls.map((call) => call.method),
-        ['setTrayReady', 'setCloseBehavior', 'show', 'quit']);
-    expect(calls.first.arguments, isTrue);
-    expect(calls[1].arguments, 'quit');
+        ['setTitle', 'setTrayReady', 'setCloseBehavior', 'show', 'quit']);
+    expect(calls.first.arguments, '(3) 工程群 - MagicChat');
+    expect(calls[1].arguments, isTrue);
+    expect(calls[2].arguments, 'quit');
   });
 }
 
@@ -97,6 +99,9 @@ class _FakeDesktopWindowController implements DesktopWindowController {
 
   @override
   Future<void> quit() async => quitCount++;
+
+  @override
+  Future<void> setTitle(String title) async {}
 
   @override
   Future<void> setTrayReady(bool ready) async => trayReady = ready;

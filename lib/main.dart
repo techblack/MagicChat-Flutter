@@ -30,6 +30,7 @@ import 'data/last_conversation_store.dart';
 import 'data/asset_cache_store.dart';
 import 'data/document_collaboration.dart';
 import 'data/desktop_system_tray.dart';
+import 'data/app_window_title.dart';
 import 'data/desktop_auto_launch.dart';
 import 'data/desktop_screenshot.dart';
 import 'data/desktop_screenshot_preferences.dart';
