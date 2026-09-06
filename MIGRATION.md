@@ -15,7 +15,7 @@ Flutter 工程与现有客户端并行演进，页面层通过 `MagicChatReposit
 | 联系人、在线状态 | `features/contacts` | `/api/client/contacts` 目录模式与关键词查询、用户资料批量解析、完整邮箱/手机号/用户 ID 精确查找、好友申请发送/查看/接受/拒绝/取消、删除好友、在线状态展示、应用/公开群组加入及打开会话已接入；已加入但从会话列表暂时消失的群聊会通过恢复接口重新打开；自有应用创建/编辑/启停/删除、头像、凭据与密钥重置已接入；`user.presence.updated` 实时投影已接入 |
 | 综合搜索 | AppBar 搜索、会话标题栏、`features/search` | 全局搜索结果分类展示并支持跳转；会话内高级检索支持关键词、时间范围、发送人和类型，本地 SQLite 与服务端结果合并去重，点击可定位消息 |
 | 会话管理 | 会话长按菜单 | 置顶、免打扰 API 与 UI 已接入；打开会话或停留在底部时按最新序号同步已读 |
-| 版本检查 | 设置页、`UpdateService` | 移动端版本清单按 Android/iOS 平台选择、HTTPS 下载地址和非负整数 build 严格校验；Windows/macOS/Linux 在 release 源下读取 GitHub Release 并选择对应安装包，所有平台发现新版本均可打开下载地址 |
+| 版本检查 | 设置页、`UpdateService` | 移动端版本清单按 Android/iOS 平台选择、HTTPS 下载地址和非负整数 build 严格校验；Windows/macOS/Linux 在 release 源下读取 GitHub Release 并选择对应安装包，所有平台发现新版本均可打开下载地址；桌面完整包替换前会阻止活跃文件上传/下载触发退出，并保留现有校验、备份、失败回滚与重启流程 |
 | 推送授权与通知路由 | `PushService`、`PushTokenProvider`、`PushRegistrationStore`、设置页、`AppShell` | 公共 Push Gateway installation/grant 注册、续期、持久化和撤销，私有 Server grant 注册/撤销、启动及前台通知点击路由、通知总开关、设备级新消息提示音开关、通知隐私（隐藏内容/仅来源/显示预览）、Android/iOS 本地通知点击会话、Android/iOS/macOS 系统角标及所有平台应用内未读红点已接入；Android JPush SDK 可通过 `JPUSH_APP_KEY` 构建参数启用，厂商渠道参数与推送凭据仍需按发布环境配置 |
 | 二维码 | `QrScannerPage` | Android/iOS/macOS/Web 相机扫码、HTTP(S) 链接打开、文本结果展示及桌面粘贴兜底已接入 |
 | 项目、任务视图 | `features/projects` | 个人/团队项目摘要、项目创建/编辑/删除、项目关键词过滤与游标分页、任务连续分页加载及关键词/状态/优先级筛选、列表/看板/月历/甘特、任务创建、编辑（描述/项目成员负责人/状态/优先级/日期/标签/一次性与周期提醒）、状态更新、删除、任务详情、完整活动流与 Markdown 评论、任务卡片选择会话发送及卡片深链直达任务、成员列表、群组授权管理、目标进度概览（完成率/状态/逾期/排期）已接入；项目工作区使用全屏自适应路由，任务创建、编辑、状态和删除后原位刷新并保留当前工作区/视图；服务端尚未提供独立 Goals 实体 API |

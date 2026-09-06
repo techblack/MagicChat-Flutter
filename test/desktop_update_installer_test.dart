@@ -25,6 +25,91 @@ void main() {
       if (await directory.exists()) await directory.delete(recursive: true);
     });
 
+    test('存在活跃文件传输时不开始下载更新', () async {
+      var requested = false;
+      final installer = DesktopUpdateInstaller(
+        platform: TargetPlatform.windows,
+        executablePath: '${directory.path}/MagicChat/magicchat_client.exe',
+        temporaryDirectory: () async => directory,
+        client: MockClient((_) async {
+          requested = true;
+          return http.Response('', 200);
+        }),
+        hasActiveTransfers: () => true,
+      );
+
+      await expectLater(
+          installer.downloadAndInstall(
+            const AppRelease(
+              version: '0.3.22',
+              build: 3022,
+              url: 'https://example.com/MagicChat-Windows-x64.zip',
+              assetName: 'MagicChat-Windows-x64.zip',
+            ),
+            onProgress: (_) {},
+          ),
+          throwsA(isA<UpdateInstallBlockedByActiveTransfers>()));
+
+      expect(requested, isFalse);
+    });
+
+    test('准备替换期间新传输开始时保留当前版本并取消安装', () async {
+      final target = Directory('${directory.path}/MagicChat')
+        ..createSync(recursive: true);
+      final executable = File('${target.path}/magicchat_client.exe')
+        ..writeAsBytesSync([1]);
+      File('${target.path}/flutter_windows.dll').writeAsBytesSync([1]);
+      Directory('${target.path}/data/flutter_assets')
+          .createSync(recursive: true);
+      final package = [0x50, 0x4b, 0x03, 0x04, ...List.filled(32, 7)];
+      var active = false;
+      var launched = false;
+      var quit = false;
+      final installer = DesktopUpdateInstaller(
+        platform: TargetPlatform.windows,
+        executablePath: executable.path,
+        temporaryDirectory: () async => directory,
+        client: MockClient((_) async => http.Response.bytes(package, 200,
+            headers: {'content-length': '${package.length}'})),
+        archiveValidator: (_, __) async {},
+        archiveExtractor: (_, destination, __) async {
+          await File('${destination.path}/magicchat_client.exe')
+              .writeAsBytes([2]);
+          await File('${destination.path}/flutter_windows.dll')
+              .writeAsBytes([3]);
+          await Directory('${destination.path}/data/flutter_assets')
+              .create(recursive: true);
+          active = true;
+        },
+        replacementLauncher: (_) async => launched = true,
+        hasActiveTransfers: () => active,
+        quit: () async => quit = true,
+      );
+
+      await expectLater(
+          installer.downloadAndInstall(
+            AppRelease(
+              version: '0.3.22',
+              build: 3022,
+              url: 'https://example.com/MagicChat-Windows-x64.zip',
+              assetName: 'MagicChat-Windows-x64.zip',
+              size: package.length,
+              sha256: sha256.convert(package).toString(),
+            ),
+            onProgress: (_) {},
+          ),
+          throwsA(isA<UpdateInstallBlockedByActiveTransfers>()));
+
+      expect(launched, isFalse);
+      expect(quit, isFalse);
+      expect(await executable.readAsBytes(), [1]);
+      expect(
+          directory.listSync().where((entry) =>
+              entry.path.contains('magicchat-update-3022') ||
+              entry.path.contains('magicchat-extract-3022')),
+          isEmpty);
+    });
+
     test('下载、校验、准备 Windows 完整包后启动替换并退出', () async {
       final target = Directory('${directory.path}/MagicChat')
         ..createSync(recursive: true);

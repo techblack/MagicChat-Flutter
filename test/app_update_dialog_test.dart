@@ -76,6 +76,19 @@ void main() {
     await tester.pumpAndSettle();
     expect(installer.cancelled, isTrue);
   });
+
+  testWidgets('活跃文件传输阻断安装并提示完成或取消传输', (tester) async {
+    await tester.pumpWidget(_DialogHost(installer: _BlockedInstaller()));
+
+    await tester.tap(find.text('显示更新'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('下载安装'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('仍有文件正在上传或下载，请等待完成或取消传输后重试'), findsOneWidget);
+    expect(find.byType(AppUpdateDialog), findsOneWidget);
+    expect(find.text('下载安装'), findsOneWidget);
+  });
 }
 
 const _release = AppRelease(
@@ -151,4 +164,23 @@ class _PendingDesktopInstaller implements UpdateInstaller {
       _completion.completeError(const UpdateDownloadCancelled());
     }
   }
+}
+
+class _BlockedInstaller implements UpdateInstaller {
+  @override
+  bool get supported => true;
+
+  @override
+  String get progressLabel => '正在下载并校验完整安装包';
+
+  @override
+  String get completionHint => '校验完成后将自动替换当前版本并重启。';
+
+  @override
+  Future<void> downloadAndInstall(AppRelease release,
+          {required UpdateDownloadProgress onProgress}) =>
+      throw const UpdateInstallBlockedByActiveTransfers();
+
+  @override
+  Future<void> cancel() async {}
 }

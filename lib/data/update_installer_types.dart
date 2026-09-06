@@ -24,3 +24,10 @@ class UpdateDownloadCancelled implements Exception {
   @override
   String toString() => '安装包下载已取消';
 }
+
+class UpdateInstallBlockedByActiveTransfers implements Exception {
+  const UpdateInstallBlockedByActiveTransfers();
+
+  @override
+  String toString() => '仍有文件正在上传或下载，请等待完成或取消传输后重试';
+}

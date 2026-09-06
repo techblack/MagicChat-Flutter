@@ -9,6 +9,7 @@ import 'contact_cache_store.dart';
 import 'message_cache_store.dart';
 
 abstract interface class MagicChatRepository {
+  bool get hasActiveTransfers;
   Future<CurrentUser> currentUser();
   Future<CurrentUser> updateProfile({String? nickname, String? avatar});
   Future<CurrentUser> uploadAvatar(AttachmentUpload upload);
@@ -177,6 +178,9 @@ abstract interface class MagicChatRepository {
 
 /// 开发壳数据。接入服务端时实现本接口，UI 不依赖 HTTP/WebSocket 细节。
 class DemoRepository implements MagicChatRepository {
+  @override
+  bool get hasActiveTransfers => false;
+
   CurrentUser _user =
       const CurrentUser(id: 'demo', name: '演示用户', email: 'demo@example.com');
 
@@ -1008,7 +1012,11 @@ class HttpMagicChatRepository implements MagicChatRepository {
   String? _currentUserId;
   final _projectUsers = <String, ProjectUser>{};
   final _contactCacheStore = ContactCacheStore();
+  int _activeTransfers = 0;
   bool _projectCacheLoaded = false;
+
+  @override
+  bool get hasActiveTransfers => _activeTransfers > 0;
 
   Map<String, String> get _sessionHeaders =>
       sessionToken == SessionStore.cookieSessionToken
@@ -1503,24 +1511,34 @@ class HttpMagicChatRepository implements MagicChatRepository {
   }
 
   Future<Map<String, dynamic>> _sendMultipartRequest(
-      http.MultipartRequest request,
-      {required String fallbackMessage}) async {
-    final response = await _client.send(request).timeout(requestTimeout);
-    final text = await response.stream.bytesToString();
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw _requestException(response.statusCode, text,
-          fallbackMessage: fallbackMessage);
+          http.MultipartRequest request,
+          {required String fallbackMessage}) =>
+      _trackTransfer(() async {
+        final response = await _client.send(request).timeout(requestTimeout);
+        final text = await response.stream.bytesToString();
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          throw _requestException(response.statusCode, text,
+              fallbackMessage: fallbackMessage);
+        }
+        if (text.isEmpty) return const <String, dynamic>{};
+        final value = jsonDecode(text);
+        if (value is Map<String, dynamic> && value['success'] == false) {
+          throw _requestException(response.statusCode, text,
+              fallbackMessage: fallbackMessage);
+        }
+        if (value is! Map<String, dynamic>) {
+          throw const FormatException('服务端响应格式不正确');
+        }
+        return value;
+      });
+
+  Future<T> _trackTransfer<T>(Future<T> Function() transfer) async {
+    _activeTransfers++;
+    try {
+      return await transfer();
+    } finally {
+      _activeTransfers--;
     }
-    if (text.isEmpty) return const {};
-    final value = jsonDecode(text);
-    if (value is Map<String, dynamic> && value['success'] == false) {
-      throw _requestException(response.statusCode, text,
-          fallbackMessage: fallbackMessage);
-    }
-    if (value is! Map<String, dynamic>) {
-      throw const FormatException('服务端响应格式不正确');
-    }
-    return value;
   }
 
   Map<String, dynamic> _data(dynamic value) {
@@ -1981,29 +1999,30 @@ class HttpMagicChatRepository implements MagicChatRepository {
   }
 
   @override
-  Future<Uint8List?> downloadAttachment(String fileId) async {
-    final uri = await attachmentUrl(fileId);
-    if (uri == null) return null;
-    final response = await _client.get(uri).timeout(requestTimeout);
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('附件下载失败（HTTP ${response.statusCode}）');
-    }
-    return response.bodyBytes;
-  }
+  Future<Uint8List?> downloadAttachment(String fileId) =>
+      _trackTransfer(() async {
+        final uri = await attachmentUrl(fileId);
+        if (uri == null) return null;
+        final response = await _client.get(uri).timeout(requestTimeout);
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          throw Exception('附件下载失败（HTTP ${response.statusCode}）');
+        }
+        return response.bodyBytes;
+      });
 
   @override
-  Future<Uint8List?> downloadResource(Uri uri) async {
-    final sameOrigin = uri.scheme == baseUri.scheme &&
-        uri.host == baseUri.host &&
-        uri.port == baseUri.port;
-    final response = await _client
-        .get(uri, headers: sameOrigin ? _sessionHeaders : const {})
-        .timeout(requestTimeout);
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('资源下载失败（HTTP ${response.statusCode}）');
-    }
-    return response.bodyBytes;
-  }
+  Future<Uint8List?> downloadResource(Uri uri) => _trackTransfer(() async {
+        final sameOrigin = uri.scheme == baseUri.scheme &&
+            uri.host == baseUri.host &&
+            uri.port == baseUri.port;
+        final response = await _client
+            .get(uri, headers: sameOrigin ? _sessionHeaders : const {})
+            .timeout(requestTimeout);
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          throw Exception('资源下载失败（HTTP ${response.statusCode}）');
+        }
+        return response.bodyBytes;
+      });
 
   @override
   Future<UploadedTemporaryFile> uploadTemporaryFile(

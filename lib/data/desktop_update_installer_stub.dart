@@ -10,6 +10,7 @@ class DesktopUpdateInstaller implements UpdateInstaller {
     Object? archiveValidator,
     Object? archiveExtractor,
     Object? replacementLauncher,
+    Object? hasActiveTransfers,
     Object? quit,
   });
 
