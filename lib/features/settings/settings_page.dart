@@ -1,7 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/auth_service.dart';
 import '../../data/avatar_processor.dart';
@@ -14,11 +13,13 @@ import '../../data/session_store.dart';
 import '../../data/server_store.dart';
 import '../../data/storage_service.dart';
 import '../../data/update_service.dart';
+import '../../data/update_installer.dart';
 import '../../data/message_cache_store.dart';
 import '../../domain/models.dart';
 import '../qr_scanner_page.dart';
 import '../shared/cached_avatar.dart';
 import 'account_deactivation_page.dart';
+import 'app_update_dialog.dart';
 import 'server_management_page.dart';
 import 'storage_management_page.dart';
 
@@ -183,27 +184,22 @@ class _SettingsPageState extends State<SettingsPage> {
       final release = await const UpdateService().check();
       if (!mounted) return;
       await showDialog<void>(
-          context: context,
-          builder: (dialogContext) => AlertDialog(
+        context: context,
+        builder: (dialogContext) => release == null
+            ? AlertDialog(
                 title: const Text('检查更新'),
-                content: Text(release == null
-                    ? '当前已是最新版本（${UpdateService.currentVersion}）'
-                    : '发现新版本 ${release.version}（${release.build}）'),
+                content: Text('当前已是最新版本（${UpdateService.currentVersion}）'),
                 actions: [
                   TextButton(
                       onPressed: () => Navigator.pop(dialogContext),
                       child: const Text('关闭')),
-                  if (release != null)
-                    FilledButton(
-                        onPressed: () async {
-                          await launchUrl(Uri.parse(release.url),
-                              mode: LaunchMode.externalApplication);
-                          if (dialogContext.mounted)
-                            Navigator.pop(dialogContext);
-                        },
-                        child: const Text('打开下载页')),
                 ],
-              ));
+              )
+            : AppUpdateDialog(
+                release: release,
+                installer: AndroidUpdateInstaller(),
+              ),
+      );
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
