@@ -5,6 +5,7 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_windows
   desktop_drop
+  desktop_tray
   flutter_secure_storage_windows
   record_windows
   sqlite3_flutter_libs

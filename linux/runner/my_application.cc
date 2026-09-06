@@ -10,6 +10,9 @@
 struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
+  GtkWindow* window;
+  FlMethodChannel* desktop_window_channel;
+  gboolean tray_ready;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
@@ -22,10 +25,43 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
 static gboolean window_delete_cb(GtkWidget* widget, GdkEvent* event,
                                  gpointer user_data) {
   (void)event;
-  (void)user_data;
-  // 关闭窗口时保留进程和实时连接，改为最小化到任务栏。
-  gtk_window_iconify(GTK_WINDOW(widget));
+  MyApplication* self = MY_APPLICATION(user_data);
+  // 托盘可用时隐藏窗口；不可用时保留任务栏入口，避免窗口无法恢复。
+  if (self->tray_ready) {
+    gtk_widget_hide(widget);
+  } else {
+    gtk_window_iconify(GTK_WINDOW(widget));
+  }
   return TRUE;
+}
+
+static void desktop_window_method_call_cb(FlMethodChannel* channel,
+                                          FlMethodCall* method_call,
+                                          gpointer user_data) {
+  (void)channel;
+  MyApplication* self = MY_APPLICATION(user_data);
+  const gchar* method = fl_method_call_get_name(method_call);
+  g_autoptr(FlMethodResponse) response = nullptr;
+  if (strcmp(method, "show") == 0) {
+    gtk_widget_show(GTK_WIDGET(self->window));
+    gtk_window_deiconify(self->window);
+    gtk_window_present(self->window);
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+  } else if (strcmp(method, "setTrayReady") == 0) {
+    FlValue* args = fl_method_call_get_args(method_call);
+    self->tray_ready = args != nullptr &&
+                       fl_value_get_type(args) == FL_VALUE_TYPE_BOOL &&
+                       fl_value_get_bool(args);
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+  } else if (strcmp(method, "quit") == 0) {
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+  } else {
+    response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
+  }
+  fl_method_call_respond(method_call, response, nullptr);
+  if (strcmp(method, "quit") == 0) {
+    g_application_quit(G_APPLICATION(self));
+  }
 }
 
 // Implements GApplication::activate.
@@ -33,6 +69,7 @@ static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
+  self->window = window;
 
   // Use a header bar when running in GNOME as this is the common style used
   // by applications and is the setup most users will be using (e.g. Ubuntu
@@ -95,6 +132,14 @@ static void my_application_activate(GApplication* application) {
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
 
+  g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
+  self->desktop_window_channel = fl_method_channel_new(
+      fl_engine_get_binary_messenger(fl_view_get_engine(view)),
+      "magicchat/desktop_window", FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(self->desktop_window_channel,
+                                            desktop_window_method_call_cb, self,
+                                            nullptr);
+
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
 
@@ -140,6 +185,7 @@ static void my_application_shutdown(GApplication* application) {
 // Implements GObject::dispose.
 static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
+  g_clear_object(&self->desktop_window_channel);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
@@ -153,7 +199,9 @@ static void my_application_class_init(MyApplicationClass* klass) {
   G_OBJECT_CLASS(klass)->dispose = my_application_dispose;
 }
 
-static void my_application_init(MyApplication* self) {}
+static void my_application_init(MyApplication* self) {
+  self->tray_ready = FALSE;
+}
 
 MyApplication* my_application_new() {
   // Set the program name to the application ID, which helps various systems
