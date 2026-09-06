@@ -5,10 +5,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as image;
 import 'package:magicchat_client/data/desktop_screenshot.dart';
 import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
+import 'package:magicchat_client/features/messages/screenshot_annotation_dialog.dart';
 import 'package:magicchat_client/features/settings/desktop_screenshot_shortcut_dialog.dart';
 import 'package:magicchat_client/features/settings/settings_page.dart';
 import 'package:magicchat_client/main.dart';
@@ -49,6 +51,13 @@ void main() {
 
     expect(capture.mode, DesktopScreenshotMode.region);
     expect(find.text('发送截图'), findsOneWidget);
+    expect(find.text('矩形'), findsOneWidget);
+    expect(find.text('箭头'), findsOneWidget);
+    expect(find.text('画笔'), findsOneWidget);
+    for (final color in screenshotAnnotationColors) {
+      expect(find.byTooltip('使用颜色 #${color.toRadixString(16).substring(2)}'),
+          findsOneWidget);
+    }
     expect(find.byKey(const ValueKey('screenshot-preview-metadata')),
         findsOneWidget);
     await tester.tap(find.widgetWithText(FilledButton, '发送'));
@@ -57,6 +66,108 @@ void main() {
     expect(repository.upload?.mimeType, 'image/png');
     expect(repository.upload?.bytes, _pngBytes);
     expect(repository.conversationId, 'conversation-1');
+  });
+
+  testWidgets('截图可添加矩形标注并撤销重做后发送', (tester) async {
+    final directory = Directory.systemTemp.createTempSync('shot-ui-');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final source = image.Image(width: 160, height: 90, numChannels: 4);
+    image.fill(source, color: image.ColorRgba8(255, 255, 255, 255));
+    final sourceBytes = Uint8List.fromList(image.encodePng(source));
+    final repository = _ScreenshotRepository();
+    final controller = DesktopScreenshotController(
+      captureBackend:
+          _CaptureBackend(bytes: sourceBytes, width: 160, height: 90),
+      hotKeyBackend: _HotKeyBackend(),
+      platform: TargetPlatform.linux,
+      temporaryDirectoryPath: () async => directory.path,
+    );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ConversationView(
+          repository: repository,
+          conversationId: 'conversation-1',
+          screenshotController: controller,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('截图'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('选择区域截图'));
+    await tester.pump(const Duration(milliseconds: 100));
+    final canvas = tester
+        .getRect(find.byKey(const ValueKey('screenshot-annotation-canvas')));
+    await tester.dragFrom(
+        canvas.topLeft + const Offset(20, 20), const Offset(100, 45));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(ChoiceChip, '箭头'));
+    await tester.pump();
+    await tester.dragFrom(
+        canvas.topLeft + const Offset(40, 70), const Offset(110, -25));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(ChoiceChip, '画笔'));
+    await tester.pump();
+    await tester.dragFrom(
+        canvas.topLeft + const Offset(80, 30), const Offset(70, 35));
+    await tester.pump();
+
+    final undo =
+        tester.widget<IconButton>(find.widgetWithIcon(IconButton, Icons.undo));
+    expect(undo.onPressed, isNotNull);
+    await tester.tap(find.byTooltip('撤销'));
+    await tester.pump();
+    final redo =
+        tester.widget<IconButton>(find.widgetWithIcon(IconButton, Icons.redo));
+    expect(redo.onPressed, isNotNull);
+    await tester.tap(find.byTooltip('重做'));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, '发送'));
+    for (var attempt = 0;
+        attempt < 20 && repository.upload == null;
+        attempt++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    expect(repository.upload?.bytes, isNot(equals(sourceBytes)));
+    final output = image.decodePng(repository.upload!.bytes!)!;
+    expect(output.width, 160);
+    expect(output.height, 90);
+    expect(_coloredPixelCount(output), greaterThan(0));
+  });
+
+  testWidgets('取消截图标注不进入发送队列', (tester) async {
+    final directory = Directory.systemTemp.createTempSync('shot-ui-');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final repository = _ScreenshotRepository();
+    final controller = DesktopScreenshotController(
+      captureBackend: _CaptureBackend(),
+      hotKeyBackend: _HotKeyBackend(),
+      platform: TargetPlatform.linux,
+      temporaryDirectoryPath: () async => directory.path,
+    );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ConversationView(
+          repository: repository,
+          conversationId: 'conversation-1',
+          screenshotController: controller,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('截图'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('截取整个屏幕'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.widgetWithText(TextButton, '取消'));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(repository.upload, isNull);
   });
 
   testWidgets('只读会话禁用截图入口', (tester) async {
@@ -216,9 +327,17 @@ class _ScreenshotRepository extends DemoRepository {
 }
 
 class _CaptureBackend implements DesktopScreenshotCaptureBackend {
-  _CaptureBackend({this.accessAllowed = true});
+  _CaptureBackend({
+    this.accessAllowed = true,
+    Uint8List? bytes,
+    this.width = 1,
+    this.height = 1,
+  }) : bytes = bytes ?? _pngBytes;
 
   bool accessAllowed;
+  final Uint8List bytes;
+  final int width;
+  final int height;
   int settingsRequests = 0;
   DesktopScreenshotMode? mode;
 
@@ -226,9 +345,12 @@ class _CaptureBackend implements DesktopScreenshotCaptureBackend {
   Future<CapturedScreenshot?> capture(
       DesktopScreenshotMode mode, String imagePath) async {
     this.mode = mode;
-    File(imagePath).writeAsBytesSync(_pngBytes);
+    File(imagePath).writeAsBytesSync(bytes);
     return CapturedScreenshot(
-        bytes: _pngBytes, width: 1, height: 1, fileName: 'MagicChat-test.png');
+        bytes: bytes,
+        width: width,
+        height: height,
+        fileName: 'MagicChat-test.png');
   }
 
   @override
@@ -251,3 +373,15 @@ class _HotKeyBackend implements DesktopScreenshotHotKeyBackend {
 
 final _pngBytes = base64Decode(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=');
+
+int _coloredPixelCount(image.Image value) {
+  var count = 0;
+  for (final pixel in value) {
+    if (pixel.r.toInt() != 255 ||
+        pixel.g.toInt() != 255 ||
+        pixel.b.toInt() != 255) {
+      count++;
+    }
+  }
+  return count;
+}

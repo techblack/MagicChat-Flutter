@@ -10,6 +10,8 @@ class DesktopScreenshotController {
     Future<String> Function()? temporaryDirectoryPath,
   });
 
+  static const maxImageBytes = desktopScreenshotMaxImageBytes;
+
   bool get isSupported => false;
 
   Future<bool> configure(DesktopScreenshotShortcut shortcut,

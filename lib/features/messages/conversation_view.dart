@@ -3070,38 +3070,9 @@ class _ConversationViewState extends State<ConversationView>
       if (screenshot == null ||
           !mounted ||
           widget.conversationId != conversationId) return;
-      final send = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('发送截图'),
-          content: SizedBox(
-            width: 560,
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              ConstrainedBox(
-                constraints:
-                    const BoxConstraints(maxWidth: 520, maxHeight: 380),
-                child: Image.memory(screenshot.bytes, fit: BoxFit.contain),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                '${screenshot.width} × ${screenshot.height} · ${_formatAttachmentSize(screenshot.bytes.length)}',
-                key: const ValueKey('screenshot-preview-metadata'),
-              ),
-            ]),
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
-                child: const Text('取消')),
-            FilledButton.icon(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              icon: const Icon(Icons.send_outlined),
-              label: const Text('发送'),
-            ),
-          ],
-        ),
-      );
-      if (send == true &&
+      final prepared =
+          await showScreenshotAnnotationDialog(context, screenshot);
+      if (prepared != null &&
           mounted &&
           widget.conversationId == conversationId &&
           _conversationCanSend(conversationId)) {
@@ -3109,11 +3080,11 @@ class _ConversationViewState extends State<ConversationView>
           conversationId,
           AttachmentUpload(
             path: '',
-            name: screenshot.fileName,
+            name: prepared.fileName,
             mimeType: 'image/png',
-            bytes: screenshot.bytes,
+            bytes: prepared.bytes,
           ),
-          screenshot.bytes.length,
+          prepared.bytes.length,
         );
       }
     } on DesktopScreenshotException catch (error) {

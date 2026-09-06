@@ -73,7 +73,7 @@ class DesktopScreenshotController {
         _temporaryDirectoryPath = temporaryDirectoryPath ??
             (() async => (await getTemporaryDirectory()).path);
 
-  static const maxImageBytes = 32 * 1024 * 1024;
+  static const maxImageBytes = desktopScreenshotMaxImageBytes;
 
   final DesktopScreenshotCaptureBackend _captureBackend;
   final DesktopScreenshotHotKeyBackend _hotKeyBackend;
