@@ -108,6 +108,26 @@ class _MarkAllReadRepository extends DemoRepository {
   }
 }
 
+class _ConversationPreviewRepository extends DemoRepository {
+  var contactRequests = 0;
+
+  @override
+  Future<List<ChatConversation>> conversations() async => const [
+        ChatConversation(
+          id: 'preview-conversation',
+          title: '预览会话',
+          preview: '你好 {(@user/alice)}',
+          members: [Contact(id: 'alice', name: 'Alice')],
+        ),
+      ];
+
+  @override
+  Future<List<Contact>> contacts({String keyword = ''}) async {
+    contactRequests++;
+    return const [Contact(id: 'unrelated', name: '不应加载')];
+  }
+}
+
 void main() {
   const direct = ChatConversation(
       id: 'direct',
@@ -302,6 +322,18 @@ void main() {
     await tester.enterText(find.byType(TextField).first, '不存在');
     await tester.pumpAndSettle();
     expect(find.text('没有匹配的会话'), findsOneWidget);
+  });
+
+  testWidgets('会话预览使用会话成员资料，不加载完整通讯录', (tester) async {
+    final repository = _ConversationPreviewRepository();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: MessagesPage(
+                repository: repository, selectedId: null, onSelect: (_) {}))));
+    await tester.pumpAndSettle();
+
+    expect(repository.contactRequests, 0);
+    expect(find.text('你好 @Alice'), findsOneWidget);
   });
 
   testWidgets('会话列表支持下拉刷新并保留内容', (tester) async {

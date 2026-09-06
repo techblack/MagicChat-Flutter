@@ -578,7 +578,6 @@ class _ConversationListState extends State<_ConversationList> {
   Future<List<ChatConversation>>? _future;
   List<ChatConversation> _loadedConversations = const [];
   String? _currentUserId;
-  List<Contact> _displayContacts = const [];
   ConversationFilter _filter = ConversationFilter.all;
   String _query = '';
   bool _markingAllRead = false;
@@ -588,17 +587,7 @@ class _ConversationListState extends State<_ConversationList> {
     _currentUserId = widget.realtimeStore?.currentUserId;
     widget.realtimeStore?.addListener(_onRealtimeChanged);
     unawaited(_loadCurrentUser());
-    unawaited(_loadDisplayContacts());
     _reload();
-  }
-
-  Future<void> _loadDisplayContacts() async {
-    try {
-      final contacts = await widget.repository.contacts();
-      if (mounted) setState(() => _displayContacts = contacts);
-    } catch (_) {
-      // 未加载到资料时，提及仍显示通用名称，不暴露内部 ID。
-    }
   }
 
   Future<void> _loadCurrentUser() async {
@@ -720,7 +709,11 @@ class _ConversationListState extends State<_ConversationList> {
                     TextStyle(fontWeight: hasUnread ? FontWeight.w600 : null);
                 final messageTime = _conversationTime(c);
                 final previewContacts = <String, Contact>{
-                  for (final contact in _displayContacts) contact.id: contact,
+                  // 会话列表不应为了预览提及而拉取整本组织通讯录。服务端
+                  // 会话已经带有成员资料，实时缓存则补充最近更新的昵称/头像。
+                  for (final contact in widget.realtimeStore?.contacts.values ??
+                      const <Contact>[])
+                    contact.id: contact,
                   for (final member in c.members) member.id: member,
                 }.values;
                 final preview = formatMentionText(
