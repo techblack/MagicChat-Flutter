@@ -24,6 +24,8 @@ bool supportsMobileImagePicker({
     !isWeb &&
     (platform == TargetPlatform.android || platform == TargetPlatform.iOS);
 
+typedef MobileImagePicker = Future<XFile?> Function(ImageSource source);
+
 enum _OptimisticMessageKind { text, image, file, voice }
 
 enum _OptimisticMessageStatus { sending, sent, failed }
@@ -59,6 +61,8 @@ class _OptimisticSendDescriptor {
           'type': 'image',
           'file_id': localFileId,
           'name': upload?.name ?? '图片',
+          if (text.isNotEmpty) 'caption': text,
+          if (text.isNotEmpty) 'caption_type': 'text',
         },
       _OptimisticMessageKind.file => <String, dynamic>{
           'type': 'file',
@@ -83,7 +87,7 @@ class _OptimisticSendDescriptor {
       rawBody: body,
       text: switch (kind) {
         _OptimisticMessageKind.text => text,
-        _OptimisticMessageKind.image => '[图片]',
+        _OptimisticMessageKind.image => text.isEmpty ? '[图片]' : '[图片] $text',
         _OptimisticMessageKind.file => '[文件] ${upload?.name ?? ''}'.trim(),
         _OptimisticMessageKind.voice => '[语音]',
       },
@@ -118,6 +122,7 @@ class ConversationView extends StatefulWidget {
       this.enableFileDrop = true,
       this.screenshotController,
       this.screenshotRequestToken = 0,
+      this.mobileImagePicker,
       required this.conversationId,
       this.focusMessageId,
       this.focusMessageSequence,
@@ -137,6 +142,7 @@ class ConversationView extends StatefulWidget {
   final bool enableFileDrop;
   final DesktopScreenshotController? screenshotController;
   final int screenshotRequestToken;
+  final MobileImagePicker? mobileImagePicker;
   final String? conversationId;
   final String? focusMessageId;
   final int? focusMessageSequence;
@@ -1592,6 +1598,7 @@ class _ConversationViewState extends State<ConversationView>
           await widget.repository.sendImage(
             conversationId,
             descriptor.upload!,
+            caption: descriptor.text,
             replyToMessageId: descriptor.replyTo?.id,
             clientMessageId: clientMessageId,
           );
@@ -2646,12 +2653,14 @@ class _ConversationViewState extends State<ConversationView>
     if (_sendingFile || !_conversationCanSend(conversationId)) return;
     setState(() => _sendingFile = true);
     try {
-      final picked = await ImagePicker().pickImage(
-        source: source,
-        imageQuality: 92,
-        maxWidth: 4096,
-        maxHeight: 4096,
-      );
+      final picked = widget.mobileImagePicker == null
+          ? await ImagePicker().pickImage(
+              source: source,
+              imageQuality: 92,
+              maxWidth: 4096,
+              maxHeight: 4096,
+            )
+          : await widget.mobileImagePicker!(source);
       if (picked == null ||
           !mounted ||
           widget.conversationId != conversationId) {
@@ -2668,6 +2677,17 @@ class _ConversationViewState extends State<ConversationView>
         return;
       }
       final name = picked.name.trim().isEmpty ? 'image.jpg' : picked.name;
+      final preview = await showMobileImageSendPreviewDialog(
+        context,
+        bytes: bytes,
+        fileName: name,
+      );
+      if (preview == null ||
+          !mounted ||
+          widget.conversationId != conversationId ||
+          !_conversationCanSend(conversationId)) {
+        return;
+      }
       _enqueueAttachment(
         conversationId,
         AttachmentUpload(
@@ -2677,6 +2697,7 @@ class _ConversationViewState extends State<ConversationView>
           bytes: bytes,
         ),
         bytes.length,
+        caption: preview.caption,
       );
     } catch (error) {
       if (mounted) {
@@ -2897,7 +2918,8 @@ class _ConversationViewState extends State<ConversationView>
   }
 
   void _enqueueAttachment(
-      String conversationId, AttachmentUpload upload, int size) {
+      String conversationId, AttachmentUpload upload, int size,
+      {String caption = ''}) {
     _enqueueOptimisticMessage(
       conversationId,
       _OptimisticSendDescriptor(
@@ -2906,6 +2928,7 @@ class _ConversationViewState extends State<ConversationView>
             ? _OptimisticMessageKind.image
             : _OptimisticMessageKind.file,
         upload: upload,
+        text: caption,
         replyTo: _replyTo,
         sizeBytes: size,
       ),
@@ -3459,16 +3482,26 @@ class _OptimisticMessageBubble extends StatelessWidget {
         );
       case _OptimisticMessageKind.image:
         final bytes = descriptor.upload?.bytes;
-        if (bytes != null && bytes.isNotEmpty) {
-          return ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 280, maxHeight: 280),
-            child: Image.memory(bytes,
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) =>
-                    _attachmentLabel(descriptor, Icons.image_outlined, color)),
-          );
-        }
-        return _attachmentLabel(descriptor, Icons.image_outlined, color);
+        final image = bytes != null && bytes.isNotEmpty
+            ? ConstrainedBox(
+                constraints:
+                    const BoxConstraints(maxWidth: 280, maxHeight: 280),
+                child: Image.memory(bytes,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => _attachmentLabel(
+                        descriptor, Icons.image_outlined, color)),
+              )
+            : _attachmentLabel(descriptor, Icons.image_outlined, color);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            image,
+            if (descriptor.text.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(descriptor.text, style: TextStyle(color: color)),
+            ],
+          ],
+        );
       case _OptimisticMessageKind.file:
         return _attachmentLabel(descriptor, Icons.attach_file, color);
       case _OptimisticMessageKind.voice:

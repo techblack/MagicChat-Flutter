@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as image;
+import 'package:image_picker/image_picker.dart';
 import 'package:magicchat_client/data/asset_cache_store.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/data/realtime_store.dart';
@@ -30,6 +31,44 @@ void main() {
         supportsMobileImagePicker(
             isWeb: true, platform: TargetPlatform.android),
         isFalse);
+  });
+
+  testWidgets('相册图片发送前预览并携带说明', (tester) async {
+    final repository = _PickedImageRepository();
+    ImageSource? pickedSource;
+    await tester.binding.setSurfaceSize(const Size(600, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ConversationView(
+          repository: repository,
+          conversationId: 'conversation-1',
+          mobileImagePicker: (source) async {
+            pickedSource = source;
+            return XFile.fromData(
+              repository.imageBytes,
+              path: '现场.png',
+              mimeType: 'image/png',
+            );
+          },
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('从相册选择图片'));
+    await tester.pumpAndSettle();
+    expect(pickedSource, ImageSource.gallery);
+    expect(find.text('发送图片'), findsOneWidget);
+    expect(find.bySemanticsLabel('待发送图片预览'), findsOneWidget);
+
+    await tester.enterText(find.widgetWithText(TextField, '图片说明（可选）'), '现场进度');
+    await tester.tap(find.widgetWithText(FilledButton, '发送'));
+    await tester.pumpAndSettle();
+
+    expect(repository.sentCaption, '现场进度');
+    expect(repository.sentUpload?.name, '现场.png');
+    expect(find.text('现场进度'), findsOneWidget);
   });
 
   testWidgets('双击消息打开可选择复制的独立详情', (tester) async {
@@ -282,6 +321,22 @@ class _ExperienceRepository extends DemoRepository {
   Future<List<Contact>> contacts({String keyword = ''}) async => const [
         Contact(id: 'alice', name: 'Alice'),
       ];
+}
+
+class _PickedImageRepository extends _ExperienceRepository {
+  late final Uint8List imageBytes =
+      Uint8List.fromList(image.encodePng(image.Image(width: 120, height: 80)));
+  AttachmentUpload? sentUpload;
+  String? sentCaption;
+
+  @override
+  Future<void> sendImage(String conversationId, AttachmentUpload upload,
+      {String caption = '',
+      String? replyToMessageId,
+      String? clientMessageId}) async {
+    sentUpload = upload;
+    sentCaption = caption;
+  }
 }
 
 class _ImageRepository extends _ExperienceRepository {

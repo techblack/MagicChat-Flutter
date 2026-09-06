@@ -45,6 +45,7 @@ import 'features/messages/history_attachments_dialog.dart';
 import 'features/messages/conversation_image_gallery.dart';
 import 'features/messages/conversation_details_page.dart';
 import 'features/messages/message_link_card.dart';
+import 'features/messages/mobile_image_send_preview_dialog.dart';
 import 'features/messages/topic_reply_preview.dart';
 import 'features/messages/topics_dialog.dart';
 import 'features/messages/topic_source_banner.dart';
