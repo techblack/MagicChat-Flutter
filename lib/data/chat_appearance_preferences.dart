@@ -46,14 +46,30 @@ extension ChatBubbleSkinLabel on ChatBubbleSkin {
 class ChatAppearance {
   const ChatAppearance({
     this.skin = ChatSkin.classic,
+    this.background = ChatBackground.plain,
+    this.bubble = ChatBubbleSkin.solid,
     this.fontSize = 14,
   });
 
   final ChatSkin skin;
+
+  /// 默认聊天背景；单独会话的设置会覆盖这个值。
+  final ChatBackground background;
+
+  /// 默认聊天气泡；单独会话的设置会覆盖这个值。
+  final ChatBubbleSkin bubble;
   final double fontSize;
 
-  ChatAppearance copyWith({ChatSkin? skin, double? fontSize}) => ChatAppearance(
+  ChatAppearance copyWith({
+    ChatSkin? skin,
+    ChatBackground? background,
+    ChatBubbleSkin? bubble,
+    double? fontSize,
+  }) =>
+      ChatAppearance(
         skin: skin ?? this.skin,
+        background: background ?? this.background,
+        bubble: bubble ?? this.bubble,
         fontSize: fontSize ?? this.fontSize,
       );
 }
@@ -81,6 +97,8 @@ class ChatAppearancePreferences {
   const ChatAppearancePreferences();
 
   static const skinKey = 'magicchat.chat.appearance.skin.v1';
+  static const backgroundKey = 'magicchat.chat.appearance.background.v1';
+  static const bubbleKey = 'magicchat.chat.appearance.bubble.v1';
   static const fontSizeKey = 'magicchat.chat.appearance.font-size.v1';
   static const conversationPrefix =
       'magicchat.chat.appearance.conversation.v1.';
@@ -91,29 +109,57 @@ class ChatAppearancePreferences {
       (value) => value.name == prefs.getString(skinKey),
       orElse: () => ChatSkin.classic,
     );
+    final background = ChatBackground.values.firstWhere(
+      (value) => value.name == prefs.getString(backgroundKey),
+      orElse: () => ChatBackground.plain,
+    );
+    final bubble = ChatBubbleSkin.values.firstWhere(
+      (value) => value.name == prefs.getString(bubbleKey),
+      orElse: () => ChatBubbleSkin.solid,
+    );
     final value = prefs.getDouble(fontSizeKey) ?? 15;
-    return ChatAppearance(skin: skin, fontSize: value.clamp(12, 24));
+    return ChatAppearance(
+        skin: skin,
+        background: background,
+        bubble: bubble,
+        fontSize: value.clamp(12, 24));
   }
 
   Future<void> writeGlobal(ChatAppearance appearance) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(skinKey, appearance.skin.name);
+    await prefs.setString(backgroundKey, appearance.background.name);
+    await prefs.setString(bubbleKey, appearance.bubble.name);
     await prefs.setDouble(fontSizeKey, appearance.fontSize.clamp(12, 24));
   }
 
-  Future<ChatConversationAppearance> readConversation(
-      String conversationId) async {
+  Future<ChatConversationAppearance> readConversation(String conversationId,
+      {ChatConversationAppearance fallback =
+          const ChatConversationAppearance()}) async {
     final prefs = await SharedPreferences.getInstance();
     final prefix = '$conversationPrefix$conversationId.';
     final background = ChatBackground.values.firstWhere(
       (value) => value.name == prefs.getString('${prefix}background'),
-      orElse: () => ChatBackground.plain,
+      orElse: () => fallback.background,
     );
     final bubble = ChatBubbleSkin.values.firstWhere(
       (value) => value.name == prefs.getString('${prefix}bubble'),
-      orElse: () => ChatBubbleSkin.solid,
+      orElse: () => fallback.bubble,
     );
     return ChatConversationAppearance(background: background, bubble: bubble);
+  }
+
+  Future<ChatConversationAppearance?> readConversationOverride(
+      String conversationId,
+      {ChatConversationAppearance fallback =
+          const ChatConversationAppearance()}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final prefix = '$conversationPrefix$conversationId.';
+    if (!prefs.containsKey('${prefix}background') &&
+        !prefs.containsKey('${prefix}bubble')) {
+      return null;
+    }
+    return readConversation(conversationId, fallback: fallback);
   }
 
   Future<void> writeConversation(

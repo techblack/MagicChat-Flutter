@@ -6,11 +6,16 @@ void main() {
   test('全局皮肤和字号可持久化并限制范围', () async {
     SharedPreferences.setMockInitialValues({});
     const preferences = ChatAppearancePreferences();
-    await preferences
-        .writeGlobal(const ChatAppearance(skin: ChatSkin.ocean, fontSize: 20));
+    await preferences.writeGlobal(const ChatAppearance(
+        skin: ChatSkin.ocean,
+        background: ChatBackground.mist,
+        bubble: ChatBubbleSkin.soft,
+        fontSize: 20));
 
     final value = await preferences.readGlobal();
     expect(value.skin, ChatSkin.ocean);
+    expect(value.background, ChatBackground.mist);
+    expect(value.bubble, ChatBubbleSkin.soft);
     expect(value.fontSize, 20);
   });
 
@@ -28,5 +33,8 @@ void main() {
     expect(value.bubble, ChatBubbleSkin.outline);
     expect((await preferences.readConversation('other')).background,
         ChatBackground.plain);
+    expect(await preferences.readConversationOverride('other'), isNull);
+    expect((await preferences.readConversationOverride('group/1'))?.bubble,
+        ChatBubbleSkin.outline);
   });
 }

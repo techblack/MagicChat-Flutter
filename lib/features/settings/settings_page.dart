@@ -699,12 +699,15 @@ class _ChatAppearanceDialog extends StatefulWidget {
 
 class _ChatAppearanceDialogState extends State<_ChatAppearanceDialog> {
   late ChatSkin _skin = widget.initial.skin;
+  late ChatBackground _background = widget.initial.background;
+  late ChatBubbleSkin _bubble = widget.initial.bubble;
   late double _fontSize = widget.initial.fontSize;
 
   @override
   Widget build(BuildContext context) => AlertDialog(
         title: const Text('聊天外观'),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
+        content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
           DropdownButtonFormField<ChatSkin>(
             initialValue: _skin,
             decoration: const InputDecoration(labelText: '聊天皮肤'),
@@ -714,6 +717,30 @@ class _ChatAppearanceDialogState extends State<_ChatAppearanceDialog> {
                 .toList(),
             onChanged: (value) {
               if (value != null) setState(() => _skin = value);
+            },
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<ChatBackground>(
+            initialValue: _background,
+            decoration: const InputDecoration(labelText: '默认聊天背景'),
+            items: ChatBackground.values
+                .map((value) =>
+                    DropdownMenuItem(value: value, child: Text(value.label)))
+                .toList(),
+            onChanged: (value) {
+              if (value != null) setState(() => _background = value);
+            },
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<ChatBubbleSkin>(
+            initialValue: _bubble,
+            decoration: const InputDecoration(labelText: '默认聊天气泡'),
+            items: ChatBubbleSkin.values
+                .map((value) =>
+                    DropdownMenuItem(value: value, child: Text(value.label)))
+                .toList(),
+            onChanged: (value) {
+              if (value != null) setState(() => _bubble = value);
             },
           ),
           const SizedBox(height: 16),
@@ -732,13 +759,18 @@ class _ChatAppearanceDialogState extends State<_ChatAppearanceDialog> {
           const Align(
               alignment: Alignment.centerLeft,
               child: Text('字体大小仅保存在本机，不会影响其他设备。')),
-        ]),
+        ])),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context), child: const Text('取消')),
           FilledButton(
               onPressed: () => Navigator.pop(
-                  context, ChatAppearance(skin: _skin, fontSize: _fontSize)),
+                  context,
+                  ChatAppearance(
+                      skin: _skin,
+                      background: _background,
+                      bubble: _bubble,
+                      fontSize: _fontSize)),
               child: const Text('保存')),
         ],
       );

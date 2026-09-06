@@ -333,18 +333,19 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
   }
 
   String get _appearanceSummary {
-    final appearance =
-        widget.conversationAppearance ?? const ChatConversationAppearance();
+    final appearance = _effectiveAppearance;
     return '${appearance.background.label}背景 · ${appearance.bubble.label}气泡';
   }
 
+  ChatConversationAppearance get _effectiveAppearance =>
+      widget.conversationAppearance ??
+      ChatConversationAppearance(
+          background: widget.chatAppearance.background,
+          bubble: widget.chatAppearance.bubble);
+
   Future<void> _editAppearance(String conversationId) async {
-    var background =
-        (widget.conversationAppearance ?? const ChatConversationAppearance())
-            .background;
-    var bubble =
-        (widget.conversationAppearance ?? const ChatConversationAppearance())
-            .bubble;
+    var background = _effectiveAppearance.background;
+    var bubble = _effectiveAppearance.bubble;
     final result = await showDialog<ChatConversationAppearance>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(

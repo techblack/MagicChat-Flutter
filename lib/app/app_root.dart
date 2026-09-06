@@ -1214,8 +1214,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         widget.conversationAppearances.containsKey(conversationId) ||
         _loadedConversationAppearances.containsKey(conversationId)) return;
     final appearance = await const ChatAppearancePreferences()
-        .readConversation(conversationId);
+        .readConversationOverride(conversationId,
+            fallback: ChatConversationAppearance(
+                background: widget.chatAppearance.background,
+                bubble: widget.chatAppearance.bubble));
     if (mounted &&
+        appearance != null &&
         !widget.conversationAppearances.containsKey(conversationId) &&
         !_loadedConversationAppearances.containsKey(conversationId)) {
       setState(

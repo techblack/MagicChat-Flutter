@@ -187,6 +187,14 @@ class _ConversationViewState extends State<ConversationView>
   final _replyTargetsById = <String, ChatMessage>{};
   final _optimisticMessages = <String, _OptimisticMessage>{};
   final _optimisticSendsInFlight = <String>{};
+  // 消息时间线只在数据源发生变化时重建。滚动、加载指示器和输入状态
+  // 的重绘会复用这份有序快照，避免百万级历史每一帧都去去重和排序。
+  List<ChatMessage> _timelineMessages = const [];
+  List<ChatMessage> _confirmedTimelineMessages = const [];
+  Map<String, ChatMessage> _confirmedTimelineById = const {};
+  Map<String, _OptimisticMessage> _timelineOptimisticById = const {};
+  List<ChatMessage>? _timelineSnapshot;
+  bool _timelineDirty = true;
   MessageReply? _replyTo;
   ChatConversation? _conversation;
   TopicDetail? _topicDetail;
@@ -291,6 +299,70 @@ class _ConversationViewState extends State<ConversationView>
             .where((message) => message.conversationId == id)
             .map((message) => message.id) ??
         const <String>[];
+  }
+
+  void _invalidateTimeline() {
+    _timelineDirty = true;
+  }
+
+  List<ChatMessage> _composeTimeline(
+      List<ChatMessage> snapshot, String conversationId) {
+    if (!_timelineDirty && identical(snapshot, _timelineSnapshot)) {
+      return _timelineMessages;
+    }
+    final historyIds = <String>{
+      for (final message in _olderMessages) message.id,
+      for (final message in snapshot) message.id,
+    };
+    final realtimeMessages = widget.realtimeStore?.messages.values
+            .where((message) =>
+                message.id.isNotEmpty &&
+                message.conversationId == conversationId &&
+                (!_historyMode || historyIds.contains(message.id)))
+            .toList(growable: false) ??
+        const <ChatMessage>[];
+    final confirmedById = <String, ChatMessage>{};
+    for (final message in [
+      ..._olderMessages,
+      ...snapshot,
+      ...realtimeMessages
+    ]) {
+      confirmedById[message.id] = message;
+    }
+    final confirmedMessages = confirmedById.values.toList(growable: false);
+    final confirmedClientIds = confirmedMessages
+        .map((message) => message.clientMessageId)
+        .whereType<String>()
+        .toSet();
+    final optimisticByMessageId = <String, _OptimisticMessage>{
+      for (final item in _optimisticMessages.values)
+        if (!confirmedClientIds.contains(item.descriptor.clientMessageId))
+          item.message.id: item,
+    };
+    final allMessages = [
+      ...confirmedMessages,
+      ...optimisticByMessageId.values.map((item) => item.message),
+    ]..sort(_compareTimelineMessages);
+    _confirmedTimelineById = confirmedById;
+    _confirmedTimelineMessages = confirmedMessages;
+    _timelineOptimisticById = optimisticByMessageId;
+    _timelineSnapshot = snapshot;
+    _timelineMessages = allMessages;
+    _timelineDirty = false;
+    _visibleMessages = confirmedMessages;
+    return allMessages;
+  }
+
+  int _compareTimelineMessages(ChatMessage left, ChatMessage right) {
+    final leftSeq = left.sequence;
+    final rightSeq = right.sequence;
+    if (leftSeq == null && rightSeq == null) {
+      return left.createdAt.compareTo(right.createdAt);
+    }
+    if (leftSeq == null) return 1;
+    if (rightSeq == null) return -1;
+    final bySequence = leftSeq.compareTo(rightSeq);
+    return bySequence != 0 ? bySequence : left.id.compareTo(right.id);
   }
 
   String? get _draftKey => widget.conversationId == null
@@ -748,6 +820,7 @@ class _ConversationViewState extends State<ConversationView>
       // 刷新结果仍应展示；缓存会在后续实时事件或刷新时重试。
     }
     if (!mounted || widget.conversationId != id) return;
+    _invalidateTimeline();
     setState(() {
       _removeConfirmedOptimisticMessages(merged);
       _messagesFuture = Future.value(merged);
@@ -849,6 +922,7 @@ class _ConversationViewState extends State<ConversationView>
       // 快照修正即使无法持久化也应更新当前页面。
     }
     if (!mounted || widget.conversationId != conversationId) return;
+    _invalidateTimeline();
     setState(() {
       _messagesFuture = Future.value(updated);
     });
@@ -915,6 +989,7 @@ class _ConversationViewState extends State<ConversationView>
     final canSend = current == null
         ? _canSend
         : current.canSend && current.topic?.archived != true;
+    _invalidateTimeline();
     setState(() {
       _optimisticMessages.removeWhere((clientMessageId, _) =>
           confirmedOptimisticIds.contains(clientMessageId));
@@ -1079,6 +1154,7 @@ class _ConversationViewState extends State<ConversationView>
           _hasMoreOlder = false;
         }
         _olderMessages.insertAll(0, added);
+        _invalidateTimeline();
         // 旧页只做增量写入，避免每翻一页都重写整段历史，保证长会话加载为 O(page)。
         unawaited(_upsertCachedMessages(id, added));
         setState(() {});
@@ -1168,6 +1244,7 @@ class _ConversationViewState extends State<ConversationView>
           changed = true;
         }
       }
+      if (changed) _invalidateTimeline();
     });
     if (!changed) return;
     try {
@@ -1381,6 +1458,7 @@ class _ConversationViewState extends State<ConversationView>
       message: descriptor.toMessage(conversationId, newestSequence + 1),
     );
     setState(() {
+      _invalidateTimeline();
       _optimisticMessages[descriptor.clientMessageId] = item;
       _replyTo = null;
     });
@@ -1405,7 +1483,10 @@ class _ConversationViewState extends State<ConversationView>
     if (!_optimisticSendsInFlight.add(clientMessageId)) return;
     final current = _optimisticMessages[clientMessageId];
     if (current != null && current.status != _OptimisticMessageStatus.sending) {
-      setState(() => current.status = _OptimisticMessageStatus.sending);
+      setState(() {
+        _invalidateTimeline();
+        current.status = _OptimisticMessageStatus.sending;
+      });
     }
     var sent = false;
     try {
@@ -1451,7 +1532,10 @@ class _ConversationViewState extends State<ConversationView>
           !_optimisticMessageIsConfirmed(clientMessageId)) {
         final delivered = _optimisticMessages[clientMessageId];
         if (delivered != null) {
-          setState(() => delivered.status = _OptimisticMessageStatus.sent);
+          setState(() {
+            _invalidateTimeline();
+            delivered.status = _OptimisticMessageStatus.sent;
+          });
         }
       }
     } catch (_) {
@@ -1460,7 +1544,10 @@ class _ConversationViewState extends State<ConversationView>
           !_optimisticMessageIsConfirmed(clientMessageId)) {
         final failed = _optimisticMessages[clientMessageId];
         if (failed != null) {
-          setState(() => failed.status = _OptimisticMessageStatus.failed);
+          setState(() {
+            _invalidateTimeline();
+            failed.status = _OptimisticMessageStatus.failed;
+          });
         }
       }
     } finally {
@@ -1684,8 +1771,8 @@ class _ConversationViewState extends State<ConversationView>
 
   BoxDecoration _conversationBackground(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final background =
-        widget.conversationAppearance?.background ?? ChatBackground.plain;
+    final background = widget.conversationAppearance?.background ??
+        widget.chatAppearance.background;
     return switch (background) {
       ChatBackground.plain => BoxDecoration(color: colors.surface),
       ChatBackground.mist => BoxDecoration(
@@ -1769,49 +1856,8 @@ class _ConversationViewState extends State<ConversationView>
                     if (!snapshot.hasData) {
                       return const Center(child: CircularProgressIndicator());
                     }
-                    final historyIds = <String>{
-                      for (final message in _olderMessages) message.id,
-                      for (final message in snapshot.data!) message.id,
-                    };
-                    final realtimeMessages = widget
-                        .realtimeStore?.messages.values
-                        .where((message) =>
-                            message.id.isNotEmpty &&
-                            message.conversationId == conversationId &&
-                            (!_historyMode || historyIds.contains(message.id)))
-                        .toList();
-                    final messages =
-                        realtimeMessages == null || realtimeMessages.isEmpty
-                            ? snapshot.data!
-                            : [...snapshot.data!, ...realtimeMessages];
-                    final confirmedById = <String, ChatMessage>{};
-                    for (final message in [..._olderMessages, ...messages]) {
-                      confirmedById[message.id] = message;
-                    }
-                    final confirmedMessages = confirmedById.values.toList();
-                    final confirmedClientIds = confirmedMessages
-                        .map((message) => message.clientMessageId)
-                        .whereType<String>()
-                        .toSet();
-                    final optimisticByMessageId = <String, _OptimisticMessage>{
-                      for (final item in _optimisticMessages.values)
-                        if (!confirmedClientIds
-                            .contains(item.descriptor.clientMessageId))
-                          item.message.id: item,
-                    };
-                    final allMessages = [
-                      ...confirmedMessages,
-                      ...optimisticByMessageId.values
-                          .map((item) => item.message),
-                    ]..sort((left, right) {
-                        final leftSeq = left.sequence;
-                        final rightSeq = right.sequence;
-                        if (leftSeq == null && rightSeq == null) return 0;
-                        if (leftSeq == null) return 1;
-                        if (rightSeq == null) return -1;
-                        return leftSeq.compareTo(rightSeq);
-                      });
-                    _visibleMessages = confirmedMessages;
+                    final allMessages =
+                        _composeTimeline(snapshot.data!, conversationId);
                     _scheduleLatestPosition(conversationId, allMessages);
                     _scheduleFocusMessage(conversationId, allMessages);
                     if (allMessages.isEmpty) {
@@ -1834,7 +1880,8 @@ class _ConversationViewState extends State<ConversationView>
                         itemCount: allMessages.length,
                         itemBuilder: (context, index) {
                           final message = allMessages[index];
-                          final optimistic = optimisticByMessageId[message.id];
+                          final optimistic =
+                              _timelineOptimisticById[message.id];
                           if (optimistic != null) {
                             return Align(
                               key: _messageKey(message.id),
@@ -1910,33 +1957,32 @@ class _ConversationViewState extends State<ConversationView>
                                       padding: _highlightedMessageId == message.id
                                           ? const EdgeInsets.all(2)
                                           : EdgeInsets.zero,
-                                      decoration: _highlightedMessageId == message.id
-                                          ? BoxDecoration(
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .primaryContainer
-                                                  .withValues(alpha: .65),
-                                              borderRadius:
-                                                  BorderRadius.circular(18))
-                                          : null,
+                                      decoration:
+                                          _highlightedMessageId == message.id
+                                              ? BoxDecoration(
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .primaryContainer
+                                                      .withValues(alpha: .65),
+                                                  borderRadius:
+                                                      BorderRadius.circular(18))
+                                              : null,
                                       child: _MessageBubble(
                                           message: message,
-                                          replyTarget: confirmedById[message.replyTo?.id] ??
+                                          replyTarget: _confirmedTimelineById[
+                                                  message.replyTo?.id] ??
                                               _replyTargetsById[
                                                   message.replyTo?.id],
                                           repository: widget.repository,
                                           conversationId: conversationId,
-                                          galleryMessages: confirmedMessages,
+                                          galleryMessages:
+                                              _confirmedTimelineMessages,
                                           galleryHasOlder: _hasMoreOlder,
-                                          canReact:
-                                              _topicIsOpen(conversationId),
+                                          canReact: _topicIsOpen(conversationId),
                                           canRespond: canSend,
-                                          onOpenTopic:
-                                              widget.onOpenConversation,
-                                          onOpenInternalLink:
-                                              widget.onOpenInternalLink,
-                                          onForwardMessage: (id) =>
-                                              _showForwardDialog(conversationId, [id]),
+                                          onOpenTopic: widget.onOpenConversation,
+                                          onOpenInternalLink: widget.onOpenInternalLink,
+                                          onForwardMessage: (id) => _showForwardDialog(conversationId, [id]),
                                           contactsFuture: _contactsFuture,
                                           onReeditMessage: _reeditMessage,
                                           cacheScope: widget.cacheScope,
@@ -2970,7 +3016,7 @@ class _OptimisticMessageBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final descriptor = item.descriptor;
     final colors = Theme.of(context).colorScheme;
-    final bubbleSkin = conversationAppearance?.bubble ?? ChatBubbleSkin.solid;
+    final bubbleSkin = conversationAppearance?.bubble ?? chatAppearance.bubble;
     final bubbleBackground = switch (bubbleSkin) {
       ChatBubbleSkin.solid => colors.primary,
       ChatBubbleSkin.outline => Colors.transparent,
@@ -3121,7 +3167,7 @@ class _OptimisticMessageBubble extends StatelessWidget {
 
   Color _foreground(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return switch (conversationAppearance?.bubble ?? ChatBubbleSkin.solid) {
+    return switch (conversationAppearance?.bubble ?? chatAppearance.bubble) {
       ChatBubbleSkin.solid => colors.onPrimary,
       ChatBubbleSkin.outline => colors.primary,
       ChatBubbleSkin.soft => colors.onPrimaryContainer,
@@ -3343,7 +3389,7 @@ class _MessageBubble extends StatelessWidget {
   }
 
   ChatBubbleSkin get _bubbleSkin =>
-      conversationAppearance?.bubble ?? ChatBubbleSkin.solid;
+      conversationAppearance?.bubble ?? chatAppearance.bubble;
 
   Color _bubbleBackground(bool mine, ColorScheme colors) {
     if (_bubbleSkin == ChatBubbleSkin.outline) return Colors.transparent;
