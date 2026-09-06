@@ -46,6 +46,7 @@ import 'features/messages/conversation_list.dart';
 import 'features/messages/voice_message_player.dart';
 import 'features/messages/voice_message_composer_sheet.dart';
 import 'features/shared/cached_avatar.dart';
+import 'features/shared/external_link_launcher.dart';
 import 'features/projects/projects_page.dart';
 import 'features/search/global_search.dart';
 import 'features/search/advanced_message_search_dialog.dart';

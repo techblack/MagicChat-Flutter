@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
-
 import '../../data/repository.dart';
 import '../../domain/models.dart';
+import '../shared/external_link_launcher.dart';
 
 Future<void> showHistoryAttachmentsDialog(
   BuildContext context, {
@@ -81,10 +80,12 @@ class _HistoryAttachmentsDialogState extends State<HistoryAttachmentsDialog> {
     try {
       final uri = await widget.repository.attachmentUrl(attachment.fileId);
       if (!mounted) return;
-      if (uri == null ||
-          !await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      if (uri == null) {
         _showError('无法打开附件');
+        return;
       }
+      final opened = await launchExternalWebLink(context, uri);
+      if (opened == false) _showError('无法打开附件');
     } catch (error) {
       _showError('打开附件失败：$error');
     }
