@@ -2261,6 +2261,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       context: context,
       builder: (dialogContext) => GlobalSearchDialog(
         repository: _repository,
+        cacheScope: _messageCacheScope,
         onOpenConversation: _selectConversationFromList,
         onOpenMessage: _openMessageFromSearch,
         onOpenProject: _openProjectTarget,
