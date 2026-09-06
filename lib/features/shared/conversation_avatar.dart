@@ -10,9 +10,11 @@ List<Contact> groupAvatarMembers(Iterable<Contact> members) {
       .where((entry) =>
           entry.$2.avatar.trim().isNotEmpty ||
           (entry.$2.nickname.trim().isNotEmpty &&
-              entry.$2.nickname.trim() != entry.$2.id) ||
+              entry.$2.nickname.trim().toLowerCase() !=
+                  entry.$2.id.trim().toLowerCase()) ||
           (entry.$2.name.trim().isNotEmpty &&
-              entry.$2.name.trim() != entry.$2.id))
+              entry.$2.name.trim().toLowerCase() !=
+                  entry.$2.id.trim().toLowerCase()))
       .toList();
   int roleOrder(String role) => switch (role) {
         'owner' => 0,

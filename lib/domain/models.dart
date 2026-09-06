@@ -4,6 +4,18 @@ import 'dart:typed_data';
 
 import 'message_content.dart';
 
+String? _readableIdentityValue(String value, String id,
+    {bool rejectUserPlaceholder = false}) {
+  final text = value.trim();
+  if (text.isEmpty || text.toLowerCase() == id.trim().toLowerCase()) {
+    return null;
+  }
+  if (rejectUserPlaceholder && (text == '成员' || text == '用户')) {
+    return null;
+  }
+  return text;
+}
+
 class ChatConversation {
   const ChatConversation(
       {required this.id,
@@ -52,8 +64,8 @@ class ChatConversation {
   int get effectiveMemberCount => max(memberCount, members.length);
 
   String get displayTitle {
-    final value = title.trim();
-    if (value.isNotEmpty && value != id) return value;
+    final value = _readableIdentityValue(title, id);
+    if (value != null) return value;
     for (final member in members) {
       final name = member.displayName.trim();
       if (name.isNotEmpty && name != '成员') return name;
@@ -175,6 +187,17 @@ class TopicSourceSender {
   final String avatar;
   final String type;
 
+  String? get readableName =>
+      _readableIdentityValue(name, id, rejectUserPlaceholder: type == 'user');
+
+  String get displayName =>
+      readableName ??
+      switch (type) {
+        'app' => '应用',
+        'system' => '系统',
+        _ => '成员',
+      };
+
   factory TopicSourceSender.fromJson(Map<String, dynamic> value,
       {bool allowSystem = false}) {
     final rawId = value['id'];
@@ -270,6 +293,8 @@ class TopicReference {
   final String id;
   final String name;
   final String type;
+
+  String get displayName => _readableIdentityValue(name, id) ?? '会话';
 
   factory TopicReference.fromJson(Map<String, dynamic> value) {
     final id = value['id'];
@@ -794,18 +819,23 @@ class MessageReply {
         : sender?['id'] is String
             ? sender!['id'] as String
             : null;
-    final directAuthor = value['author'] ?? value['display_name'];
-    final nickname = sender?['nickname'];
-    final senderName = sender?['name'];
-    final author = directAuthor is String &&
-            directAuthor.trim().isNotEmpty &&
-            directAuthor.trim() != id
-        ? directAuthor.trim()
-        : nickname is String && nickname.trim().isNotEmpty
-            ? nickname.trim()
-            : senderName is String && senderName.trim().isNotEmpty
-                ? senderName.trim()
-                : '用户';
+    String? readableAuthor(Object? value) {
+      if (value is! String) return null;
+      final result =
+          _readableIdentityValue(value, id, rejectUserPlaceholder: true);
+      if (result == null ||
+          (senderId != null &&
+              result.toLowerCase() == senderId.trim().toLowerCase())) {
+        return null;
+      }
+      return result;
+    }
+
+    final author = readableAuthor(value['author']) ??
+        readableAuthor(value['display_name']) ??
+        readableAuthor(sender?['nickname']) ??
+        readableAuthor(sender?['name']) ??
+        '用户';
 
     final body = asMap(value['body']) ?? asMap(payload['body']);
     final parsedBodyText = body == null ? '' : MessageContent.parse(body).text;
@@ -832,7 +862,7 @@ class MessageReply {
         : null;
     return MessageReply(
       id: id,
-      author: author == id ? '成员' : author,
+      author: author,
       authorId: senderId,
       sequence: sequence,
       text: text.isEmpty || text.toLowerCase() == id.toLowerCase()
@@ -934,8 +964,7 @@ class MessageSearchResult {
   final ChatMessage message;
 
   String get displayConversationName {
-    final value = conversationName.trim();
-    return value.isNotEmpty && value != conversationId ? value : '会话';
+    return _readableIdentityValue(conversationName, conversationId) ?? '会话';
   }
 }
 
@@ -1368,11 +1397,10 @@ class ProjectUser {
   final String nickname;
   final String avatar;
 
-  String get displayName => nickname.isNotEmpty && nickname != id
-      ? nickname
-      : name.isNotEmpty && name != id
-          ? name
-          : '成员';
+  String get displayName =>
+      _readableIdentityValue(nickname, id, rejectUserPlaceholder: true) ??
+      _readableIdentityValue(name, id, rejectUserPlaceholder: true) ??
+      '成员';
 }
 
 class ProjectMember extends ProjectUser {
@@ -1394,10 +1422,14 @@ class ProjectMember extends ProjectUser {
   final List<String> sourceGroupIds;
 
   @override
-  String get displayName =>
-      displayNameOverride.isNotEmpty && displayNameOverride != id
-          ? displayNameOverride
-          : super.displayName;
+  String get displayName {
+    final override = _readableIdentityValue(displayNameOverride, id,
+        rejectUserPlaceholder: true);
+    if (override != null) return override;
+    final inherited = super.displayName;
+    if (inherited != '成员') return inherited;
+    return _readableIdentityValue(email, id) ?? '成员';
+  }
 }
 
 class ProjectTaskActivityChange {
@@ -1487,12 +1519,11 @@ class CurrentUser {
   final String avatar;
   final String phone;
   String get displayName {
-    final preferred = nickname.trim();
-    if (preferred.isNotEmpty && preferred != id) return preferred;
-    final fallback = name.trim();
-    if (fallback.isNotEmpty && fallback != id) return fallback;
-    final address = email.trim();
-    return address.isNotEmpty && address != id ? address : '用户';
+    return _readableIdentityValue(nickname, id, rejectUserPlaceholder: true) ??
+        _readableIdentityValue(name, id, rejectUserPlaceholder: true) ??
+        _readableIdentityValue(email, id) ??
+        _readableIdentityValue(phone, id) ??
+        '用户';
   }
 }
 

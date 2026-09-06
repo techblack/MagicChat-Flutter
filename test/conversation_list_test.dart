@@ -354,6 +354,33 @@ void main() {
         '会话');
   });
 
+  test('大小写变体 ID 不作为模型展示名称', () {
+    expect(
+        const ChatConversation(id: 'CONVERSATION-ID', title: 'conversation-id')
+            .displayTitle,
+        '私聊');
+    expect(
+        const MessageSearchResult(
+                conversationId: 'CONVERSATION-ID',
+                conversationName: 'conversation-id',
+                message: ChatMessage(id: 'message-id', author: '', text: ''))
+            .displayConversationName,
+        '会话');
+    expect(const ProjectUser(id: 'USER-ID', name: 'user-id').displayName, '成员');
+    expect(
+        const ProjectMember(
+                id: 'USER-ID',
+                name: 'user-id',
+                displayNameOverride: 'User-Id',
+                email: 'user@example.com')
+            .displayName,
+        'user@example.com');
+    expect(
+        const CurrentUser(id: 'USER-ID', name: 'user-id', email: 'USER-ID')
+            .displayName,
+        '用户');
+  });
+
   test('导航未读数包含普通未读和独立提醒', () {
     const conversations = [
       ChatConversation(id: 'normal', title: '普通', unread: 3),

@@ -7,7 +7,7 @@ import 'package:magicchat_client/features/shared/conversation_avatar.dart';
 void main() {
   test('组合头像按群主、管理员、成员排序并限制四人', () {
     final members = groupAvatarMembers(const [
-      Contact(id: 'raw-id', name: 'raw-id'),
+      Contact(id: 'raw-id', name: 'RAW-ID'),
       Contact(id: 'member-1', name: '成员一'),
       Contact(id: 'admin', name: '管理员', role: 'admin'),
       Contact(id: 'owner', name: '群主', role: 'owner'),

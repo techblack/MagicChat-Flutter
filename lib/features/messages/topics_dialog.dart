@@ -235,8 +235,8 @@ class _ConversationTopicsDialogState extends State<ConversationTopicsDialog> {
       ChatConversation topic) sync* {
     final sender = topic.topic?.sourceSender;
     if (sender == null || sender.id.isEmpty) return;
-    final name = sender.name.trim();
-    if (name.isNotEmpty && name != sender.id) {
+    final name = sender.readableName;
+    if (name != null) {
       yield (id: sender.id, name: name);
     }
   }
@@ -407,9 +407,9 @@ class _TopicDetailDialogState extends State<TopicDetailDialog> {
     final names = <String, String>{};
     final labels = <({String id, String name})>[];
     for (final sender in senders) {
-      final name = sender.name.trim();
-      if (sender.id.isEmpty || name.isEmpty || name == sender.id) continue;
-      names[sender.id] = name;
+      final name = sender.readableName;
+      if (sender.id.isEmpty || name == null) continue;
+      names[sender.id.toLowerCase()] = name;
       labels.add((id: sender.id, name: name));
     }
     return SingleChildScrollView(
@@ -424,8 +424,7 @@ class _TopicDetailDialogState extends State<TopicDetailDialog> {
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),
-          Text(
-              '父会话：${detail.parentConversation.name == detail.parentConversation.id ? '会话' : detail.parentConversation.name}'),
+          Text('父会话：${detail.parentConversation.displayName}'),
           const SizedBox(height: 12),
           Card(
             child: Padding(
@@ -434,11 +433,8 @@ class _TopicDetailDialogState extends State<TopicDetailDialog> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                      names[source.sender.id] ??
-                          (source.sender.name.isEmpty ||
-                                  source.sender.name == source.sender.id
-                              ? '成员'
-                              : source.sender.name),
+                      names[source.sender.id.toLowerCase()] ??
+                          source.sender.displayName,
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                   const SizedBox(height: 6),
                   Text(formatMentionText(
@@ -446,7 +442,7 @@ class _TopicDetailDialogState extends State<TopicDetailDialog> {
                   if (source.replyTo != null) ...[
                     const SizedBox(height: 8),
                     Text(
-                        '回复 ${names[source.replyTo!.sender.id] ?? (source.replyTo!.sender.name.isEmpty || source.replyTo!.sender.name == source.replyTo!.sender.id ? '成员' : source.replyTo!.sender.name)}：${formatMessageReferenceText(source.replyTo!.summary, labels, messageId: source.replyTo!.id)}',
+                        '回复 ${names[source.replyTo!.sender.id.toLowerCase()] ?? source.replyTo!.sender.displayName}：${formatMessageReferenceText(source.replyTo!.summary, labels, messageId: source.replyTo!.id)}',
                         style: Theme.of(context).textTheme.bodySmall),
                   ],
                 ],
