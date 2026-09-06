@@ -16,6 +16,7 @@ class MessagesPage extends StatelessWidget {
       this.onBack,
       this.onOpenMessage,
       this.onOpenInternalLink,
+      this.onOpenProject,
       this.sendMessageShortcut = MessageSendShortcut.enter,
       this.enableFileDrop = true,
       this.screenshotController,
@@ -45,6 +46,7 @@ class MessagesPage extends StatelessWidget {
           String conversationId, String messageId, int? messageSequence)?
       onOpenMessage;
   final ValueChanged<String>? onOpenInternalLink;
+  final ValueChanged<String>? onOpenProject;
   final MessageSendShortcut sendMessageShortcut;
   final bool enableFileDrop;
   final DesktopScreenshotController? screenshotController;
@@ -198,6 +200,7 @@ class MessagesPage extends StatelessWidget {
           cacheScope: cacheScope,
           realtimeStore: realtimeStore,
           onOpenConversation: onOpenConversation ?? onSelect,
+          onOpenProject: onOpenProject,
           onConversationRemoved: () {
             onConversationRemoved?.call(conversationId);
             onSelect('');

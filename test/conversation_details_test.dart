@@ -137,6 +137,49 @@ void main() {
         isNot(contains('产品迭代')));
   });
 
+  testWidgets('点击已关联项目先关闭聊天详情再打开项目', (tester) async {
+    final repository = _DetailsRepository.group('member', projects: const [
+      Project(id: 'project-1', name: '产品迭代'),
+    ]);
+    late BuildContext hostContext;
+    String? openedProjectId;
+    bool? detailsStillOpen;
+
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(builder: (context) {
+        hostContext = context;
+        return Scaffold(
+          body: TextButton(
+            onPressed: () => Navigator.push<void>(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ConversationDetailsPage(
+                  repository: repository,
+                  conversationId: repository.conversation.id,
+                  initialConversation: repository.conversation,
+                  onOpenProject: (projectId) {
+                    openedProjectId = projectId;
+                    detailsStillOpen = Navigator.canPop(hostContext);
+                  },
+                ),
+              ),
+            ),
+            child: const Text('打开聊天详情'),
+          ),
+        );
+      }),
+    ));
+
+    await tester.tap(find.text('打开聊天详情'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('产品迭代'));
+    await tester.pumpAndSettle();
+
+    expect(openedProjectId, 'project-1');
+    expect(detailsStillOpen, isFalse);
+    expect(find.text('打开聊天详情'), findsOneWidget);
+  });
+
   testWidgets('群主可在聊天详情管理资料、偏好和成员', (tester) async {
     final repository = _DetailsRepository.group('owner');
     await _pumpDetails(tester, repository);
