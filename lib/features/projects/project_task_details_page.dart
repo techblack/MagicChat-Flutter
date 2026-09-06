@@ -5,6 +5,7 @@ import '../../data/repository.dart';
 import '../../domain/models.dart';
 import '../messages/send_card_dialog.dart';
 import '../shared/user_facing_error.dart';
+import 'project_task_editor_dialog.dart';
 
 class ProjectTaskDetailsPage extends StatefulWidget {
   const ProjectTaskDetailsPage(
@@ -23,14 +24,24 @@ class ProjectTaskDetailsPage extends StatefulWidget {
 
 class _ProjectTaskDetailsPageState extends State<ProjectTaskDetailsPage> {
   late Future<List<ProjectTaskActivity>> _activities;
+  late ProjectTask _task = widget.task;
   final _comment = TextEditingController();
   bool _sending = false;
 
   @override
   void initState() {
     super.initState();
-    _activities =
-        widget.repository.taskActivities(widget.project.id, widget.task.id);
+    _activities = widget.repository.taskActivities(widget.project.id, _task.id);
+  }
+
+  @override
+  void didUpdateWidget(covariant ProjectTaskDetailsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.task.id != widget.task.id) {
+      _task = widget.task;
+      _activities =
+          widget.repository.taskActivities(widget.project.id, _task.id);
+    }
   }
 
   @override
@@ -45,7 +56,7 @@ class _ProjectTaskDetailsPageState extends State<ProjectTaskDetailsPage> {
     setState(() => _sending = true);
     try {
       final activity = await widget.repository
-          .addTaskComment(widget.project.id, widget.task.id, content);
+          .addTaskComment(widget.project.id, _task.id, content);
       final current = await _activities;
       if (!mounted) return;
       _comment.clear();
@@ -66,26 +77,64 @@ class _ProjectTaskDetailsPageState extends State<ProjectTaskDetailsPage> {
         context: context,
         builder: (_) => SendCardDialog(
           repository: widget.repository,
-          cardTitle: widget.task.title,
+          cardTitle: _task.title,
           cardDescription: '任务 · ${widget.project.name}',
           onSend: (conversationId) => widget.repository.sendEntityCard(
             conversationId,
             entityType: 'task',
-            entityId: widget.task.id,
+            entityId: _task.id,
           ),
         ),
       );
 
+  Future<void> _editTask() async {
+    final updated = await showProjectTaskEditorDialog(
+      context,
+      repository: widget.repository,
+      project: widget.project,
+      task: _task,
+    );
+    if (updated == null || !mounted) return;
+    setState(() {
+      _task = updated;
+      _activities =
+          widget.repository.taskActivities(widget.project.id, _task.id);
+    });
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('任务已保存')));
+  }
+
+  Future<void> _deleteTask() async {
+    final deleted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _DeleteTaskDialog(
+        repository: widget.repository,
+        projectId: widget.project.id,
+        task: _task,
+      ),
+    );
+    if (deleted == true && mounted) Navigator.pop(context, true);
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
-          title: Text(widget.task.title),
+          title: Text(_task.title),
           actions: [
+            IconButton(
+                tooltip: '编辑任务',
+                onPressed: _editTask,
+                icon: const Icon(Icons.edit_outlined)),
             IconButton(
                 key: const ValueKey('task-send-card'),
                 tooltip: '发送到会话',
                 onPressed: _sendCard,
                 icon: const Icon(Icons.send_outlined)),
+            IconButton(
+                tooltip: '删除任务',
+                onPressed: _deleteTask,
+                icon: const Icon(Icons.delete_outline)),
           ],
         ),
         body: Column(children: [
@@ -108,8 +157,8 @@ class _ProjectTaskDetailsPageState extends State<ProjectTaskDetailsPage> {
                                 tooltip: '重试',
                                 onPressed: () => setState(() {
                                       _activities = widget.repository
-                                          .taskActivities(widget.project.id,
-                                              widget.task.id);
+                                          .taskActivities(
+                                              widget.project.id, _task.id);
                                     }),
                                 icon: const Icon(Icons.refresh))));
                   }
@@ -166,28 +215,26 @@ class _ProjectTaskDetailsPageState extends State<ProjectTaskDetailsPage> {
             Wrap(spacing: 8, runSpacing: 8, children: [
               Chip(
                   avatar: const Icon(Icons.adjust, size: 16),
-                  label: Text(_statusLabel(widget.task.status))),
+                  label: Text(_statusLabel(_task.status))),
               Chip(
                   avatar: const Icon(Icons.flag_outlined, size: 16),
-                  label: Text('${_priorityLabel(widget.task.priority)}优先级')),
-              if (widget.task.assignee case final assignee?)
+                  label: Text('${_priorityLabel(_task.priority)}优先级')),
+              if (_task.assignee case final assignee?)
                 Chip(
                     avatar: const Icon(Icons.person_outline, size: 16),
                     label: Text(assignee.displayName))
             ]),
-            if (widget.task.description.isNotEmpty) ...[
+            if (_task.description.isNotEmpty) ...[
               const SizedBox(height: 12),
               MarkdownBody(
-                  data: widget.task.description,
+                  data: _task.description,
                   styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context))),
             ],
-            if (widget.task.startDate != null ||
-                widget.task.dueDate != null) ...[
+            if (_task.startDate != null || _task.dueDate != null) ...[
               const SizedBox(height: 12),
-              Text(
-                  '排期：${widget.task.startDate ?? '未设置'} → ${widget.task.dueDate ?? '未设置'}')
+              Text('排期：${_task.startDate ?? '未设置'} → ${_task.dueDate ?? '未设置'}')
             ],
-            if (widget.task.reminder case final reminder?
+            if (_task.reminder case final reminder?
                 when reminder.isNotEmpty) ...[
               const SizedBox(height: 12),
               Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -196,11 +243,11 @@ class _ProjectTaskDetailsPageState extends State<ProjectTaskDetailsPage> {
                 Expanded(child: Text(_reminderSummary(reminder)))
               ])
             ],
-            if (widget.task.labels.isNotEmpty) ...[
+            if (_task.labels.isNotEmpty) ...[
               const SizedBox(height: 12),
               Wrap(
                   spacing: 6,
-                  children: widget.task.labels
+                  children: _task.labels
                       .map((label) => Chip(label: Text(label)))
                       .toList())
             ]
@@ -303,8 +350,8 @@ class _ProjectTaskDetailsPageState extends State<ProjectTaskDetailsPage> {
       }
       if (summary.isEmpty) summary = '周期性提醒';
     }
-    final paused = widget.task.status == 'done' ||
-        widget.task.status == 'canceled' ||
+    final paused = _task.status == 'done' ||
+        _task.status == 'canceled' ||
         reminder['state'] == 'paused';
     final state = reminder['state'];
     if (paused) return '已暂停 · $summary';
@@ -330,4 +377,85 @@ class _ProjectTaskDetailsPageState extends State<ProjectTaskDetailsPage> {
     String two(int number) => number.toString().padLeft(2, '0');
     return '${date.year}-${two(date.month)}-${two(date.day)} ${two(date.hour)}:${two(date.minute)}';
   }
+}
+
+class _DeleteTaskDialog extends StatefulWidget {
+  const _DeleteTaskDialog({
+    required this.repository,
+    required this.projectId,
+    required this.task,
+  });
+
+  final MagicChatRepository repository;
+  final String projectId;
+  final ProjectTask task;
+
+  @override
+  State<_DeleteTaskDialog> createState() => _DeleteTaskDialogState();
+}
+
+class _DeleteTaskDialogState extends State<_DeleteTaskDialog> {
+  bool _deleting = false;
+  bool _allowPop = false;
+  String? _error;
+
+  Future<void> _delete() async {
+    if (_deleting) return;
+    setState(() {
+      _deleting = true;
+      _error = null;
+    });
+    try {
+      await widget.repository.deleteTask(widget.projectId, widget.task.id);
+      if (mounted) {
+        setState(() => _allowPop = true);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) Navigator.pop(context, true);
+        });
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() =>
+            _error = '删除任务失败：${userFacingError(error, fallback: '请稍后重试')}');
+      }
+    } finally {
+      if (mounted) setState(() => _deleting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+        canPop: _allowPop || !_deleting,
+        child: AlertDialog(
+          title: const Text('删除任务？'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('确定删除“${widget.task.title}”吗？此操作无法撤销。'),
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Text(_error!,
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error)),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed:
+                    _deleting ? null : () => Navigator.pop(context, false),
+                child: const Text('取消')),
+            FilledButton.icon(
+              onPressed: _deleting ? null : _delete,
+              icon: _deleting
+                  ? const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.delete_outline),
+              label: Text(_error == null ? '删除' : '重试删除'),
+            ),
+          ],
+        ),
+      );
 }

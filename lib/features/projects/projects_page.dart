@@ -12,6 +12,7 @@ import 'document_editor_page.dart';
 import 'project_progress.dart';
 import 'project_task_calendar_view.dart';
 import 'project_task_details_page.dart';
+import 'project_task_editor_dialog.dart';
 import 'project_workspace_page.dart';
 import '../shared/user_facing_error.dart';
 
@@ -873,179 +874,13 @@ class _ProjectsPageState extends State<ProjectsPage> {
 
   Future<void> _editTask(BuildContext context, Project project,
       ProjectTask task, VoidCallback onChanged) async {
-    List<ProjectMember> members;
-    try {
-      members = await repository.projectMembers(project.id);
-    } catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('项目成员加载失败：${userFacingError(error)}')));
-      }
-      return;
-    }
-    if (!context.mounted) return;
-    final titleController = TextEditingController(text: task.title);
-    final descriptionController = TextEditingController(text: task.description);
-    final startController = TextEditingController(text: task.startDate ?? '');
-    final dueController = TextEditingController(text: task.dueDate ?? '');
-    final labelsController =
-        TextEditingController(text: task.labels.join(', '));
-    final reminderController =
-        TextEditingController(text: task.reminder?['at']?.toString() ?? '');
-    var status = task.status;
-    var priority = task.priority;
-    var assigneeUserId = task.assigneeUserId ?? '';
-    var reminderMode = task.reminder?['mode'] as String? ?? 'once';
-    var reminderFrequency = task.reminder?['frequency'] as String? ?? 'daily';
-    final result = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => StatefulBuilder(
-              builder: (dialogContext, setDialogState) => AlertDialog(
-                title: const Text('编辑任务'),
-                content: SingleChildScrollView(
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  TextField(
-                      controller: titleController,
-                      decoration: const InputDecoration(labelText: '标题')),
-                  TextField(
-                      controller: descriptionController,
-                      minLines: 2,
-                      maxLines: 4,
-                      decoration: const InputDecoration(labelText: '描述')),
-                  DropdownButtonFormField<String>(
-                      initialValue: status,
-                      decoration: const InputDecoration(labelText: '状态'),
-                      items: const [
-                        DropdownMenuItem(value: 'todo', child: Text('待处理')),
-                        DropdownMenuItem(
-                            value: 'in_progress', child: Text('进行中')),
-                        DropdownMenuItem(value: 'done', child: Text('已完成')),
-                        DropdownMenuItem(value: 'canceled', child: Text('已取消'))
-                      ],
-                      onChanged: (value) {
-                        if (value != null) {
-                          setDialogState(() => status = value);
-                        }
-                      }),
-                  DropdownButtonFormField<int>(
-                      initialValue: priority,
-                      decoration: const InputDecoration(labelText: '优先级'),
-                      items: const [
-                        DropdownMenuItem(value: 1, child: Text('低')),
-                        DropdownMenuItem(value: 2, child: Text('中')),
-                        DropdownMenuItem(value: 3, child: Text('高'))
-                      ],
-                      onChanged: (value) {
-                        if (value != null) {
-                          setDialogState(() => priority = value);
-                        }
-                      }),
-                  TextField(
-                      controller: startController,
-                      decoration:
-                          const InputDecoration(labelText: '开始日期（YYYY-MM-DD）')),
-                  TextField(
-                      controller: dueController,
-                      decoration:
-                          const InputDecoration(labelText: '截止日期（YYYY-MM-DD）')),
-                  TextField(
-                      controller: labelsController,
-                      decoration: const InputDecoration(labelText: '标签（逗号分隔）')),
-                  DropdownButtonFormField<String>(
-                      initialValue: assigneeUserId,
-                      decoration: const InputDecoration(labelText: '负责人'),
-                      items: [
-                        const DropdownMenuItem(value: '', child: Text('未分配')),
-                        ...members.map((member) => DropdownMenuItem(
-                            value: member.id,
-                            child: Text(member.email.isEmpty
-                                ? member.displayName
-                                : '${member.displayName} · ${member.email}')))
-                      ],
-                      onChanged: (value) =>
-                          setDialogState(() => assigneeUserId = value ?? '')),
-                  TextField(
-                      controller: reminderController,
-                      decoration: const InputDecoration(
-                          labelText: '一次性提醒时间（ISO-8601，可选）')),
-                  DropdownButtonFormField<String>(
-                      initialValue: reminderMode,
-                      decoration: const InputDecoration(labelText: '提醒模式'),
-                      items: const [
-                        DropdownMenuItem(value: 'once', child: Text('一次性')),
-                        DropdownMenuItem(value: 'recurring', child: Text('周期性'))
-                      ],
-                      onChanged: (value) {
-                        if (value != null) {
-                          setDialogState(() => reminderMode = value);
-                        }
-                      }),
-                  if (reminderMode == 'recurring')
-                    DropdownButtonFormField<String>(
-                        initialValue: reminderFrequency,
-                        decoration: const InputDecoration(labelText: '重复频率'),
-                        items: const [
-                          DropdownMenuItem(value: 'daily', child: Text('每天')),
-                          DropdownMenuItem(value: 'weekly', child: Text('每周')),
-                          DropdownMenuItem(value: 'monthly', child: Text('每月'))
-                        ],
-                        onChanged: (value) {
-                          if (value != null) {
-                            setDialogState(() => reminderFrequency = value);
-                          }
-                        }),
-                ])),
-                actions: [
-                  TextButton(
-                      onPressed: () => Navigator.pop(dialogContext, false),
-                      child: const Text('取消')),
-                  FilledButton(
-                      onPressed: () => Navigator.pop(dialogContext, true),
-                      child: const Text('保存'))
-                ],
-              ),
-            ));
-    if (result == true && context.mounted) {
-      await repository.updateTask(
-          project.id,
-          task.id,
-          ProjectTaskUpdate(
-              title: titleController.text.trim(),
-              description: descriptionController.text.trim(),
-              status: status,
-              priority: priority,
-              startDate: startController.text.trim().isEmpty
-                  ? null
-                  : startController.text.trim(),
-              dueDate: dueController.text.trim().isEmpty
-                  ? null
-                  : dueController.text.trim(),
-              labels: labelsController.text
-                  .split(',')
-                  .map((value) => value.trim())
-                  .where((value) => value.isNotEmpty)
-                  .toList(),
-              assigneeUserId: assigneeUserId.isEmpty ? null : assigneeUserId,
-              reminder: reminderController.text.trim().isEmpty
-                  ? null
-                  : {
-                      'mode': reminderMode,
-                      'timezone': 'Asia/Shanghai',
-                      if (reminderMode == 'once')
-                        'at': reminderController.text.trim(),
-                      if (reminderMode == 'recurring')
-                        'frequency': reminderFrequency
-                    }));
-      if (context.mounted) onChanged();
-    }
-    unawaited(Future<void>.delayed(kThemeAnimationDuration, () {
-      titleController.dispose();
-      descriptionController.dispose();
-      startController.dispose();
-      dueController.dispose();
-      labelsController.dispose();
-      reminderController.dispose();
-    }));
+    final updated = await showProjectTaskEditorDialog(
+      context,
+      repository: repository,
+      project: project,
+      task: task,
+    );
+    if (updated != null && context.mounted) onChanged();
   }
 
   Widget _goalsView(
