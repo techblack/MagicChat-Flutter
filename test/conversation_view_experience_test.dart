@@ -209,6 +209,21 @@ void main() {
     expect(find.text('https://www.example.com/'), findsOneWidget);
   });
 
+  testWidgets('重新编辑撤回的 Markdown 时自动恢复输入模式', (tester) async {
+    final repository = _ReeditMarkdownRepository();
+    await _pumpConversation(tester, repository);
+
+    await tester.tap(find.text('重新编辑'));
+    await tester.pump();
+    final input = tester.widget<TextField>(find.byType(TextField).first);
+    expect(input.controller?.text, '# 原 Markdown');
+    expect(input.decoration?.hintText, '输入 Markdown…');
+    await tester.tap(find.byTooltip('发送'));
+    await tester.pumpAndSettle();
+
+    expect(repository.markdown, '# 原 Markdown');
+  });
+
   testWidgets('窄屏附件工具栏保持单行并可横向滚动', (tester) async {
     await tester.binding.setSurfaceSize(const Size(420, 700));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -510,6 +525,25 @@ class _LinkSendRepository extends _ExperienceRepository {
       {String? replyToMessageId, String? clientMessageId}) async {
     markdownCalls++;
   }
+}
+
+class _ReeditMarkdownRepository extends _MarkdownSendRepository {
+  @override
+  Future<List<ChatMessage>> messages(String conversationId,
+          {int? beforeSeq, int limit = 50}) async =>
+      const [
+        ChatMessage(
+          id: 'revoked-markdown',
+          conversationId: 'conversation-1',
+          sequence: 1,
+          author: '我',
+          text: '消息已撤回',
+          contentType: 'revoked',
+          mine: true,
+          editableText: '# 原 Markdown',
+          editableContentType: 'markdown',
+        ),
+      ];
 }
 
 class _ImageRepository extends _ExperienceRepository {

@@ -67,6 +67,8 @@ Map<String, dynamic> messageCacheRecord(ChatMessage message) => {
       'raw_body': message.rawBody,
       'text': message.text,
       if (message.editableText != null) 'editable_text': message.editableText,
+      if (message.editableContentType != null)
+        'editable_content_type': message.editableContentType,
       'mine': message.mine,
       if (message.choice != null)
         'choice': {

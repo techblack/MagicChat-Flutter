@@ -508,7 +508,8 @@ class ChatMessage {
       this.choice,
       this.replyTo,
       this.topic,
-      this.editableText});
+      this.editableText,
+      this.editableContentType});
   final String id;
   final String? clientMessageId;
   final String? conversationId;
@@ -525,6 +526,7 @@ class ChatMessage {
   final MessageReply? replyTo;
   final MessageTopic? topic;
   final String? editableText;
+  final String? editableContentType;
 }
 
 /// A message list that preserves the server's history-window metadata while

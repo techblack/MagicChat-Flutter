@@ -149,6 +149,7 @@ void main() {
                   'seq': 3,
                   'sender': {'id': 'user-2', 'name': 'Alice'},
                   'revoked_at': '2026-08-29T12:00:00Z',
+                  'editable_body': {'type': 'markdown', 'content': '# Revoked body'},
                 }
               ]
             }
@@ -159,5 +160,7 @@ void main() {
     final message = (await repository.messages('conversation-1')).single;
     expect(message.contentType, 'revoked');
     expect(message.text, '消息已撤回');
+    expect(message.editableText, '# Revoked body');
+    expect(message.editableContentType, 'markdown');
   });
 }

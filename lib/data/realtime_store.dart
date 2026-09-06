@@ -257,6 +257,7 @@ class RealtimeStore extends ChangeNotifier {
         replyTo: current.replyTo,
         topic: current.topic,
         editableText: current.editableText,
+        editableContentType: current.editableContentType,
         reactions: reactions
             .whereType<Map<String, dynamic>>()
             .where((item) => item['text'] is String)
@@ -305,6 +306,7 @@ class RealtimeStore extends ChangeNotifier {
         replyTo: current.replyTo,
         topic: current.topic,
         editableText: current.editableText,
+        editableContentType: current.editableContentType,
         reactions: current.reactions);
   }
 
@@ -318,9 +320,9 @@ class RealtimeStore extends ChangeNotifier {
     final body = MessageContent.fromEnvelope(payload['body'],
         revokedAt: payload['revoked_at']);
     final editableBody = payload['editable_body'];
-    final editableText = editableBody is Map<String, dynamic>
-        ? MessageContent.parse(editableBody).text
-        : previous?.editableText;
+    final editableContent = editableBody is Map<String, dynamic>
+        ? MessageContent.parse(editableBody)
+        : null;
     final sender = payload['sender'];
     final name = sender is Map<String, dynamic> ? sender['name'] : null;
     final nickname = sender is Map<String, dynamic> ? sender['nickname'] : null;
@@ -369,7 +371,9 @@ class RealtimeStore extends ChangeNotifier {
         contentType: body.type,
         rawBody: body.raw,
         text: body.text,
-        editableText: editableText,
+        editableText: editableContent?.text ?? previous?.editableText,
+        editableContentType:
+            editableContent?.type ?? previous?.editableContentType,
         replyTo: replyTo,
         topic: topic,
         mine: resolvedSenderId == null
