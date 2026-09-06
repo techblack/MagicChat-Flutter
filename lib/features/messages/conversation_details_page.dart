@@ -10,6 +10,7 @@ import '../../data/message_cache_store.dart';
 import '../../data/realtime_store.dart';
 import '../../data/repository.dart';
 import '../../domain/models.dart';
+import '../contacts/entity_details_page.dart';
 import '../shared/cached_avatar.dart';
 import '../shared/user_facing_error.dart';
 
@@ -743,6 +744,27 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
   }
 
   Future<void> _showMember(Contact member, bool profileUnavailable) async {
+    if (!profileUnavailable) {
+      await Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => EntityDetailsPage(
+            repository: widget.repository,
+            contact: member,
+            serverUrl: widget.serverUrl,
+            cacheScope: widget.cacheScope,
+            onOpenConversation: (conversationId, _) {
+              final openConversation = widget.onOpenConversation;
+              if (openConversation == null) return;
+              final navigator = Navigator.of(context);
+              if (navigator.canPop()) navigator.pop();
+              openConversation(conversationId);
+            },
+          ),
+        ),
+      );
+      return;
+    }
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
