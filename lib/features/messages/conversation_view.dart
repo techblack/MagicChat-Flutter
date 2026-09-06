@@ -171,6 +171,7 @@ class _ConversationViewState extends State<ConversationView>
   bool _draggingFile = false;
   bool _capturingScreenshot = false;
   Future<List<Contact>>? _contactsFuture;
+  Future<List<Contact>>? _allContactsFuture;
   final _olderMessages = <ChatMessage>[];
   bool _loadingOlder = false;
   bool _hasMoreOlder = true;
@@ -408,50 +409,39 @@ class _ConversationViewState extends State<ConversationView>
   }
 
   Future<List<Contact>> _loadConversationContacts() async {
-    final cached = await _contactCacheStore.read(widget.cacheScope);
-    if (cached.isNotEmpty) {
-      unawaited(_refreshConversationContacts());
-      return cached;
-    }
-    // 首屏只需当前会话成员资料；完整组织目录在后台刷新，避免打开第一
-    // 个聊天时同步解析数千名联系人。
-    final initial = await _fetchConversationContacts(fetchDirectory: false);
-    unawaited(_refreshConversationContacts());
-    return initial;
-  }
-
-  Future<void> _refreshConversationContacts() async {
-    final conversationId = widget.conversationId;
-    final expectedScrollGeneration = _scrollInteractionGeneration;
+    // 消息首屏只需要当前会话成员。此前这里先读出整个通讯录缓存，并
+    // 在每条消息中扫描数千个联系人，组织规模变大后会明显阻塞滚动。
+    // 完整通讯录改为用户明确打开“@联系人”时再按需加载。
+    final messageAuthors = <String>{};
     try {
-      final fresh = await _fetchConversationContacts();
-      if (!mounted ||
-          conversationId == null ||
-          widget.conversationId != conversationId) {
-        return;
-      }
-      final keepBottom = !_listPointerActive &&
-          _positionedConversationId == conversationId &&
-          _isAtBottom();
-      final offset = _scrollController.hasClients
-          ? _scrollController.position.pixels
-          : 0.0;
-      setState(() {
-        _contactsFuture = Future.value(fresh);
-      });
-      if (keepBottom) {
-        _correctLatestPosition(conversationId,
-            force: true,
-            expectedOffset: offset,
-            expectedScrollGeneration: expectedScrollGeneration);
+      final messages = await _messagesFuture;
+      for (final message in messages ?? const <ChatMessage>[]) {
+        final authorId = message.authorId?.trim();
+        if (authorId != null && authorId.isNotEmpty) {
+          messageAuthors.add(authorId);
+        }
+        final replyAuthorId = message.replyTo?.authorId?.trim();
+        if (replyAuthorId != null && replyAuthorId.isNotEmpty) {
+          messageAuthors.add(replyAuthorId);
+        }
+        for (final match in RegExp(r'\{\(@(?:user|app)/([^}]+)\)\}')
+            .allMatches(message.text)) {
+          final mentionedId = match.group(1)?.trim();
+          if (mentionedId != null && mentionedId.isNotEmpty) {
+            messageAuthors.add(mentionedId);
+          }
+        }
       }
     } catch (_) {
-      // 保留本地资料，网络刷新失败不影响消息显示。
+      // 消息加载失败时仍可用会话成员资料展示页面。
     }
+    return _fetchConversationContacts(
+        fetchDirectory: false, extraUserIds: messageAuthors);
   }
 
   Future<List<Contact>> _fetchConversationContacts(
-      {bool fetchDirectory = true}) async {
+      {bool fetchDirectory = true,
+      Iterable<String> extraUserIds = const []}) async {
     final results = await Future.wait([
       fetchDirectory
           ? widget.repository.contacts()
@@ -463,6 +453,7 @@ class _ConversationViewState extends State<ConversationView>
     };
     final id = widget.conversationId;
     final memberUserIds = <String>{};
+    memberUserIds.addAll(extraUserIds.where((id) => id.trim().isNotEmpty));
     if (id != null) {
       ChatConversation? selected;
       for (final conversation in results[1] as List<ChatConversation>) {
@@ -499,8 +490,8 @@ class _ConversationViewState extends State<ConversationView>
     }
     if (memberUserIds.isNotEmpty) {
       try {
-        // contacts() 已返回组织通讯录的完整用户资料；这里只补齐当前会话
-        // 成员，避免打开一个群聊时再次解析整组织的 2000 个用户。
+        // 这里只补齐当前会话成员；聊天首屏不会再同步解析整组织的
+        // 2000 个用户，完整通讯录仅在明确打开成员选择器时加载。
         final resolved = await widget.repository
             .resolveUsers(memberUserIds.toList(growable: false));
         for (final user in resolved) {
@@ -522,6 +513,9 @@ class _ConversationViewState extends State<ConversationView>
     unawaited(_writeConversationContactCache(contacts.values));
     return contacts.values.toList();
   }
+
+  Future<List<Contact>> _loadAllContactsOnDemand() =>
+      _allContactsFuture ??= widget.repository.contacts();
 
   Future<void> _writeConversationContactCache(
       Iterable<Contact> contacts) async {
@@ -1453,6 +1447,7 @@ class _ConversationViewState extends State<ConversationView>
         ..clear()
         ..addAll(_realtimeConversationMessages());
       _contactsFuture = _loadConversationContacts();
+      _allContactsFuture = null;
     }
     if (oldWidget.conversationId == widget.conversationId &&
         oldWidget.focusMessageId != widget.focusMessageId) {
@@ -2534,7 +2529,7 @@ class _ConversationViewState extends State<ConversationView>
   }
 
   Future<void> _pickMention() async {
-    final contacts = await (_contactsFuture ??= widget.repository.contacts());
+    final contacts = await _loadAllContactsOnDemand();
     if (!mounted) return;
     final selected = await showModalBottomSheet<Contact>(
         context: context,
