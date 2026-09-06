@@ -64,8 +64,8 @@ class UpdateService {
   static const updateSource = String.fromEnvironment('MAGICCHAT_UPDATE_SOURCE',
       defaultValue:
           String.fromEnvironment('UPDATE_SOURCE', defaultValue: 'release'));
-  static const currentBuild = 39;
-  static const currentVersion = '0.3.26';
+  static const currentBuild = 40;
+  static const currentVersion = '0.3.27';
   static const compiledDesktopArchitecture =
       String.fromEnvironment('MAGICCHAT_DESKTOP_ARCH', defaultValue: 'x64');
 
