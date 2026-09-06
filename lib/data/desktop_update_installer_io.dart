@@ -21,6 +21,7 @@ typedef DesktopArchiveExtractor = Future<void> Function(
 typedef DesktopReplacementLauncher = Future<void> Function(
     DesktopUpdateInstallPlan plan);
 typedef DesktopUpdateQuitter = Future<void> Function();
+typedef DesktopActiveTransferProbe = bool Function();
 
 class DesktopUpdateInstallPlan {
   const DesktopUpdateInstallPlan({
@@ -49,6 +50,7 @@ class DesktopUpdateInstaller implements UpdateInstaller {
     DesktopArchiveValidator? archiveValidator,
     DesktopArchiveExtractor? archiveExtractor,
     DesktopReplacementLauncher? replacementLauncher,
+    DesktopActiveTransferProbe? hasActiveTransfers,
     DesktopUpdateQuitter? quit,
   })  : _client = client,
         _platform = platform,
@@ -57,6 +59,7 @@ class DesktopUpdateInstaller implements UpdateInstaller {
         _archiveValidator = archiveValidator ?? validateDesktopUpdateArchive,
         _archiveExtractor = archiveExtractor ?? extractDesktopUpdateArchive,
         _replacementLauncher = replacementLauncher ?? launchDesktopReplacement,
+        _hasActiveTransfers = hasActiveTransfers ?? _noActiveTransfers,
         _quit = quit ?? const PlatformDesktopWindowController().quit;
 
   static const _maximumPackageBytes = 4 * 1024 * 1024 * 1024;
@@ -69,6 +72,7 @@ class DesktopUpdateInstaller implements UpdateInstaller {
   final DesktopArchiveValidator _archiveValidator;
   final DesktopArchiveExtractor _archiveExtractor;
   final DesktopReplacementLauncher _replacementLauncher;
+  final DesktopActiveTransferProbe _hasActiveTransfers;
   final DesktopUpdateQuitter _quit;
   StreamSubscription<List<int>>? _subscription;
   Completer<void>? _downloadCompleter;
@@ -99,6 +103,7 @@ class DesktopUpdateInstaller implements UpdateInstaller {
   }) async {
     if (!supported) throw UnsupportedError('当前平台不支持应用内安装更新');
     if (_running) throw StateError('已有安装包正在下载');
+    _checkActiveTransfers();
     final uri = Uri.tryParse(release.url);
     if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) {
       throw const FormatException('安装包下载地址必须使用 HTTPS');
@@ -229,6 +234,7 @@ class DesktopUpdateInstaller implements UpdateInstaller {
       onProgress(1);
       await archive.delete();
       archive = null;
+      _checkActiveTransfers();
       await _replacementLauncher(DesktopUpdateInstallPlan(
         platform: _targetPlatform,
         parentPid: pid,
@@ -278,6 +284,12 @@ class DesktopUpdateInstaller implements UpdateInstaller {
     if (_cancelled) throw const UpdateDownloadCancelled();
   }
 
+  void _checkActiveTransfers() {
+    if (_hasActiveTransfers()) {
+      throw const UpdateInstallBlockedByActiveTransfers();
+    }
+  }
+
   Future<String?> _expectedSha256(
       http.Client client, AppRelease release, String assetName) async {
     final direct = release.sha256?.trim().toLowerCase();
@@ -309,6 +321,8 @@ class DesktopUpdateInstaller implements UpdateInstaller {
     return parseSha256Sums(utf8.decode(bytes.takeBytes()), assetName);
   }
 }
+
+bool _noActiveTransfers() => false;
 
 Future<http.StreamedResponse> _sendDesktopUpdateRequest(
     http.Client client, Uri initialUri, String expectedFileName,

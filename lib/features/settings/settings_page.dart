@@ -306,7 +306,9 @@ class _SettingsPageState extends State<SettingsPage> {
                         (defaultTargetPlatform == TargetPlatform.windows ||
                             defaultTargetPlatform == TargetPlatform.macOS ||
                             defaultTargetPlatform == TargetPlatform.linux)
-                    ? DesktopUpdateInstaller()
+                    ? DesktopUpdateInstaller(
+                        hasActiveTransfers: () =>
+                            widget.repository.hasActiveTransfers)
                     : AndroidUpdateInstaller(),
               ),
       );
