@@ -29,6 +29,22 @@ void main() {
 
     expect(repository.downloads, 0);
   });
+
+  testWidgets('头像下载和网络加载失败后回退名称首字母', (tester) async {
+    final uri = Uri.parse(
+        'https://avatar.invalid/${DateTime.now().microsecondsSinceEpoch}.webp');
+    await tester.pumpWidget(MaterialApp(
+      home: CachedAvatar(
+        repository: DemoRepository(),
+        avatarUri: uri,
+        name: 'Alice',
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('A'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 Uint8List _avatarBytes() =>

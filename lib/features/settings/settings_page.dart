@@ -1,10 +1,8 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/auth_service.dart';
-import '../../data/avatar_processor.dart';
 import '../../data/chat_preferences.dart';
 import '../../data/chat_appearance_preferences.dart';
 import '../../data/desktop_auto_launch.dart';
@@ -29,6 +27,7 @@ import '../shared/cached_avatar.dart';
 import 'account_deactivation_page.dart';
 import 'app_update_dialog.dart';
 import 'desktop_screenshot_shortcut_dialog.dart';
+import 'profile_avatar_picker_dialog.dart';
 import 'runtime_diagnostics_page.dart';
 import 'server_management_page.dart';
 import 'storage_management_page.dart';
@@ -371,29 +370,31 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _pickAvatar() async {
-    final result =
-        await FilePicker.pickFiles(type: FileType.image, withData: true);
-    if (result == null || !mounted) return;
-    final file = result.files.single;
-    final bytes = file.bytes;
-    if (bytes == null && file.path == null) return;
-    try {
-      final processed =
-          bytes == null ? null : const AvatarProcessor().process(bytes);
+  Future<void> _pickAvatar(CurrentUser user) async {
+    final updated = await showDialog<CurrentUser>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => ProfileAvatarPickerDialog(
+        repository: widget.repository,
+        selectedAvatar: user.avatar,
+        serverUrl: widget.serverUrl,
+        cacheScope: widget.cacheScope,
+        onSaveBuiltin: (avatar) =>
+            widget.repository.updateProfile(avatar: avatar),
+        onSaveCustom: (bytes) => widget.repository.uploadAvatar(
+          AttachmentUpload(
+            path: '',
+            name: 'avatar.webp',
+            mimeType: 'image/webp',
+            bytes: bytes,
+          ),
+        ),
+      ),
+    );
+    if (updated != null && mounted) {
       setState(() {
-        _userFuture = widget.repository.uploadAvatar(AttachmentUpload(
-            path: file.path ?? '',
-            name: processed == null ? file.name : 'avatar.webp',
-            mimeType: processed == null
-                ? 'image/${file.extension ?? 'webp'}'
-                : 'image/webp',
-            bytes: processed));
+        _userFuture = Future.value(updated);
       });
-    } catch (error) {
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('头像上传失败：${userFacingError(error)}')));
     }
   }
 
@@ -615,7 +616,8 @@ class _SettingsPageState extends State<SettingsPage> {
                     title: Text('加载账户信息…'));
               return ListTile(
                   leading: GestureDetector(
-                      onTap: _pickAvatar,
+                      key: const ValueKey('profile-avatar-button'),
+                      onTap: () => _pickAvatar(user),
                       child: CachedAvatar(
                           repository: widget.repository,
                           cacheScope: widget.cacheScope,
