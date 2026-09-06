@@ -12,6 +12,7 @@ import 'document_editor_page.dart';
 import 'project_progress.dart';
 import 'project_task_calendar_view.dart';
 import 'project_task_details_page.dart';
+import '../shared/user_facing_error.dart';
 
 typedef DocumentCollaborationFactory = DocumentCollaborationSession? Function(
     ProjectDocument document);
@@ -149,8 +150,8 @@ class _ProjectsPageState extends State<ProjectsPage> {
     } catch (error) {
       _openedInitialTaskKey = null;
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('任务加载失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('任务加载失败：${userFacingError(error)}')));
       }
     }
   }
@@ -177,8 +178,8 @@ class _ProjectsPageState extends State<ProjectsPage> {
     } catch (error) {
       _openedInitialDocumentId = null;
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('文档加载失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('文档加载失败：${userFacingError(error)}')));
       }
     }
   }
@@ -234,7 +235,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
                     child: Column(mainAxisSize: MainAxisSize.min, children: [
                   const Icon(Icons.cloud_off_outlined, size: 40),
                   const SizedBox(height: 12),
-                  Text('项目加载失败：${snapshot.error}'),
+                  Text('项目加载失败：${userFacingError(snapshot.error!)}'),
                   TextButton.icon(
                       onPressed: _reloadProjects,
                       icon: const Icon(Icons.refresh),
@@ -418,8 +419,8 @@ class _ProjectsPageState extends State<ProjectsPage> {
           .toList();
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('群聊加载失败，将创建未关联群聊的项目：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('群聊加载失败，将创建未关联群聊的项目：${userFacingError(error)}')));
       }
     }
     if (!context.mounted) return;
@@ -529,8 +530,8 @@ class _ProjectsPageState extends State<ProjectsPage> {
       }
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('创建失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('创建失败：${userFacingError(error)}')));
       }
     }
   }
@@ -823,8 +824,8 @@ class _ProjectsPageState extends State<ProjectsPage> {
       members = await repository.projectMembers(project.id);
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('项目成员加载失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('项目成员加载失败：${userFacingError(error)}')));
       }
       return;
     }
@@ -1110,7 +1111,8 @@ class _ProjectsPageState extends State<ProjectsPage> {
           future: repository.projectMembers(project.id),
           builder: (context, snapshot) {
             if (snapshot.hasError) {
-              return Center(child: Text('成员加载失败：${snapshot.error}'));
+              return Center(
+                  child: Text('成员加载失败：${userFacingError(snapshot.error!)}'));
             }
             if (!snapshot.hasData) {
               return const Center(child: CircularProgressIndicator());
@@ -1211,8 +1213,8 @@ class _ProjectsPageState extends State<ProjectsPage> {
               }));
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('授权群组加载失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('授权群组加载失败：${userFacingError(error)}')));
       }
     }
   }
@@ -1485,8 +1487,8 @@ class _ProjectsPageState extends State<ProjectsPage> {
       members = await repository.projectMembers(project.id);
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('项目成员加载失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('项目成员加载失败：${userFacingError(error)}')));
       }
       return;
     }
@@ -1642,8 +1644,8 @@ class _ProjectsPageState extends State<ProjectsPage> {
       if (context.mounted) Navigator.pop(context);
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('创建任务失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('创建任务失败：${userFacingError(error)}')));
       }
     }
   }

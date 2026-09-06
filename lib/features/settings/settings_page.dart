@@ -22,6 +22,7 @@ import '../../data/update_service.dart';
 import '../../data/update_installer.dart';
 import '../../data/message_cache_store.dart';
 import '../../domain/models.dart';
+import '../shared/user_facing_error.dart';
 import '../qr_scanner_page.dart';
 import '../shared/cached_avatar.dart';
 import 'account_deactivation_page.dart';
@@ -205,8 +206,8 @@ class _SettingsPageState extends State<SettingsPage> {
     } catch (error) {
       if (mounted) {
         setState(() => _autoLaunchEnabled = previous);
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('开机自动启动设置失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('开机自动启动设置失败：${userFacingError(error)}')));
       }
     } finally {
       if (mounted) setState(() => _autoLaunchLoading = false);
@@ -302,8 +303,8 @@ class _SettingsPageState extends State<SettingsPage> {
       );
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('检查更新失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('检查更新失败：${userFacingError(error)}')));
       }
     }
   }
@@ -354,8 +355,8 @@ class _SettingsPageState extends State<SettingsPage> {
           () => _userFuture = widget.repository.updateProfile(nickname: value));
     } catch (error) {
       if (mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('保存失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('保存失败：${userFacingError(error)}')));
     }
   }
 
@@ -380,8 +381,8 @@ class _SettingsPageState extends State<SettingsPage> {
       });
     } catch (error) {
       if (mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('头像上传失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('头像上传失败：${userFacingError(error)}')));
     }
   }
 
@@ -518,8 +519,8 @@ class _SettingsPageState extends State<SettingsPage> {
       widget.onAccountSwitch?.call(replacement);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('重新登录失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('重新登录失败：${userFacingError(error)}')));
       }
     }
   }
@@ -545,8 +546,8 @@ class _SettingsPageState extends State<SettingsPage> {
       );
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('账户信息加载失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('账户信息加载失败：${userFacingError(error)}')));
       }
     }
   }

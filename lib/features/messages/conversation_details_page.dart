@@ -8,6 +8,7 @@ import '../../data/realtime_store.dart';
 import '../../data/repository.dart';
 import '../../domain/models.dart';
 import '../shared/cached_avatar.dart';
+import '../shared/user_facing_error.dart';
 
 class ConversationDetailsPage extends StatefulWidget {
   const ConversationDetailsPage({
@@ -113,7 +114,7 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
       await future;
       if (successMessage != null && mounted) _showMessage(successMessage);
     } catch (error) {
-      if (mounted) _showMessage('操作失败：$error');
+      if (mounted) _showMessage('操作失败：${userFacingError(error)}');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -640,7 +641,7 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
         Navigator.pop(context);
       }
     } catch (error) {
-      if (mounted) _showMessage('创建群聊失败：$error');
+      if (mounted) _showMessage('创建群聊失败：${userFacingError(error)}');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -846,7 +847,7 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
               mimeType: 'image/webp',
               bytes: bytes)));
     } catch (error) {
-      if (mounted) _showMessage('群头像更新失败：$error');
+      if (mounted) _showMessage('群头像更新失败：${userFacingError(error)}');
     }
   }
 
@@ -881,7 +882,7 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
       widget.onConversationRemoved?.call();
       if (mounted) Navigator.pop(context);
     } catch (error) {
-      if (mounted) _showMessage('操作失败：$error');
+      if (mounted) _showMessage('操作失败：${userFacingError(error)}');
     } finally {
       if (mounted) setState(() => _busy = false);
     }

@@ -4,6 +4,7 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import '../../data/repository.dart';
 import '../../domain/models.dart';
 import '../messages/send_card_dialog.dart';
+import '../shared/user_facing_error.dart';
 
 class ProjectTaskDetailsPage extends StatefulWidget {
   const ProjectTaskDetailsPage(
@@ -53,8 +54,8 @@ class _ProjectTaskDetailsPageState extends State<ProjectTaskDetailsPage> {
       });
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('评论失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('评论失败：${userFacingError(error)}')));
       }
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -102,7 +103,7 @@ class _ProjectTaskDetailsPageState extends State<ProjectTaskDetailsPage> {
                         child: ListTile(
                             leading: const Icon(Icons.error_outline),
                             title: const Text('任务动态加载失败'),
-                            subtitle: Text('${snapshot.error}'),
+                            subtitle: Text(userFacingError(snapshot.error!)),
                             trailing: IconButton(
                                 tooltip: '重试',
                                 onPressed: () => setState(() {

@@ -2598,8 +2598,8 @@ class _ConversationViewState extends State<ConversationView>
       _enqueueAttachment(conversationId, upload, file.size);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('无法读取附件：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('无法读取附件：${userFacingError(error)}')));
       }
     } finally {
       if (mounted) setState(() => _sendingFile = false);
@@ -2762,8 +2762,8 @@ class _ConversationViewState extends State<ConversationView>
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('无法读取拖入文件：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('无法读取拖入文件：${userFacingError(error)}')));
       }
     } finally {
       if (accessingScopedFile && bookmark != null) {
@@ -3036,8 +3036,8 @@ class _ConversationViewState extends State<ConversationView>
         }
       } catch (error) {
         if (mounted) {
-          ScaffoldMessenger.maybeOf(context)
-              ?.showSnackBar(SnackBar(content: Text('创建话题失败：$error')));
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+              SnackBar(content: Text('创建话题失败：${userFacingError(error)}')));
         }
       }
     } else if (action == 'forward') {
@@ -3124,8 +3124,8 @@ class _ConversationViewState extends State<ConversationView>
               }
             } catch (error) {
               if (mounted) {
-                ScaffoldMessenger.of(context)
-                    .showSnackBar(SnackBar(content: Text('转发消息失败：$error')));
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text('转发消息失败：${userFacingError(error)}')));
               }
             } finally {
               if (dialogContext.mounted) {
@@ -4062,8 +4062,8 @@ class _MessageBubble extends StatelessWidget {
                                         if (context.mounted) {
                                           ScaffoldMessenger.of(context)
                                               .showSnackBar(SnackBar(
-                                                  content:
-                                                      Text('附件加载失败：$error')));
+                                                  content: Text(
+                                                      '附件加载失败：${userFacingError(error)}')));
                                         }
                                       }
                                     },
@@ -4329,8 +4329,8 @@ class _MessageBubble extends StatelessWidget {
               ));
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('加载表情参与者失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('加载表情参与者失败：${userFacingError(error)}')));
       }
     }
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/auth_service.dart';
 import '../../data/server_store.dart';
+import '../shared/user_facing_error.dart';
 
 class ServerManagementPage extends StatefulWidget {
   const ServerManagementPage({
@@ -64,8 +65,8 @@ class _ServerManagementPageState extends State<ServerManagementPage> {
       if (mounted) Navigator.pop(context);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('切换失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('切换失败：${userFacingError(error)}')));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -109,7 +110,7 @@ class _ServerManagementPageState extends State<ServerManagementPage> {
         if (mounted) Navigator.pop(context);
       }
     } catch (error) {
-      if (mounted) _showMessage('保存失败：$error');
+      if (mounted) _showMessage('保存失败：${userFacingError(error)}');
     } finally {
       if (mounted) setState(() => _busy = false);
     }

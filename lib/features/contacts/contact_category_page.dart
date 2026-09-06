@@ -7,6 +7,7 @@ import 'applications_page.dart';
 import 'contact_directory_model.dart';
 import 'contact_directory_tile.dart';
 import 'entity_details_page.dart';
+import '../shared/user_facing_error.dart';
 
 class ContactCategoryPage extends StatefulWidget {
   const ContactCategoryPage({
@@ -47,8 +48,8 @@ class _ContactCategoryPageState extends State<ContactCategoryPage> {
       if (mounted) setState(() => _contacts = directory.contacts);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('通讯录刷新失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('通讯录刷新失败：${userFacingError(error)}')));
       }
     } finally {
       if (mounted) setState(() => _refreshing = false);

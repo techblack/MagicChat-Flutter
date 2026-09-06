@@ -9,6 +9,7 @@ import '../../data/asset_cache_store.dart';
 import '../../data/message_cache_store.dart';
 import '../../data/repository.dart';
 import '../../domain/models.dart';
+import '../shared/user_facing_error.dart';
 
 class ConversationGalleryImage {
   const ConversationGalleryImage({
@@ -240,7 +241,7 @@ class _ConversationImageGalleryState extends State<ConversationImageGallery> {
       }
       if (mounted) setState(() {});
     } catch (error) {
-      if (mounted) _showMessage('更早图片加载失败：$error');
+      if (mounted) _showMessage('更早图片加载失败：${userFacingError(error)}');
     } finally {
       if (mounted) setState(() => _loadingOlder = false);
     }
@@ -324,7 +325,7 @@ class _ConversationImageGalleryState extends State<ConversationImageGallery> {
           bytes: bytes);
       if (mounted && path != null) _showMessage('图片已保存');
     } catch (error) {
-      if (mounted) _showMessage('保存图片失败：$error');
+      if (mounted) _showMessage('保存图片失败：${userFacingError(error)}');
     } finally {
       if (mounted) setState(() => _saving = false);
     }

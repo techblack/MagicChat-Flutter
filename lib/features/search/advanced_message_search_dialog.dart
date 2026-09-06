@@ -6,6 +6,7 @@ import '../../data/message_cache_store.dart';
 import '../../data/repository.dart';
 import '../../domain/message_content.dart';
 import '../../domain/models.dart';
+import '../shared/user_facing_error.dart';
 
 enum ConversationMessageTypeFilter {
   all,
@@ -401,7 +402,8 @@ class _AdvancedMessageSearchDialogState
       future: future,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Center(child: Text('检索失败：${snapshot.error}'));
+          return Center(
+              child: Text('检索失败：${userFacingError(snapshot.error!)}'));
         }
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());

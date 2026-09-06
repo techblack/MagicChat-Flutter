@@ -7,6 +7,7 @@ import '../../data/message_cache_store.dart';
 import '../../data/repository.dart';
 import '../../domain/models.dart';
 import '../shared/cached_avatar.dart';
+import '../shared/user_facing_error.dart';
 
 Uri? _resolveAvatarUri(String? serverUrl, String value) {
   if (value.trim().isEmpty) return null;
@@ -71,7 +72,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
       await _showCredentials(credentials);
       _load();
     } catch (error) {
-      _showError('创建应用失败：$error');
+      _showError('创建应用失败：${userFacingError(error)}');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -91,7 +92,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
       );
       _load();
     } catch (error) {
-      _showError('保存应用失败：$error');
+      _showError('保存应用失败：${userFacingError(error)}');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -122,7 +123,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
       await widget.repository.setAppEnabled(app.id, !app.enabled);
       _load();
     } catch (error) {
-      _showError('更新应用状态失败：$error');
+      _showError('更新应用状态失败：${userFacingError(error)}');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -143,7 +144,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
     try {
       processed = const AvatarProcessor().process(file.bytes!);
     } catch (error) {
-      _showError('头像处理失败：$error');
+      _showError('头像处理失败：${userFacingError(error)}');
       return;
     }
     setState(() => _busy = true);
@@ -159,7 +160,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
       );
       _load();
     } catch (error) {
-      _showError('上传应用头像失败：$error');
+      _showError('上传应用头像失败：${userFacingError(error)}');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -192,7 +193,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
       await widget.repository.deleteApp(app.id);
       _load();
     } catch (error) {
-      _showError('删除应用失败：$error');
+      _showError('删除应用失败：${userFacingError(error)}');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -290,7 +291,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
                       await _showCredentials(await widget.repository
                           .getAppCredentials(apps[index].id));
                     } catch (error) {
-                      _showError('加载接入信息失败：$error');
+                      _showError('加载接入信息失败：${userFacingError(error)}');
                     } finally {
                       if (mounted) setState(() => _busy = false);
                     }
@@ -594,8 +595,8 @@ class _CredentialsDialogState extends State<_CredentialsDialog> {
       if (mounted) setState(() {});
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('重置失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('重置失败：${userFacingError(error)}')));
       }
     } finally {
       if (mounted) setState(() => _resetting = false);

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/repository.dart';
 import '../../domain/models.dart';
+import '../shared/user_facing_error.dart';
 
 class FriendManagementDialog extends StatefulWidget {
   const FriendManagementDialog(
@@ -53,7 +54,7 @@ class _FriendManagementDialogState extends State<FriendManagementDialog> {
       final results = await widget.repository.searchUsers(query);
       if (mounted) setState(() => _searchResults = results);
     } catch (error) {
-      if (mounted) _showMessage('查找用户失败：$error');
+      if (mounted) _showMessage('查找用户失败：${userFacingError(error)}');
     } finally {
       if (mounted) setState(() => _searching = false);
     }
@@ -71,7 +72,7 @@ class _FriendManagementDialogState extends State<FriendManagementDialog> {
         _dataFuture = _loadData();
       });
     } catch (error) {
-      if (mounted) _showMessage('好友操作失败：$error');
+      if (mounted) _showMessage('好友操作失败：${userFacingError(error)}');
     } finally {
       if (mounted) setState(() => _updatingKey = '');
     }
