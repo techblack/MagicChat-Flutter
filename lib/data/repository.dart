@@ -2419,15 +2419,27 @@ class HttpMagicChatRepository implements MagicChatRepository {
   @override
   Future<List<Project>> projects() async {
     final result = <Project>[];
+    final ids = <String>{};
+    final cursors = <String>{};
     String? cursor;
     do {
+      if (cursor != null && !cursors.add(cursor)) break;
       final page = await projectPage(cursor: cursor);
-      if (cursor == null && page.personalProject != null) {
+      if (cursor == null &&
+          page.personalProject != null &&
+          page.personalProject!.id.isNotEmpty &&
+          ids.add(page.personalProject!.id)) {
         result.add(page.personalProject!);
       }
-      result.addAll(page.projects);
-      final next = page.nextCursor;
-      if (next == null || next.isEmpty || next == cursor) break;
+      result.addAll(page.projects
+          .where((project) => project.id.isNotEmpty && ids.add(project.id)));
+      final next = page.nextCursor?.trim();
+      if (next == null ||
+          next.isEmpty ||
+          next == cursor ||
+          cursors.contains(next)) {
+        break;
+      }
       cursor = next;
     } while (true);
     return result;
@@ -2448,14 +2460,21 @@ class HttpMagicChatRepository implements MagicChatRepository {
       throw const FormatException('个人项目响应格式不正确');
     }
     if (values is! List) throw const FormatException('项目列表响应格式不正确');
+    final nextCursor = data['next_cursor'];
+    if (nextCursor != null && nextCursor is! String) {
+      throw const FormatException('项目游标响应格式不正确');
+    }
     final projects =
         values.whereType<Map<String, dynamic>>().map(_projectFromJson).toList();
+    final normalizedCursor = (nextCursor as String?)?.trim();
     return ProjectPage(
         personalProject: personal is Map<String, dynamic>
             ? _projectFromJson(personal)
             : null,
         projects: projects,
-        nextCursor: data['next_cursor'] as String?);
+        nextCursor: normalizedCursor == null || normalizedCursor.isEmpty
+            ? null
+            : normalizedCursor);
   }
 
   @override

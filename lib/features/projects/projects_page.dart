@@ -65,39 +65,135 @@ class ProjectsPage extends StatefulWidget {
 }
 
 class _ProjectsPageState extends State<ProjectsPage> {
-  late Future<List<Project>> _projects;
+  final _projects = <Project>[];
   final _searchController = TextEditingController();
+  Project? _personalProject;
   String _search = '';
+  String? _nextProjectsCursor;
+  String? _failedProjectsCursor;
+  Object? _projectsError;
+  final _seenProjectsCursors = <String>{};
+  bool _loadingProjects = false;
+  bool _loadingMoreProjects = false;
+  int _projectsRequestVersion = 0;
   String? _openedInitialProjectId;
   String? _openedInitialTaskKey;
   String? _openedInitialDocumentId;
   Timer? _fallbackPollTimer;
+  Timer? _searchDebounce;
   bool _fallbackPollInFlight = false;
 
   MagicChatRepository get repository => widget.repository;
+  List<Project> get _allProjects => [
+        if (_personalProject != null) _personalProject!,
+        ..._projects,
+      ];
 
   @override
   void initState() {
     super.initState();
-    _projects = repository.projects();
+    unawaited(_loadProjects());
     if (widget.realtimeSession != null) {
       _fallbackPollTimer = Timer.periodic(
           const Duration(minutes: 5), (_) => unawaited(_pollFallback()));
     }
   }
 
-  void _reloadProjects() {
+  void _reloadProjects() => unawaited(_loadProjects());
+
+  Future<void> _refreshProjects() => _loadProjects();
+
+  Future<void> _loadProjects({bool next = false}) async {
+    if (next) {
+      if (_loadingProjects ||
+          _loadingMoreProjects ||
+          _nextProjectsCursor == null) {
+        return;
+      }
+    } else {
+      _projectsRequestVersion++;
+    }
+    final requestVersion = _projectsRequestVersion;
+    final cursor = next ? _nextProjectsCursor : null;
+    final keyword = _search.trim();
+    final knownMatches = !next && keyword.isNotEmpty
+        ? _allProjects
+            .where((project) =>
+                _projectSearchText(project).contains(keyword.toLowerCase()))
+            .toList(growable: false)
+        : const <Project>[];
     setState(() {
-      _projects = repository.projects();
+      if (next) {
+        _loadingMoreProjects = true;
+      } else {
+        _loadingProjects = true;
+      }
+      _projectsError = null;
+      _failedProjectsCursor = null;
     });
+    try {
+      final page = await repository.projectPage(
+        cursor: cursor,
+        limit: 50,
+        keyword: keyword,
+      );
+      if (!mounted || requestVersion != _projectsRequestVersion) return;
+      setState(() {
+        if (!next) {
+          _projects.clear();
+          _seenProjectsCursors.clear();
+          _personalProject = page.personalProject?.id.isEmpty == true
+              ? null
+              : page.personalProject;
+        }
+        if (cursor != null) _seenProjectsCursors.add(cursor);
+        final existing = {
+          if (_personalProject != null) _personalProject!.id,
+          ..._projects.map((project) => project.id),
+        };
+        _projects.addAll(page.projects.where(
+            (project) => project.id.isNotEmpty && existing.add(project.id)));
+        _projects.addAll(knownMatches.where(
+            (project) => project.id.isNotEmpty && existing.add(project.id)));
+        final nextCursor = page.nextCursor?.trim();
+        _nextProjectsCursor = nextCursor == null ||
+                nextCursor.isEmpty ||
+                nextCursor == cursor ||
+                _seenProjectsCursors.contains(nextCursor)
+            ? null
+            : nextCursor;
+        _loadingProjects = false;
+        _loadingMoreProjects = false;
+      });
+      _openInitialProject(_allProjects);
+      _openInitialTask(_allProjects);
+      _openInitialDocument(_allProjects);
+    } catch (error) {
+      if (!mounted || requestVersion != _projectsRequestVersion) return;
+      setState(() {
+        _projectsError = error;
+        _failedProjectsCursor = cursor;
+        _loadingProjects = false;
+        _loadingMoreProjects = false;
+      });
+      if (_allProjects.isEmpty) _completeFailedInitialTargets();
+    }
   }
 
-  Future<void> _refreshProjects() async {
-    final future = repository.projects();
+  void _searchProjects(String value) {
     setState(() {
-      _projects = future;
+      _search = value;
+      _nextProjectsCursor = null;
+      _seenProjectsCursors.clear();
+      _failedProjectsCursor = null;
+      _projectsError = null;
+      _loadingMoreProjects = false;
     });
-    await future;
+    _searchDebounce?.cancel();
+    _projectsRequestVersion++;
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (mounted) unawaited(_loadProjects());
+    });
   }
 
   void _openInitialProject(List<Project> projects) {
@@ -110,16 +206,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
         break;
       }
     }
-    if (project == null) {
-      _openedInitialProjectId = id;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && widget.initialProjectId == id) {
-          widget.onInitialProjectOpened?.call();
-        }
-      });
-      return;
-    }
-    final target = project;
+    final target = project ?? Project(id: id, name: '');
     _openedInitialProjectId = id;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
@@ -153,8 +240,8 @@ class _ProjectsPageState extends State<ProjectsPage> {
       String projectId, String taskId, List<Project> projects) async {
     try {
       final project =
-          projects.where((item) => item.id == projectId).firstOrNull;
-      if (project == null) throw StateError('项目不存在或不可见');
+          projects.where((item) => item.id == projectId).firstOrNull ??
+              await repository.project(projectId);
       final task = await repository.task(projectId, taskId);
       if (!mounted ||
           widget.initialTaskProjectId != projectId ||
@@ -187,14 +274,16 @@ class _ProjectsPageState extends State<ProjectsPage> {
       final document = await repository.document(documentId);
       if (!mounted || widget.initialDocumentId != documentId) return;
       final project =
-          projects.where((item) => item.id == document.projectId).firstOrNull;
+          projects.where((item) => item.id == document.projectId).firstOrNull ??
+              await repository.project(document.projectId);
+      if (!mounted || widget.initialDocumentId != documentId) return;
       await Navigator.push<void>(
         context,
         MaterialPageRoute(
           builder: (_) => DocumentEditorPage(
             repository: repository,
             document: document,
-            projectName: project?.name ?? '',
+            projectName: project.name,
             collaboration: widget.documentCollaborationFactory?.call(document),
           ),
         ),
@@ -220,20 +309,21 @@ class _ProjectsPageState extends State<ProjectsPage> {
     }
     if (widget.initialDocumentId == null) _openedInitialDocumentId = null;
     if (oldWidget.initialProjectId != widget.initialProjectId) {
-      unawaited(_projects.then(_openInitialProject));
+      _openInitialProject(_allProjects);
     }
     if (oldWidget.initialTaskProjectId != widget.initialTaskProjectId ||
         oldWidget.initialTaskId != widget.initialTaskId) {
-      unawaited(_projects.then(_openInitialTask));
+      _openInitialTask(_allProjects);
     }
     if (oldWidget.initialDocumentId != widget.initialDocumentId) {
-      unawaited(_projects.then(_openInitialDocument));
+      _openInitialDocument(_allProjects);
     }
   }
 
   @override
   void dispose() {
     _fallbackPollTimer?.cancel();
+    _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -254,111 +344,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
 
   @override
   Widget build(BuildContext context) => Stack(children: [
-        FutureBuilder<List<Project>>(
-            future: _projects,
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                _completeFailedInitialTargets();
-                return Center(
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  const Icon(Icons.cloud_off_outlined, size: 40),
-                  const SizedBox(height: 12),
-                  Text('项目加载失败：${userFacingError(snapshot.error!)}'),
-                  TextButton.icon(
-                      onPressed: _reloadProjects,
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('重试')),
-                ]));
-              }
-              if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              _openInitialProject(snapshot.data!);
-              _openInitialTask(snapshot.data!);
-              _openInitialDocument(snapshot.data!);
-              final keyword = _search.trim().toLowerCase();
-              final projects = keyword.isEmpty
-                  ? snapshot.data!
-                  : snapshot.data!
-                      .where((project) =>
-                          _projectSearchText(project).contains(keyword))
-                      .toList();
-              return RefreshIndicator(
-                  onRefresh: _refreshProjects,
-                  child: ListView.separated(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                    itemCount: projects.isEmpty ? 2 : projects.length + 1,
-                    separatorBuilder: (_, __) => const SizedBox(height: 2),
-                    itemBuilder: (context, index) {
-                      if (index == 0) {
-                        return Padding(
-                            padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
-                            child: TextField(
-                                controller: _searchController,
-                                onChanged: (value) =>
-                                    setState(() => _search = value),
-                                decoration: InputDecoration(
-                                    prefixIcon: const Icon(Icons.search),
-                                    hintText: '搜索项目',
-                                    suffixIcon: _search.isEmpty
-                                        ? null
-                                        : IconButton(
-                                            tooltip: '清除搜索',
-                                            onPressed: () {
-                                              _searchController.clear();
-                                              setState(() => _search = '');
-                                            },
-                                            icon: const Icon(Icons.clear)),
-                                    border: const OutlineInputBorder())));
-                      }
-                      if (projects.isEmpty) {
-                        return Padding(
-                            padding: const EdgeInsets.all(32),
-                            child: Center(
-                                child: Text(
-                                    keyword.isEmpty ? '暂无项目' : '未找到匹配的项目')));
-                      }
-                      final project = projects[index - 1];
-                      return ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 4),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14)),
-                        leading: ProjectAvatar(
-                          repository: repository,
-                          project: project,
-                          serverUrl: widget.serverUrl,
-                          cacheScope: widget.cacheScope,
-                        ),
-                        title: Row(children: [
-                          Flexible(child: Text(project.name)),
-                          if (project.isPersonal) ...[
-                            const SizedBox(width: 8),
-                            const Chip(
-                                visualDensity: VisualDensity.compact,
-                                label: Text('个人')),
-                          ]
-                        ]),
-                        subtitle: Text(project.description.isNotEmpty
-                            ? project.description
-                            : project.isPersonal
-                                ? '仅自己可见的个人项目'
-                                : '团队项目'),
-                        trailing:
-                            Row(mainAxisSize: MainAxisSize.min, children: [
-                          if (project.taskCount case final count?)
-                            Text('$count 个任务'),
-                          const SizedBox(width: 4),
-                          const Icon(Icons.chevron_right),
-                        ]),
-                        onTap: () => _showTasks(project),
-                        onLongPress: () => _projectActions(context, project),
-                      );
-                    },
-                  ));
-            }),
+        _projectList(context),
         Positioned(
             right: 16,
             bottom: 16,
@@ -368,6 +354,138 @@ class _ProjectsPageState extends State<ProjectsPage> {
                 tooltip: '新建项目',
                 child: const Icon(Icons.create_new_folder))),
       ]);
+
+  Widget _projectList(BuildContext context) {
+    if (_loadingProjects && _allProjects.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_projectsError != null && _allProjects.isEmpty) {
+      return Center(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Icon(Icons.cloud_off_outlined, size: 40),
+        const SizedBox(height: 12),
+        Text('项目加载失败：${userFacingError(_projectsError!)}'),
+        TextButton.icon(
+            onPressed: _reloadProjects,
+            icon: const Icon(Icons.refresh),
+            label: const Text('重试')),
+      ]));
+    }
+    final keyword = _search.trim().toLowerCase();
+    final projects = keyword.isEmpty
+        ? _allProjects
+        : _allProjects
+            .where((project) => _projectSearchText(project).contains(keyword))
+            .toList(growable: false);
+    final hasFooter = _projectsError != null ||
+        _nextProjectsCursor != null ||
+        _loadingMoreProjects;
+    final contentCount = projects.isEmpty ? 1 : projects.length;
+    return RefreshIndicator(
+        onRefresh: _refreshProjects,
+        child: ListView.separated(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 88),
+          itemCount: 1 + contentCount + (hasFooter ? 1 : 0),
+          separatorBuilder: (_, __) => const SizedBox(height: 2),
+          itemBuilder: (context, index) {
+            if (index == 0) {
+              return Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
+                  child: TextField(
+                      controller: _searchController,
+                      onChanged: _searchProjects,
+                      decoration: InputDecoration(
+                          prefixIcon: const Icon(Icons.search),
+                          hintText: '搜索项目',
+                          suffixIcon: _search.isEmpty
+                              ? null
+                              : IconButton(
+                                  tooltip: '清除搜索',
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    _searchProjects('');
+                                  },
+                                  icon: const Icon(Icons.clear)),
+                          border: const OutlineInputBorder())));
+            }
+            if (hasFooter && index == contentCount + 1) {
+              return _projectListFooter();
+            }
+            if (projects.isEmpty) {
+              return Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Center(
+                      child: Text(_loadingProjects
+                          ? '正在加载项目'
+                          : keyword.isEmpty
+                              ? '暂无项目'
+                              : '未找到匹配的项目')));
+            }
+            final project = projects[index - 1];
+            return ListTile(
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14)),
+              leading: ProjectAvatar(
+                repository: repository,
+                project: project,
+                serverUrl: widget.serverUrl,
+                cacheScope: widget.cacheScope,
+              ),
+              title: Row(children: [
+                Flexible(child: Text(project.name)),
+                if (project.isPersonal) ...[
+                  const SizedBox(width: 8),
+                  const Chip(
+                      visualDensity: VisualDensity.compact, label: Text('个人')),
+                ]
+              ]),
+              subtitle: Text(project.description.isNotEmpty
+                  ? project.description
+                  : project.isPersonal
+                      ? '仅自己可见的个人项目'
+                      : '团队项目'),
+              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                if (project.taskCount case final count?) Text('$count 个任务'),
+                const SizedBox(width: 4),
+                const Icon(Icons.chevron_right),
+              ]),
+              onTap: () => _showTasks(project),
+              onLongPress: () => _projectActions(context, project),
+            );
+          },
+        ));
+  }
+
+  Widget _projectListFooter() {
+    if (_projectsError != null) {
+      final retryNext = _failedProjectsCursor != null;
+      return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Column(children: [
+            Text(retryNext ? '加载下一页失败' : '刷新项目失败'),
+            TextButton.icon(
+              onPressed: () => _loadProjects(next: retryNext),
+              icon: const Icon(Icons.refresh),
+              label: const Text('重试'),
+            ),
+          ]));
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: OutlinedButton.icon(
+        onPressed:
+            _loadingMoreProjects ? null : () => _loadProjects(next: true),
+        icon: _loadingMoreProjects
+            ? const SizedBox.square(
+                dimension: 16, child: CircularProgressIndicator(strokeWidth: 2))
+            : const Icon(Icons.expand_more),
+        label: Text(_loadingMoreProjects ? '正在加载' : '加载更多项目'),
+      ),
+    );
+  }
 
   void _completeFailedInitialTargets() {
     final projectId = widget.initialProjectId;

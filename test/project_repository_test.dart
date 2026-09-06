@@ -227,13 +227,20 @@ void main() {
                     },
               'projects': [
                 {
-                  'id': secondPage ? 'project-2' : 'project-1',
-                  'name': secondPage ? '第二页' : '第一页',
+                  'id': 'project-1',
+                  'name': '第一页',
                   'is_personal': false,
                   'updated_at': '2026-08-29T10:00:00Z',
-                }
+                },
+                if (secondPage)
+                  {
+                    'id': 'project-2',
+                    'name': '第二页',
+                    'is_personal': false,
+                    'updated_at': '2026-08-29T10:00:00Z',
+                  },
               ],
-              'next_cursor': secondPage ? null : 'next',
+              'next_cursor': ' next ',
             }
           });
         }));
@@ -244,6 +251,21 @@ void main() {
         ['personal-1', 'project-1', 'project-2']);
     expect(requests, hasLength(2));
     expect(requests.last.url.queryParameters['cursor'], 'next');
+  });
+
+  test('项目分页拒绝非字符串游标', () async {
+    final repository = HttpMagicChatRepository(
+        serverUrl: 'https://chat.example.com',
+        sessionToken: 'test-token',
+        client: MockClient((_) async => _jsonResponse({
+              'data': {
+                'personal_project': null,
+                'projects': [],
+                'next_cursor': 1,
+              }
+            })));
+
+    await expectLater(repository.projectPage(), throwsFormatException);
   });
 
   test('任务解析嵌套负责人且显式发送清空字段', () async {

@@ -44,7 +44,8 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField).first, '客户端');
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
     expect(find.text('客户端迭代'), findsOneWidget);
     expect(find.text('我的项目'), findsNothing);
 
@@ -68,7 +69,8 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField).first, 'kehuduan');
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
     expect(find.text('客户端迭代'), findsOneWidget);
     expect(find.text('我的项目'), findsNothing);
   });
@@ -79,13 +81,85 @@ void main() {
 
     final search = find.byType(TextField).first;
     await tester.enterText(search, '不存在的项目');
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
     expect(find.text('未找到匹配的项目'), findsOneWidget);
     expect(find.byTooltip('清除搜索'), findsOneWidget);
 
     await tester.tap(find.byTooltip('清除搜索'));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
     expect(find.text('我的项目'), findsOneWidget);
+  });
+
+  testWidgets('项目列表首屏只请求一页并惰性构建条目', (tester) async {
+    final repository = _IncrementalProjectsRepository(firstPageSize: 50);
+    await tester.binding.setSurfaceSize(const Size(400, 600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: ProjectsPage(repository: repository))));
+    await tester.pumpAndSettle();
+
+    expect(repository.cursors, [null]);
+    expect(repository.limits, [50]);
+    final builtProjectAvatars = find.byType(ProjectAvatar).evaluate().length;
+    expect(builtProjectAvatars, greaterThan(0));
+    expect(builtProjectAvatars, lessThan(50));
+    expect(find.text('第 50 个项目'), findsNothing);
+  });
+
+  testWidgets('项目列表首页失败可原位重试', (tester) async {
+    final repository = _IncrementalProjectsRepository(failFirstOnce: true);
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: ProjectsPage(repository: repository))));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('项目加载失败'), findsOneWidget);
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('第 1 个项目'), findsOneWidget);
+    expect(repository.cursors, [null, null]);
+  });
+
+  testWidgets('项目后续页失败可重试且跨页去重终止重复游标', (tester) async {
+    final repository = _IncrementalProjectsRepository(
+        firstPageSize: 2, failNextOnce: true, repeatNextCursor: true);
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: ProjectsPage(repository: repository))));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('加载更多项目'));
+    await tester.pumpAndSettle();
+    expect(find.text('加载下一页失败'), findsOneWidget);
+    expect(find.text('第 1 个项目'), findsOneWidget);
+
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('第 1 个项目'), findsOneWidget);
+    expect(find.text('最后一个项目'), findsOneWidget);
+    expect(find.text('加载更多项目'), findsNothing);
+    expect(repository.cursors, [null, 'next', 'next']);
+  });
+
+  testWidgets('项目搜索从首页重置游标并透传关键词', (tester) async {
+    final repository = _IncrementalProjectsRepository(firstPageSize: 2);
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: ProjectsPage(repository: repository))));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('加载更多项目'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, '发布');
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+
+    expect(repository.cursors.last, isNull);
+    expect(repository.keywords.last, '发布');
+    expect(find.text('发布计划'), findsOneWidget);
+    expect(find.text('第 1 个项目'), findsNothing);
+    expect(find.text('加载更多项目'), findsNothing);
   });
 
   testWidgets('普通项目可以打开授权群组并选择可用群组', (tester) async {
@@ -619,6 +693,63 @@ class _ProjectSettingsRepository extends _ProjectRepository {
 
   @override
   Future<Uint8List?> downloadResource(Uri uri) async => uploadedAvatar;
+}
+
+class _IncrementalProjectsRepository extends DemoRepository {
+  _IncrementalProjectsRepository({
+    this.firstPageSize = 1,
+    this.failFirstOnce = false,
+    this.failNextOnce = false,
+    this.repeatNextCursor = false,
+  });
+
+  final int firstPageSize;
+  final bool failFirstOnce;
+  final bool failNextOnce;
+  final bool repeatNextCursor;
+  final cursors = <String?>[];
+  final keywords = <String>[];
+  final limits = <int>[];
+  var _firstAttempts = 0;
+  var _nextAttempts = 0;
+
+  @override
+  Future<ProjectPage> projectPage(
+      {String? cursor, int limit = 100, String keyword = ''}) async {
+    cursors.add(cursor);
+    keywords.add(keyword);
+    limits.add(limit);
+    if (cursor == null) {
+      _firstAttempts++;
+      if (failFirstOnce && _firstAttempts == 1) {
+        throw StateError('首页暂时不可用');
+      }
+      if (keyword == '发布') {
+        return const ProjectPage(
+            projects: [Project(id: 'release', name: '发布计划')]);
+      }
+      return ProjectPage(
+        personalProject:
+            const Project(id: 'personal', name: '我的项目', isPersonal: true),
+        projects: [
+          for (var index = 0; index < firstPageSize; index++)
+            Project(id: 'project-$index', name: '第 ${index + 1} 个项目'),
+        ],
+        nextCursor: 'next',
+      );
+    }
+    _nextAttempts++;
+    if (failNextOnce && _nextAttempts == 1) {
+      throw StateError('后续页暂时不可用');
+    }
+    return ProjectPage(
+      projects: const [
+        Project(id: 'project-0', name: '第 1 个项目'),
+        Project(id: 'last', name: '最后一个项目'),
+      ],
+      nextCursor: repeatNextCursor ? 'next' : null,
+    );
+  }
 }
 
 class _ViewPreferenceRepository extends _ProjectRepository {
