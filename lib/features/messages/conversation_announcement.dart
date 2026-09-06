@@ -27,8 +27,9 @@ class _ConversationAnnouncementState extends State<ConversationAnnouncement> {
     final style = theme.textTheme.bodySmall?.copyWith(height: 1.45) ??
         const TextStyle(fontSize: 12, height: 1.45);
     return LayoutBuilder(builder: (context, constraints) {
+      // 展开按钮位于正文下方，不再与大字号的第三行争用横向空间。
       final textWidth =
-          (constraints.maxWidth - 66).clamp(1.0, double.infinity).toDouble();
+          (constraints.maxWidth - 48).clamp(1.0, double.infinity).toDouble();
       final painter = TextPainter(
         text: TextSpan(text: content, style: style),
         maxLines: 3,
@@ -58,26 +59,38 @@ class _ConversationAnnouncementState extends State<ConversationAnnouncement> {
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    content,
-                    key: const ValueKey('conversation-announcement-text'),
-                    maxLines: expanded ? null : 3,
-                    overflow:
-                        expanded ? TextOverflow.visible : TextOverflow.ellipsis,
-                    style: style,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        content,
+                        key: const ValueKey('conversation-announcement-text'),
+                        maxLines: expanded ? null : 3,
+                        overflow: expanded
+                            ? TextOverflow.visible
+                            : TextOverflow.ellipsis,
+                        style: style,
+                      ),
+                      if (canExpand)
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            key: const ValueKey(
+                                'conversation-announcement-toggle'),
+                            onPressed: () =>
+                                setState(() => _expanded = !expanded),
+                            style: TextButton.styleFrom(
+                              minimumSize: const Size(44, 28),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 6),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            child: Text(expanded ? '收起' : '展开'),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
-                if (canExpand)
-                  TextButton(
-                    key: const ValueKey('conversation-announcement-toggle'),
-                    onPressed: () => setState(() => _expanded = !expanded),
-                    style: TextButton.styleFrom(
-                      minimumSize: const Size(44, 28),
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      visualDensity: VisualDensity.compact,
-                    ),
-                    child: Text(expanded ? '收起' : '展开'),
-                  ),
               ]),
             ),
           ),

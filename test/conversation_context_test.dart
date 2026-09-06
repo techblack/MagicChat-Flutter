@@ -54,6 +54,28 @@ void main() {
     expect(find.byKey(const ValueKey('conversation-announcement')),
         findsOneWidget);
   });
+
+  testWidgets('大字号群公告正文与展开按钮上下分离', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(320, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(const MaterialApp(
+      home: MediaQuery(
+        data: MediaQueryData(textScaler: TextScaler.linear(2)),
+        child: Scaffold(
+          body: ConversationAnnouncement(
+            announcement: '第一行很长的群公告正文\n第二行正文\n第三行正文\n第四行正文',
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    final text = tester.getRect(
+        find.byKey(const ValueKey('conversation-announcement-text')));
+    final toggle = tester.getRect(
+        find.byKey(const ValueKey('conversation-announcement-toggle')));
+    expect(text.bottom, lessThanOrEqualTo(toggle.top));
+  });
 }
 
 class _ContextRepository extends DemoRepository {

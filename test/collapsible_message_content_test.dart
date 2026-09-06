@@ -81,6 +81,39 @@ void main() {
     expect(find.text('展开'), findsOneWidget);
   });
 
+  testWidgets('大字号折叠正文与展开按钮保留独立间距', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(500, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+      home: MediaQuery(
+        data: const MediaQueryData(textScaler: TextScaler.linear(2)),
+        child: Scaffold(
+          body: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 320,
+              child: CollapsibleMessageContent(
+                variant: CollapsibleMessageVariant.text,
+                contentIdentity: 'large-text',
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.blue,
+                builder: (_) =>
+                    Text(List.filled(30, '大字号正文').join('\n')),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    final content = tester.getRect(
+        find.byKey(const ValueKey('collapsible-message-content-clip')));
+    final toggle = tester
+        .getRect(find.byKey(const ValueKey('collapsible-message-toggle')));
+    expect(toggle.top - content.bottom, greaterThanOrEqualTo(6));
+  });
+
   testWidgets('短内容不显示折叠操作', (tester) async {
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(

@@ -105,6 +105,7 @@ class _CollapsibleMessageContentState extends State<CollapsibleMessageContent> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 SizedBox(
+                  key: const ValueKey('collapsible-message-content-clip'),
                   height: visibleContentHeight,
                   width: double.infinity,
                   child: ClipRect(
