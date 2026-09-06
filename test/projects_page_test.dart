@@ -1,8 +1,13 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as image;
+import 'package:magicchat_client/data/message_cache_store.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/projects/document_editor_page.dart';
+import 'package:magicchat_client/features/projects/project_avatar.dart';
 import 'package:magicchat_client/features/projects/project_task_calendar_view.dart';
 import 'package:magicchat_client/features/projects/projects_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -24,6 +29,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('编辑项目'), findsOneWidget);
     expect(find.text('删除项目'), findsNothing);
+    await tester.tap(find.text('编辑项目'));
+    await tester.pumpAndSettle();
+    final personalName = tester.widget<TextField>(find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField && widget.decoration?.labelText == '项目名称'));
+    expect(personalName.enabled, isFalse);
+    expect(find.text('个人项目头像跟随账户头像'), findsOneWidget);
+    expect(find.text('选择项目头像'), findsNothing);
   });
 
   testWidgets('项目列表支持关键词过滤且项目详情包含目标和成员入口', (tester) async {
@@ -37,6 +50,7 @@ void main() {
 
     await tester.tap(find.text('客户端迭代'));
     await tester.pumpAndSettle();
+    expect(find.byTooltip('编辑项目信息'), findsOneWidget);
     expect(find.text('目标'), findsOneWidget);
     expect(find.text('成员'), findsOneWidget);
     await tester.tap(find.text('目标'));
@@ -87,6 +101,78 @@ void main() {
     await tester.tap(find.text('团队群聊'));
     await tester.pumpAndSettle();
     expect(find.text('团队群聊'), findsOneWidget);
+  });
+
+  testWidgets('项目所有者可编辑名称描述并上传裁切头像', (tester) async {
+    final repository = _ProjectSettingsRepository('owner');
+    final source = Uint8List.fromList(
+        image.encodePng(image.Image(width: 320, height: 180)));
+    const scope = MessageCacheScope(
+        serverUrl: 'https://chat.example.com', userId: 'owner-1');
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF6750A4)),
+          useMaterial3: true),
+      home: Scaffold(
+        body: ProjectsPage(
+          repository: repository,
+          serverUrl: scope.serverUrl,
+          cacheScope: scope,
+          projectAvatarPicker: () async => source,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('客户端迭代'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('编辑项目'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('修改项目信息'), findsOneWidget);
+    await tester.tap(find.text('选择项目头像'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byWidgetPredicate((widget) =>
+            widget is TextField && widget.decoration?.labelText == '项目名称'),
+        '发布计划');
+    await tester.enterText(
+        find.byWidgetPredicate((widget) =>
+            widget is TextField && widget.decoration?.labelText == '项目描述'),
+        '准备九月版本');
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+
+    expect(repository.current.name, '发布计划');
+    expect(repository.current.description, '准备九月版本');
+    final uploaded = image.decodeWebP(repository.uploadedAvatar!);
+    expect(uploaded, isNotNull);
+    expect(uploaded!.width, 256);
+    expect(uploaded.height, 256);
+    expect(find.text('发布计划'), findsOneWidget);
+    expect(
+        tester.widgetList<ProjectAvatar>(find.byType(ProjectAvatar)).any(
+            (widget) =>
+                widget.project.avatar ==
+                '/assets/avatars/projects/project-1/avatar.webp'),
+        isTrue);
+  });
+
+  testWidgets('非项目所有者不展示项目管理入口', (tester) async {
+    final repository = _ProjectSettingsRepository('member');
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: ProjectsPage(repository: repository))));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('客户端迭代'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('只有项目所有者可管理项目'), findsOneWidget);
+    expect(find.text('编辑项目'), findsNothing);
+
+    await tester.tap(find.text('客户端迭代'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('编辑项目信息'), findsNothing);
   });
 
   testWidgets('新建项目可以直接关联群聊', (tester) async {
@@ -494,6 +580,45 @@ class _ProjectRepository extends DemoRepository {
             parentId: 'folder-1',
             documentType: 'markdown'),
       ];
+}
+
+class _ProjectSettingsRepository extends _ProjectRepository {
+  _ProjectSettingsRepository(this.role);
+
+  final String role;
+  Project current =
+      const Project(id: 'project-1', name: '客户端迭代', description: '跨端功能复刻');
+  Uint8List? uploadedAvatar;
+
+  @override
+  Future<List<Project>> projects() async => [
+        current.copyWith(currentUserRole: ''),
+      ];
+
+  @override
+  Future<Project> project(String projectId) async =>
+      current.copyWith(currentUserRole: role);
+
+  @override
+  Future<Project> updateProject(String projectId,
+      {String? name, String? description}) async {
+    current = current.copyWith(
+        name: name, description: description, currentUserRole: role);
+    return current;
+  }
+
+  @override
+  Future<Project> uploadProjectAvatar(
+      String projectId, AttachmentUpload upload) async {
+    uploadedAvatar = upload.bytes;
+    current = current.copyWith(
+        avatar: '/assets/avatars/projects/project-1/avatar.webp',
+        currentUserRole: role);
+    return current;
+  }
+
+  @override
+  Future<Uint8List?> downloadResource(Uri uri) async => uploadedAvatar;
 }
 
 class _ViewPreferenceRepository extends _ProjectRepository {

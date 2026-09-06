@@ -1318,7 +1318,8 @@ class Project {
       this.description = '',
       this.avatar = '',
       this.isPersonal = false,
-      this.updatedAt = ''});
+      this.updatedAt = '',
+      this.currentUserRole = ''});
   final String id;
   final String name;
   final int? taskCount;
@@ -1326,6 +1327,29 @@ class Project {
   final String avatar;
   final bool isPersonal;
   final String updatedAt;
+  final String currentUserRole;
+
+  bool get canManage => currentUserRole == 'owner';
+
+  Project copyWith({
+    String? name,
+    int? taskCount,
+    String? description,
+    String? avatar,
+    bool? isPersonal,
+    String? updatedAt,
+    String? currentUserRole,
+  }) =>
+      Project(
+        id: id,
+        name: name ?? this.name,
+        taskCount: taskCount ?? this.taskCount,
+        description: description ?? this.description,
+        avatar: avatar ?? this.avatar,
+        isPersonal: isPersonal ?? this.isPersonal,
+        updatedAt: updatedAt ?? this.updatedAt,
+        currentUserRole: currentUserRole ?? this.currentUserRole,
+      );
 }
 
 class ProjectPage {

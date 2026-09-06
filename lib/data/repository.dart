@@ -127,10 +127,13 @@ abstract interface class MagicChatRepository {
   Future<List<Project>> projects();
   Future<ProjectPage> projectPage(
       {String? cursor, int limit = 100, String keyword = ''});
+  Future<Project> project(String projectId);
   Future<Project> createProject(String name,
       {String description = '', List<String> groupIds = const []});
   Future<Project> updateProject(String projectId,
       {String? name, String? description});
+  Future<Project> uploadProjectAvatar(
+      String projectId, AttachmentUpload upload);
   Future<void> deleteProject(String projectId);
   Future<List<ProjectGroup>> projectGroups(String projectId);
   Future<void> bindProjectGroup(String projectId, String groupId);
@@ -792,6 +795,12 @@ class DemoRepository implements MagicChatRepository {
       ProjectPage(projects: await projects(), nextCursor: null);
 
   @override
+  Future<Project> project(String projectId) async {
+    final value = (await projects()).firstWhere((item) => item.id == projectId);
+    return value.copyWith(currentUserRole: 'owner');
+  }
+
+  @override
   Future<Project> createProject(String name,
           {String description = '', List<String> groupIds = const []}) async =>
       Project(
@@ -801,9 +810,17 @@ class DemoRepository implements MagicChatRepository {
 
   @override
   Future<Project> updateProject(String projectId,
-          {String? name, String? description}) async =>
-      Project(
-          id: projectId, name: name ?? '项目', description: description ?? '');
+      {String? name, String? description}) async {
+    final value = await project(projectId);
+    return value.copyWith(name: name, description: description);
+  }
+
+  @override
+  Future<Project> uploadProjectAvatar(
+          String projectId, AttachmentUpload upload) async =>
+      (await project(projectId)).copyWith(
+          avatar:
+              upload.path.isEmpty ? '/demo/project-avatar.webp' : upload.path);
 
   @override
   Future<void> deleteProject(String projectId) async {}
@@ -2442,6 +2459,11 @@ class HttpMagicChatRepository implements MagicChatRepository {
   }
 
   @override
+  Future<Project> project(String projectId) async =>
+      _projectFromJson(_data(await _request(
+          'GET', '/api/client/projects/${Uri.encodeComponent(projectId)}')));
+
+  @override
   Future<Project> createProject(String name,
       {String description = '', List<String> groupIds = const []}) async {
     final data = _data(await _request('POST', '/api/client/projects', body: {
@@ -2462,6 +2484,24 @@ class HttpMagicChatRepository implements MagicChatRepository {
         'PATCH', '/api/client/projects/${Uri.encodeComponent(projectId)}',
         body: body));
     return _projectFromJson(data);
+  }
+
+  @override
+  Future<Project> uploadProjectAvatar(
+      String projectId, AttachmentUpload upload) async {
+    final uri = baseUri.resolve(
+        'api/client/projects/${Uri.encodeComponent(projectId)}/avatar');
+    final request = http.MultipartRequest('POST', uri)
+      ..headers.addAll(_sessionHeaders)
+      ..headers['Accept'] = 'application/json'
+      ..files.add(upload.bytes != null
+          ? http.MultipartFile.fromBytes('file', upload.bytes!,
+              filename: upload.name, contentType: _mediaType(upload.mimeType))
+          : await http.MultipartFile.fromPath('file', upload.path,
+              filename: upload.name, contentType: _mediaType(upload.mimeType)));
+    final response =
+        await _sendMultipartRequest(request, fallbackMessage: '上传项目头像失败');
+    return _projectFromJson(_data(response));
   }
 
   @override
@@ -2824,6 +2864,9 @@ class HttpMagicChatRepository implements MagicChatRepository {
         isPersonal: value['is_personal'] == true,
         updatedAt:
             value['updated_at'] is String ? value['updated_at'] as String : '',
+        currentUserRole: value['current_user_role'] is String
+            ? value['current_user_role'] as String
+            : '',
         taskCount:
             taskCounts is Map<String, dynamic> && taskCounts['total'] is num
                 ? (taskCounts['total'] as num).toInt()
