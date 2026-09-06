@@ -4,12 +4,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import 'package:magicchat_client/data/chat_preferences.dart';
 import 'package:magicchat_client/data/desktop_system_tray.dart';
+import 'package:magicchat_client/data/last_conversation_store.dart';
+import 'package:magicchat_client/data/message_cache_store.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/main.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/domain/message_content.dart';
 import 'package:magicchat_client/features/messages/conversation_list.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _MentionDemoRepository extends DemoRepository {
   @override
@@ -173,6 +176,62 @@ void main() {
       id: 'group', title: '工程群', type: 'group', unread: 2, lastMessageSeq: 8);
   const pinnedApp = ChatConversation(
       id: 'app', title: '助手', type: 'app', pinned: true, lastMessageSeq: 1);
+
+  testWidgets('进入消息页时恢复当前账号最近的有效会话', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    const scope = MessageCacheScope(
+        serverUrl: 'https://chat.example.com', userId: 'demo');
+    await const LastConversationStore().write(scope, 'welcome');
+    await tester.binding.setSurfaceSize(const Size(900, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(MaterialApp(
+        home: AppShell(
+            repository: DemoRepository(),
+            serverUrl: 'https://chat.example.com')));
+    for (var index = 0; index < 4; index++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    expect(find.byKey(const ValueKey('conversation-header-title')),
+        findsOneWidget);
+    expect(find.text('MagicChat 小助手'), findsWidgets);
+  });
+
+  testWidgets('打开会话后记住当前账号的最近会话', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    const scope = MessageCacheScope(
+        serverUrl: 'https://chat.example.com', userId: 'demo');
+    await tester.binding.setSurfaceSize(const Size(900, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(MaterialApp(
+        home: AppShell(
+            repository: DemoRepository(),
+            serverUrl: 'https://chat.example.com')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('MagicChat 小助手'));
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(await const LastConversationStore().read(scope), 'welcome');
+  });
+
+  testWidgets('最近会话已不存在时保持列表页并清理记录', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    const scope = MessageCacheScope(
+        serverUrl: 'https://chat.example.com', userId: 'demo');
+    await const LastConversationStore().write(scope, 'missing');
+
+    await tester.pumpWidget(MaterialApp(
+        home: AppShell(
+            repository: DemoRepository(),
+            serverUrl: 'https://chat.example.com')));
+    await tester.pumpAndSettle();
+
+    expect(
+        find.byKey(const ValueKey('conversation-header-title')), findsNothing);
+    expect(await const LastConversationStore().read(scope), isEmpty);
+  });
 
   test('会话预览只查找实际提及，不遍历 2000 个实时联系人', () {
     final contacts = _LookupOnlyContactMap({

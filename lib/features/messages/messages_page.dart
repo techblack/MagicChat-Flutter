@@ -10,6 +10,7 @@ class MessagesPage extends StatelessWidget {
       required this.selectedId,
       required this.onSelect,
       this.onOpenConversation,
+      this.onConversationRemoved,
       this.onBack,
       this.onOpenMessage,
       this.onOpenInternalLink,
@@ -34,6 +35,7 @@ class MessagesPage extends StatelessWidget {
   final String? selectedId;
   final ValueChanged<String> onSelect;
   final ValueChanged<String>? onOpenConversation;
+  final ValueChanged<String>? onConversationRemoved;
   final VoidCallback? onBack;
   final void Function(
           String conversationId, String messageId, int? messageSequence)?
@@ -67,6 +69,7 @@ class MessagesPage extends StatelessWidget {
                   realtimeStore: realtimeStore,
                   selectedId: selectedId,
                   onSelect: onSelect,
+                  onConversationRemoved: onConversationRemoved,
                   onUnreadChanged: onUnreadChanged)),
           Positioned(
               right: 16,
@@ -188,7 +191,10 @@ class MessagesPage extends StatelessWidget {
           cacheScope: cacheScope,
           realtimeStore: realtimeStore,
           onOpenConversation: onOpenConversation ?? onSelect,
-          onConversationRemoved: () => onSelect(''),
+          onConversationRemoved: () {
+            onConversationRemoved?.call(conversationId);
+            onSelect('');
+          },
           chatAppearance: chatAppearance,
           conversationAppearance: conversationAppearance,
           onConversationAppearanceChanged: onConversationAppearanceChanged,
@@ -586,6 +592,7 @@ class _ConversationList extends StatefulWidget {
       this.realtimeStore,
       required this.selectedId,
       required this.onSelect,
+      this.onConversationRemoved,
       this.onUnreadChanged});
   final MagicChatRepository repository;
   final RealtimeSession? realtimeSession;
@@ -594,6 +601,7 @@ class _ConversationList extends StatefulWidget {
   final RealtimeStore? realtimeStore;
   final String? selectedId;
   final ValueChanged<String> onSelect;
+  final ValueChanged<String>? onConversationRemoved;
   final ValueChanged<int>? onUnreadChanged;
   @override
   State<_ConversationList> createState() => _ConversationListState();
@@ -608,6 +616,7 @@ class _ConversationListState extends State<_ConversationList> {
   bool _markingAllRead = false;
   Timer? _fallbackPollTimer;
   bool _fallbackPollInFlight = false;
+  bool _restoredLastConversation = false;
   @override
   void initState() {
     super.initState();
@@ -687,8 +696,25 @@ class _ConversationListState extends State<_ConversationList> {
     }
     if (mounted) {
       widget.onUnreadChanged?.call(totalConversationUnread(conversations));
+      await _restoreLastConversation(conversations);
     }
     return conversations;
+  }
+
+  Future<void> _restoreLastConversation(
+      List<ChatConversation> conversations) async {
+    if (_restoredLastConversation || widget.selectedId != null) return;
+    final scope = widget.cacheScope;
+    if (scope == null) return;
+    _restoredLastConversation = true;
+    const store = LastConversationStore();
+    final conversationId = await store.read(scope);
+    if (!mounted || conversationId.isEmpty || widget.selectedId != null) return;
+    if (conversations.any((item) => item.id == conversationId)) {
+      widget.onSelect(conversationId);
+    } else {
+      await store.clear(scope);
+    }
   }
 
   @override
@@ -1079,6 +1105,9 @@ class _ConversationListState extends State<_ConversationList> {
           .setConversationMuted(conversation.id, action == 'mute');
     } else if (action == 'dismiss') {
       await widget.repository.dismissConversation(conversation.id);
+      await const LastConversationStore()
+          .clearIfMatches(widget.cacheScope, conversation.id);
+      widget.onConversationRemoved?.call(conversation.id);
     } else if (action == 'rename') {
       final controller = TextEditingController(text: conversation.title);
       final name = await showDialog<String>(
@@ -1239,6 +1268,9 @@ class _ConversationListState extends State<_ConversationList> {
         } else {
           await widget.repository.dissolveGroupConversation(conversation.id);
         }
+        await const LastConversationStore()
+            .clearIfMatches(widget.cacheScope, conversation.id);
+        widget.onConversationRemoved?.call(conversation.id);
         if (context.mounted) widget.onSelect('');
       }
     }

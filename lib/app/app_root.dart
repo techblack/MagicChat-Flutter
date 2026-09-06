@@ -1740,6 +1740,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
               focusMessageSequence: _focusMessageSequence,
               onSelect: _selectConversationFromList,
               onOpenConversation: _openConversation,
+              onConversationRemoved: _forgetConversation,
               onBack: _backConversation,
               onOpenMessage: _openMessageFromSearch,
               onOpenInternalLink: _openInternalMessageLink,
@@ -1983,7 +1984,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       _selectedConversation = id.isEmpty ? null : id;
       if (id.isNotEmpty) _index = 0;
     });
-    if (id.isNotEmpty) unawaited(_loadConversationAppearance(id));
+    if (id.isNotEmpty) {
+      unawaited(_rememberConversation(id));
+      unawaited(_loadConversationAppearance(id));
+    }
   }
 
   void _openConversation(String id) {
@@ -1999,6 +2003,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       _selectedConversation = id;
       _index = 0;
     });
+    unawaited(_rememberConversation(id));
     unawaited(_loadConversationAppearance(id));
   }
 
@@ -2016,6 +2021,18 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       _selectedConversation = conversationId;
       _index = 0;
     });
+    unawaited(_rememberConversation(conversationId));
+  }
+
+  Future<void> _rememberConversation(String conversationId) =>
+      const LastConversationStore().write(_messageCacheScope, conversationId);
+
+  void _forgetConversation(String conversationId) {
+    unawaited(const LastConversationStore()
+        .clearIfMatches(_messageCacheScope, conversationId));
+    if (_selectedConversation == conversationId) {
+      _selectConversationFromList('');
+    }
   }
 
   void _backConversation() {
