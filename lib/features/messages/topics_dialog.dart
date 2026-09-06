@@ -39,7 +39,6 @@ class ConversationTopicsDialog extends StatefulWidget {
 
 class _ConversationTopicsDialogState extends State<ConversationTopicsDialog> {
   final _topics = <ChatConversation>[];
-  late final Future<List<Contact>> _contactsFuture;
   String _status = 'all';
   String? _nextCursor;
   Object? _error;
@@ -48,7 +47,6 @@ class _ConversationTopicsDialogState extends State<ConversationTopicsDialog> {
   @override
   void initState() {
     super.initState();
-    _contactsFuture = widget.repository.contacts();
     _load();
   }
 
@@ -191,21 +189,13 @@ class _ConversationTopicsDialogState extends State<ConversationTopicsDialog> {
                       ),
                   ],
                 ),
-                subtitle: FutureBuilder<List<Contact>>(
-                  future: _contactsFuture,
-                  builder: (context, snapshot) => Text(
-                    topic.preview.isEmpty
-                        ? '暂无回复'
-                        : formatMentionText(
-                            topic.preview,
-                            (snapshot.data ?? const <Contact>[])
-                                .map((contact) => (
-                                      id: contact.id,
-                                      name: contact.displayName,
-                                    ))),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                subtitle: Text(
+                  topic.preview.isEmpty
+                      ? '暂无回复'
+                      : formatMentionText(
+                          topic.preview, _topicSenderLabels(topic)),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 trailing: metadata?.participating == true
                     ? const Icon(Icons.person_outline, size: 18)
@@ -240,6 +230,16 @@ class _ConversationTopicsDialogState extends State<ConversationTopicsDialog> {
       ],
     );
   }
+
+  Iterable<({String id, String name})> _topicSenderLabels(
+      ChatConversation topic) sync* {
+    final sender = topic.topic?.sourceSender;
+    if (sender == null || sender.id.isEmpty) return;
+    final name = sender.name.trim();
+    if (name.isNotEmpty && name != sender.id) {
+      yield (id: sender.id, name: name);
+    }
+  }
 }
 
 class TopicDetailDialog extends StatefulWidget {
@@ -257,7 +257,6 @@ class TopicDetailDialog extends StatefulWidget {
 }
 
 class _TopicDetailDialogState extends State<TopicDetailDialog> {
-  late final Future<List<Contact>> _contactsFuture;
   TopicDetail? _detail;
   Object? _error;
   bool _loading = true;
@@ -266,7 +265,6 @@ class _TopicDetailDialogState extends State<TopicDetailDialog> {
   @override
   void initState() {
     super.initState();
-    _contactsFuture = widget.repository.contacts();
     _load();
   }
 
@@ -367,10 +365,7 @@ class _TopicDetailDialogState extends State<TopicDetailDialog> {
                   )
                 : detail == null
                     ? const Text('话题不存在')
-                    : FutureBuilder<List<Contact>>(
-                        future: _contactsFuture,
-                        builder: (context, snapshot) => _buildDetail(
-                            detail, snapshot.data ?? const <Contact>[])),
+                    : _buildDetail(detail),
       ),
       actions: [
         if (detail != null && detail.canParticipate)
@@ -400,18 +395,23 @@ class _TopicDetailDialogState extends State<TopicDetailDialog> {
     );
   }
 
-  Widget _buildDetail(TopicDetail detail, List<Contact> contacts) {
+  Widget _buildDetail(TopicDetail detail) {
     final source = detail.sourceMessage;
     final body = source.revokedAt != null
         ? '消息已撤回'
         : MessageContent.parse(source.body).text;
-    final names = {
-      for (final contact in contacts) contact.id: contact.displayName,
-    };
-    final labels = contacts.map((contact) => (
-          id: contact.id,
-          name: contact.displayName,
-        ));
+    final senders = [
+      source.sender,
+      if (source.replyTo case final reply?) reply.sender
+    ];
+    final names = <String, String>{};
+    final labels = <({String id, String name})>[];
+    for (final sender in senders) {
+      final name = sender.name.trim();
+      if (sender.id.isEmpty || name.isEmpty || name == sender.id) continue;
+      names[sender.id] = name;
+      labels.add((id: sender.id, name: name));
+    }
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

@@ -87,12 +87,7 @@ class _AdvancedMessageSearchDialogState
   }
 
   Future<List<Contact>> _loadSenders() async {
-    final values = await Future.wait([
-      widget.repository.conversations(),
-      widget.repository.contacts(),
-    ]);
-    final conversations = values[0] as List<ChatConversation>;
-    final contacts = values[1] as List<Contact>;
+    final conversations = await widget.repository.conversations();
     ChatConversation? conversation;
     for (final item in conversations) {
       if (item.id == widget.conversationId) {
@@ -101,18 +96,10 @@ class _AdvancedMessageSearchDialogState
       }
     }
     final members = conversation?.members ?? const <Contact>[];
-    if (members.isEmpty) return contacts;
-    final contactsById = {for (final contact in contacts) contact.id: contact};
-    return members.map((member) {
-      final contact = contactsById[member.id];
-      if (contact == null) return member;
-      return contact.copyWith(
-        name: member.name.isEmpty ? null : member.name,
-        nickname: member.nickname.isEmpty ? null : member.nickname,
-        avatar: member.avatar.isEmpty ? null : member.avatar,
-        type: member.type,
-      );
-    }).toList(growable: false);
+    if (members.isNotEmpty) return members;
+    // 兼容旧服务端未在会话响应中返回成员资料的情况；新协议路径只
+    // 展示当前会话成员，避免搜索弹窗再次加载整个组织通讯录。
+    return widget.repository.contacts();
   }
 
   Future<void> _pickDateRange() async {
