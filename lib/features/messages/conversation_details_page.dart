@@ -699,23 +699,26 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
                 Expanded(
                   child: visible.isEmpty
                       ? const Center(child: Text('没有可选择的联系人'))
-                      : ListView(
-                          children: visible
-                              .map((contact) => CheckboxListTile(
-                                    value: selected.contains(contact.id),
-                                    title: Text(contact.displayName),
-                                    subtitle: contact.email.trim().isEmpty
-                                        ? null
-                                        : Text(contact.email.trim()),
-                                    onChanged: (checked) => setDialogState(() {
-                                      if (checked == true) {
-                                        selected.add(contact.id);
-                                      } else {
-                                        selected.remove(contact.id);
-                                      }
-                                    }),
-                                  ))
-                              .toList(growable: false),
+                      : ListView.builder(
+                          itemCount: visible.length,
+                          itemBuilder: (context, index) {
+                            final contact = visible[index];
+                            return CheckboxListTile(
+                              key: ValueKey(contact.id),
+                              value: selected.contains(contact.id),
+                              title: Text(contact.displayName),
+                              subtitle: contact.email.trim().isEmpty
+                                  ? null
+                                  : Text(contact.email.trim()),
+                              onChanged: (checked) => setDialogState(() {
+                                if (checked == true) {
+                                  selected.add(contact.id);
+                                } else {
+                                  selected.remove(contact.id);
+                                }
+                              }),
+                            );
+                          },
                         ),
                 ),
               ]),

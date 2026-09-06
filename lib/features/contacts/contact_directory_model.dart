@@ -58,14 +58,24 @@ class ContactDirectorySection {
 }
 
 List<ContactDirectorySection> buildContactSections(Iterable<Contact> contacts) {
+  final users =
+      contacts.where((item) => item.type == 'user').toList(growable: false);
   final grouped = <String, List<Contact>>{};
-  for (final contact in contacts.where((item) => item.type == 'user')) {
+  for (final contact in users) {
     grouped
         .putIfAbsent(contactIndexLabel(contact.displayName), () => [])
         .add(contact);
   }
+  final sortKeys = <String, String>{
+    for (final contact in users)
+      contact.id: _contactSortKey(contact.displayName),
+  };
   for (final values in grouped.values) {
-    values.sort(_compareContacts);
+    values.sort((left, right) {
+      final byName =
+          (sortKeys[left.id] ?? '').compareTo(sortKeys[right.id] ?? '');
+      return byName != 0 ? byName : left.id.compareTo(right.id);
+    });
   }
   return [
     for (final label in contactIndexLabels)
@@ -98,14 +108,20 @@ List<Contact> contactsForCategory(ContactDirectoryCategory category,
         contact.type == 'group' && contact.visibility == 'public',
     };
   }).toList();
-  values.sort(_compareContacts);
+  _sortContacts(values);
   return values;
 }
 
-int _compareContacts(Contact left, Contact right) {
-  final byName = _contactSortKey(left.displayName)
-      .compareTo(_contactSortKey(right.displayName));
-  return byName != 0 ? byName : left.id.compareTo(right.id);
+void _sortContacts(List<Contact> values) {
+  final sortKeys = <String, String>{
+    for (final contact in values)
+      contact.id: _contactSortKey(contact.displayName),
+  };
+  values.sort((left, right) {
+    final byName =
+        (sortKeys[left.id] ?? '').compareTo(sortKeys[right.id] ?? '');
+    return byName != 0 ? byName : left.id.compareTo(right.id);
+  });
 }
 
 String _contactSortKey(String value) {

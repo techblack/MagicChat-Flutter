@@ -28,10 +28,20 @@ String _desktopAssetName(AppUpdatePlatform platform) => switch (platform) {
 
 class AppRelease {
   const AppRelease(
-      {required this.version, required this.build, required this.url});
+      {required this.version,
+      required this.build,
+      required this.url,
+      this.assetName,
+      this.size,
+      this.sha256,
+      this.sha256Url});
   final String version;
   final int build;
   final String url;
+  final String? assetName;
+  final int? size;
+  final String? sha256;
+  final String? sha256Url;
 }
 
 class UpdateService {
@@ -46,8 +56,8 @@ class UpdateService {
   static const updateSource = String.fromEnvironment('MAGICCHAT_UPDATE_SOURCE',
       defaultValue:
           String.fromEnvironment('UPDATE_SOURCE', defaultValue: 'release'));
-  static const currentBuild = 25;
-  static const currentVersion = '0.3.12';
+  static const currentBuild = 26;
+  static const currentVersion = '0.3.13';
 
   static String get manifestUrl =>
       updateSource == 'release' ? releaseManifestUrl : updateSource;
@@ -84,6 +94,9 @@ class UpdateService {
     final version = releaseConfig['version'];
     final build = releaseConfig['build'];
     final url = releaseConfig['url'];
+    final size = releaseConfig['size'];
+    final sha256Value = releaseConfig['sha256'];
+    final sha256UrlValue = releaseConfig['sha256_url'];
     final buildNumber = build is num &&
             build.isFinite &&
             build == build.truncateToDouble() &&
@@ -93,15 +106,37 @@ class UpdateService {
         : null;
     final normalizedVersion = version is String ? version.trim() : '';
     final normalizedUrl = url is String ? url.trim() : '';
+    final normalizedSha256 =
+        sha256Value is String ? sha256Value.trim().toLowerCase() : null;
+    final normalizedSha256Url =
+        sha256UrlValue is String ? sha256UrlValue.trim() : null;
+    final sizeNumber = size is num &&
+            size.isFinite &&
+            size == size.truncateToDouble() &&
+            size > 0
+        ? size.toInt()
+        : null;
     if (version is! String ||
         normalizedVersion.isEmpty ||
         buildNumber == null ||
         normalizedUrl.isEmpty ||
-        !normalizedUrl.startsWith('https://')) {
+        !normalizedUrl.startsWith('https://') ||
+        (size != null && sizeNumber == null) ||
+        (normalizedSha256 != null &&
+            !RegExp(r'^[0-9a-f]{64}$').hasMatch(normalizedSha256)) ||
+        (normalizedSha256Url != null &&
+            !normalizedSha256Url.startsWith('https://'))) {
       throw const FormatException('版本文件内容不正确');
     }
+    final urlSegments = Uri.parse(normalizedUrl).pathSegments;
     final release = AppRelease(
-        version: normalizedVersion, build: buildNumber, url: normalizedUrl);
+        version: normalizedVersion,
+        build: buildNumber,
+        url: normalizedUrl,
+        assetName: urlSegments.isEmpty ? null : urlSegments.last,
+        size: sizeNumber,
+        sha256: normalizedSha256,
+        sha256Url: normalizedSha256Url);
     return release.build > currentBuild ? release : null;
   }
 
@@ -137,19 +172,43 @@ class UpdateService {
       throw const FormatException('桌面版本响应格式不正确');
     }
     Map<String, dynamic>? asset;
+    Map<String, dynamic>? checksums;
     for (final value in assets) {
       if (value is Map && value['name'] == assetName) {
         asset = Map<String, dynamic>.from(value);
-        break;
+      }
+      if (value is Map && value['name'] == 'SHA256SUMS.txt') {
+        checksums = Map<String, dynamic>.from(value);
       }
     }
     final url = asset?['browser_download_url'];
+    final size = asset?['size'];
+    final checksumUrl = checksums?['browser_download_url'];
     if (url is! String || !url.trim().startsWith('https://')) {
       throw const FormatException('桌面版本缺少有效下载地址');
     }
+    final sizeNumber = size is num &&
+            size.isFinite &&
+            size == size.truncateToDouble() &&
+            size > 0
+        ? size.toInt()
+        : null;
+    if (size != null && sizeNumber == null) {
+      throw const FormatException('桌面版本安装包大小不正确');
+    }
+    if (checksumUrl != null &&
+        (checksumUrl is! String ||
+            !checksumUrl.trim().startsWith('https://'))) {
+      throw const FormatException('桌面版本校验文件地址不正确');
+    }
     if (_compareVersions(version, currentVersion) <= 0) return null;
     return AppRelease(
-        version: version, build: _versionBuild(version), url: url.trim());
+        version: version,
+        build: _versionBuild(version),
+        url: url.trim(),
+        assetName: assetName,
+        size: sizeNumber,
+        sha256Url: checksumUrl is String ? checksumUrl.trim() : null);
   }
 
   bool _isStableVersion(String value) =>

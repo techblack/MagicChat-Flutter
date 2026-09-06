@@ -1,22 +1,26 @@
 import 'update_installer_types.dart';
 import 'update_service.dart';
 
-class AndroidUpdateInstaller implements UpdateInstaller {
-  AndroidUpdateInstaller({
+class DesktopUpdateInstaller implements UpdateInstaller {
+  DesktopUpdateInstaller({
     Object? client,
     Object? platform,
+    String? executablePath,
     Object? temporaryDirectory,
-    UpdatePackageOpener? packageOpener,
+    Object? archiveValidator,
+    Object? archiveExtractor,
+    Object? replacementLauncher,
+    Object? quit,
   });
 
   @override
   bool get supported => false;
 
   @override
-  String get progressLabel => '正在下载安装包';
+  String get progressLabel => '正在下载并校验完整安装包';
 
   @override
-  String get completionHint => '下载完成后将打开系统安装器，请按系统提示完成更新。';
+  String get completionHint => '校验完成后将自动替换当前版本并重启。';
 
   @override
   Future<void> downloadAndInstall(

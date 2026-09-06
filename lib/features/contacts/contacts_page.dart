@@ -49,6 +49,8 @@ class _ContactsPageState extends State<ContactsPage> {
   Timer? _searchDebounce;
   Timer? _indexLabelTimer;
   final _selectedContactIds = <String>{};
+  ContactDirectory? _sectionSource;
+  List<ContactDirectorySection> _cachedSections = const [];
 
   @override
   void initState() {
@@ -147,8 +149,18 @@ class _ContactsPageState extends State<ContactsPage> {
   Future<ContactDirectory> _loadDirectory() async {
     final directory = await widget.repository
         .contactDirectory(keyword: _searchController.text.trim());
-    await _contactCacheStore.write(widget.cacheScope, directory.contacts);
+    // 联系人资料缓存不应阻塞首屏。组织通讯录可能包含数千人，等待
+    // SharedPreferences 序列化会让网络请求完成后仍卡住页面布局。
+    unawaited(_writeContactCache(directory.contacts));
     return directory;
+  }
+
+  Future<void> _writeContactCache(Iterable<Contact> contacts) async {
+    try {
+      await _contactCacheStore.write(widget.cacheScope, contacts);
+    } catch (_) {
+      // 缓存失败不影响通讯录展示。
+    }
   }
 
   @override
@@ -261,76 +273,103 @@ class _ContactsPageState extends State<ContactsPage> {
 
   Widget _buildHomeDirectory(
       ContactDirectory directory, List<Contact> contacts) {
-    final sections = buildContactSections(contacts.map(_liveContact));
-    final users = sections.expand((section) => section.contacts).toList();
+    // realtimeStore 的在线状态变化会触发本页重绘。分组和拼音排序只依赖
+    // 服务端目录快照，复用它可避免每次状态事件都扫描/排序数千个联系人。
+    if (!identical(_sectionSource, directory)) {
+      _sectionSource = directory;
+      _cachedSections = buildContactSections(contacts);
+    }
+    final sections = _cachedSections;
+    final userCount = sections.fold<int>(
+        0, (count, section) => count + section.contacts.length);
+    var myApps = 0;
+    var allApps = 0;
+    var joinedGroups = 0;
+    var publicGroups = 0;
+    final normalizedUserId = _currentUserId.trim().toLowerCase();
+    for (final contact in contacts) {
+      if (contact.type == 'app') {
+        allApps++;
+        if (normalizedUserId.isNotEmpty &&
+            contact.creatorUserId?.trim().toLowerCase() == normalizedUserId) {
+          myApps++;
+        }
+      } else if (contact.type == 'group') {
+        if (contact.joined) joinedGroups++;
+        if (contact.visibility == 'public') publicGroups++;
+      }
+    }
     final entries = <ContactDirectoryHomeEntry>[
       if (directory.supportsFriendManagement)
         const ContactDirectoryHomeEntry(
             category: ContactDirectoryCategory.newFriends, count: 0),
       ContactDirectoryHomeEntry(
-          category: ContactDirectoryCategory.myApps,
-          count: contactsForCategory(
-                  ContactDirectoryCategory.myApps, contacts, _currentUserId)
-              .length),
+          category: ContactDirectoryCategory.myApps, count: myApps),
       ContactDirectoryHomeEntry(
-          category: ContactDirectoryCategory.allApps,
-          count: contactsForCategory(
-                  ContactDirectoryCategory.allApps, contacts, _currentUserId)
-              .length),
+          category: ContactDirectoryCategory.allApps, count: allApps),
       ContactDirectoryHomeEntry(
-          category: ContactDirectoryCategory.joinedGroups,
-          count: contactsForCategory(ContactDirectoryCategory.joinedGroups,
-                  contacts, _currentUserId)
-              .length),
+          category: ContactDirectoryCategory.joinedGroups, count: joinedGroups),
       ContactDirectoryHomeEntry(
-          category: ContactDirectoryCategory.publicGroups,
-          count: contactsForCategory(ContactDirectoryCategory.publicGroups,
-                  contacts, _currentUserId)
-              .length),
+          category: ContactDirectoryCategory.publicGroups, count: publicGroups),
     ];
+    final rows = <_ContactDirectoryRow>[
+      const _ContactDirectoryRow.header(),
+      const _ContactDirectoryRow.spacer(),
+    ];
+    if (sections.isEmpty) {
+      rows.add(const _ContactDirectoryRow.empty());
+    }
+    for (final section in sections) {
+      rows.add(_ContactDirectoryRow.section(section.label));
+      rows.addAll(section.contacts
+          .map((contact) => _ContactDirectoryRow.contact(contact)));
+    }
+    if (userCount > 0) {
+      rows.add(_ContactDirectoryRow.footer(userCount));
+    }
     return Stack(children: [
       RefreshIndicator(
         onRefresh: _refresh,
-        child: ListView(
+        child: ListView.builder(
           controller: _scrollController,
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.only(bottom: 28),
-          children: [
-            ContactDirectoryHomeHeader(
-                entries: entries,
-                onPressed: (category) =>
-                    _openCategory(category, directory, contacts)),
-            const SizedBox(height: 8),
-            if (sections.isEmpty)
-              const SizedBox(height: 180, child: Center(child: Text('暂无联系人')))
-            else
-              for (final section in sections) ...[
-                SizedBox(
+          itemCount: rows.length,
+          itemBuilder: (context, index) {
+            final row = rows[index];
+            return switch (row.kind) {
+              _ContactDirectoryRowKind.header => ContactDirectoryHomeHeader(
+                  entries: entries,
+                  onPressed: (category) =>
+                      _openCategory(category, directory, contacts)),
+              _ContactDirectoryRowKind.spacer => const SizedBox(height: 8),
+              _ContactDirectoryRowKind.empty => const SizedBox(
+                  height: 180, child: Center(child: Text('暂无联系人'))),
+              _ContactDirectoryRowKind.section => SizedBox(
                   height: 32,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                    child: Text(section.label,
+                    child: Text(row.label!,
                         style: Theme.of(context).textTheme.labelLarge?.copyWith(
                             color: Theme.of(context)
                                 .colorScheme
                                 .onSurfaceVariant)),
                   ),
                 ),
-                for (final contact in section.contacts)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: _contactTile(contact),
-                  ),
-              ],
-            if (users.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 14),
-                child: Text('共 ${users.length} 位联系人',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant)),
-              ),
-          ],
+              _ContactDirectoryRowKind.contact => Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: _contactTile(_liveContact(row.contact!)),
+                ),
+              _ContactDirectoryRowKind.footer => Padding(
+                  padding: const EdgeInsets.only(top: 14),
+                  child: Text('共 ${row.count} 位联系人',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color:
+                              Theme.of(context).colorScheme.onSurfaceVariant)),
+                ),
+            };
+          },
         ),
       ),
       if (sections.isNotEmpty)
@@ -503,6 +542,34 @@ class _ContactsPageState extends State<ContactsPage> {
                 .toList()));
     if (mounted) _load();
   }
+}
+
+enum _ContactDirectoryRowKind {
+  header,
+  spacer,
+  empty,
+  section,
+  contact,
+  footer
+}
+
+class _ContactDirectoryRow {
+  const _ContactDirectoryRow._(this.kind,
+      {this.label, this.contact, this.count});
+  const _ContactDirectoryRow.header() : this._(_ContactDirectoryRowKind.header);
+  const _ContactDirectoryRow.spacer() : this._(_ContactDirectoryRowKind.spacer);
+  const _ContactDirectoryRow.empty() : this._(_ContactDirectoryRowKind.empty);
+  const _ContactDirectoryRow.section(String value)
+      : this._(_ContactDirectoryRowKind.section, label: value);
+  const _ContactDirectoryRow.contact(Contact value)
+      : this._(_ContactDirectoryRowKind.contact, contact: value);
+  const _ContactDirectoryRow.footer(int value)
+      : this._(_ContactDirectoryRowKind.footer, count: value);
+
+  final _ContactDirectoryRowKind kind;
+  final String? label;
+  final Contact? contact;
+  final int? count;
 }
 
 class _GroupNameDialog extends StatefulWidget {

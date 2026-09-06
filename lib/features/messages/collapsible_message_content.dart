@@ -65,8 +65,9 @@ class _CollapsibleMessageContentState extends State<CollapsibleMessageContent> {
       final canExpand = height != null && height > _collapsedHeight + 1;
       final expanded = canExpand && _expanded;
       const toggleHeight = 30.0;
+      const toggleGap = 6.0;
       final visibleContentHeight = canExpand && !expanded
-          ? _collapsedHeight - toggleHeight
+          ? _collapsedHeight - toggleHeight - toggleGap
           : _collapsedHeight;
       final measuredContent = _MeasuredClippedMessageContent(
         key: ValueKey((widget.variant, widget.contentIdentity)),
@@ -77,30 +78,65 @@ class _CollapsibleMessageContentState extends State<CollapsibleMessageContent> {
           child: widget.builder(context),
         ),
       );
+      final toggle = SizedBox(
+        height: toggleHeight,
+        width: double.infinity,
+        child: ColoredBox(
+          // Android 字体渲染时正文最后一行可能延伸到裁剪边缘；不透明的
+          // 按钮底色和独立间距可保证“展开”永远不会压在正文上。
+          color: widget.backgroundColor,
+          child: TextButton.icon(
+            key: const ValueKey('collapsible-message-toggle'),
+            onPressed: () => setState(() => _expanded = !expanded),
+            icon: Icon(expanded ? Icons.expand_less : Icons.expand_more,
+                size: 17),
+            label: Text(expanded ? '收起' : '展开'),
+            style: TextButton.styleFrom(
+              foregroundColor: widget.foregroundColor,
+              minimumSize: const Size.fromHeight(toggleHeight),
+              padding: EdgeInsets.zero,
+              visualDensity: VisualDensity.compact,
+            ),
+          ),
+        ),
+      );
       final content = canExpand && !expanded
-          ? Stack(children: [
-              measuredContent,
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                height: 52,
-                child: IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          widget.backgroundColor.withValues(alpha: 0),
-                          widget.backgroundColor,
-                        ],
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  height: visibleContentHeight,
+                  width: double.infinity,
+                  child: ClipRect(
+                    child: Stack(children: [
+                      measuredContent,
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        height: 52,
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  widget.backgroundColor.withValues(alpha: 0),
+                                  widget.backgroundColor,
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
+                    ]),
                   ),
                 ),
-              ),
-            ])
+                const SizedBox(height: toggleGap),
+                toggle,
+              ],
+            )
           : measuredContent;
       return Column(
         mainAxisSize: MainAxisSize.min,
@@ -108,23 +144,7 @@ class _CollapsibleMessageContentState extends State<CollapsibleMessageContent> {
             canExpand ? CrossAxisAlignment.stretch : CrossAxisAlignment.start,
         children: [
           content,
-          if (canExpand)
-            SizedBox(
-              height: toggleHeight,
-              child: TextButton.icon(
-                key: const ValueKey('collapsible-message-toggle'),
-                onPressed: () => setState(() => _expanded = !expanded),
-                icon: Icon(expanded ? Icons.expand_less : Icons.expand_more,
-                    size: 17),
-                label: Text(expanded ? '收起' : '展开'),
-                style: TextButton.styleFrom(
-                  foregroundColor: widget.foregroundColor,
-                  minimumSize: const Size.fromHeight(toggleHeight),
-                  padding: EdgeInsets.zero,
-                  visualDensity: VisualDensity.compact,
-                ),
-              ),
-            ),
+          if (canExpand && expanded) toggle,
         ],
       );
     });
