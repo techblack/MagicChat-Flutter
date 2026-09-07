@@ -68,6 +68,8 @@ class SettingsPage extends StatefulWidget {
       this.onChatAppearanceChanged,
       this.messageSoundEnabled = true,
       this.onMessageSoundChanged,
+      this.notificationService = const LocalNotificationService(),
+      this.onNotificationPreferenceChanged,
       this.notificationPrivacy = MessageNotificationPrivacy.preview,
       this.onNotificationPrivacyChanged,
       this.interfaceFontScale = InterfaceFontScale.normal,
@@ -103,6 +105,8 @@ class SettingsPage extends StatefulWidget {
   final ValueChanged<ChatAppearance>? onChatAppearanceChanged;
   final bool messageSoundEnabled;
   final ValueChanged<bool>? onMessageSoundChanged;
+  final LocalNotificationService notificationService;
+  final Future<void> Function(bool enabled)? onNotificationPreferenceChanged;
   final MessageNotificationPrivacy notificationPrivacy;
   final ValueChanged<MessageNotificationPrivacy>? onNotificationPrivacyChanged;
   final InterfaceFontScale interfaceFontScale;
@@ -119,7 +123,11 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   Future<CurrentUser>? _userFuture;
-  bool _notificationsEnabled = true;
+  bool _notificationPreferenceEnabled = true;
+  bool _notificationSettingsLoading = true;
+  bool _notificationSettingsUpdating = false;
+  NotificationPermissionStatus _notificationPermission =
+      NotificationPermissionStatus.unknown;
   late bool _messageSoundEnabled;
   late MessageNotificationPrivacy _notificationPrivacy;
   late MessageSendShortcut _sendMessageShortcut;
@@ -144,12 +152,20 @@ class _SettingsPageState extends State<SettingsPage> {
     _desktopAutoLaunch = widget.desktopAutoLaunch ?? DesktopAutoLaunchService();
     widget.realtimeStore?.addListener(_onRealtimeChanged);
     _userFuture = widget.repository.currentUser();
-    SharedPreferences.getInstance().then((prefs) {
-      if (mounted)
-        setState(() => _notificationsEnabled =
-            prefs.getBool('magicchat.notifications.enabled') ?? true);
-    });
+    _loadNotificationSettings();
     _loadAutoLaunch();
+  }
+
+  Future<void> _loadNotificationSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final permission = await widget.notificationService.permissionStatus();
+    if (!mounted) return;
+    setState(() {
+      _notificationPreferenceEnabled =
+          prefs.getBool('magicchat.notifications.enabled') ?? true;
+      _notificationPermission = permission;
+      _notificationSettingsLoading = false;
+    });
   }
 
   void _onRealtimeChanged() {
@@ -200,22 +216,46 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _setNotifications(bool value) async {
+    if (_notificationSettingsUpdating) return;
+    setState(() => _notificationSettingsUpdating = true);
     final prefs = await SharedPreferences.getInstance();
-    if (value) {
-      final granted =
-          await const LocalNotificationService().requestPermission();
-      if (!granted) {
-        await prefs.setBool('magicchat.notifications.enabled', false);
+    try {
+      if (value &&
+          _notificationPermission != NotificationPermissionStatus.granted) {
+        final granted = await widget.notificationService.requestPermission();
+        final permission = await widget.notificationService.permissionStatus();
         if (mounted) {
-          setState(() => _notificationsEnabled = false);
+          setState(() => _notificationPermission = permission);
+        }
+        if (!granted || permission != NotificationPermissionStatus.granted) {
+          if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('系统通知权限未开启，请在系统设置中允许通知')));
+          return;
         }
-        return;
       }
+      await prefs.setBool('magicchat.notifications.enabled', value);
+      if (mounted) setState(() => _notificationPreferenceEnabled = value);
+      await widget.onNotificationPreferenceChanged?.call(value);
+    } finally {
+      if (mounted) setState(() => _notificationSettingsUpdating = false);
     }
-    await prefs.setBool('magicchat.notifications.enabled', value);
-    if (mounted) setState(() => _notificationsEnabled = value);
+  }
+
+  bool get _notificationsEffectivelyEnabled =>
+      _notificationPreferenceEnabled &&
+      _notificationPermission == NotificationPermissionStatus.granted;
+
+  String get _notificationStatusLabel {
+    if (_notificationSettingsLoading) return '正在读取系统通知权限';
+    return switch (_notificationPermission) {
+      NotificationPermissionStatus.granted =>
+        _notificationPreferenceEnabled ? '接收新消息和系统通知' : '应用通知已关闭',
+      NotificationPermissionStatus.denied => '系统通知权限已拒绝',
+      NotificationPermissionStatus.notDetermined => '尚未获得系统通知权限',
+      NotificationPermissionStatus.unsupported => '当前平台不支持系统通知',
+      NotificationPermissionStatus.unknown => '暂时无法读取系统通知权限',
+    };
   }
 
   Future<void> _loadAutoLaunch() async {
@@ -901,9 +941,14 @@ class _SettingsPageState extends State<SettingsPage> {
           SwitchListTile(
               secondary: const Icon(Icons.notifications_outlined),
               title: const Text('通知'),
-              subtitle: const Text('接收新消息和系统通知'),
-              value: _notificationsEnabled,
-              onChanged: _setNotifications),
+              subtitle: Text(_notificationStatusLabel),
+              value: _notificationsEffectivelyEnabled,
+              onChanged: _notificationSettingsLoading ||
+                      _notificationSettingsUpdating ||
+                      _notificationPermission ==
+                          NotificationPermissionStatus.unsupported
+                  ? null
+                  : _setNotifications),
           SwitchListTile(
               secondary: const Icon(Icons.volume_up_outlined),
               title: const Text('新消息提示音'),

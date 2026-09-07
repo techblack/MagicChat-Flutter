@@ -22,10 +22,12 @@ class MainActivity : FlutterActivity() {
     private val unreadGroup = "magicchat_unread"
     private val badgeNotificationId = 4102
     private val requestCode = 4101
+    private val notificationPermissionRequestedKey = "notification_permission_requested"
     private var pendingRouteToken: String? = null
     private var pendingConversationId: String? = null
     private var pendingMessageId: String? = null
     private var pushChannel: MethodChannel? = null
+    private var pendingNotificationPermissionResult: MethodChannel.Result? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -68,17 +70,22 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "getPermissionStatus" -> {
-                        val granted = NotificationManagerCompat.from(this).areNotificationsEnabled() &&
-                            (Build.VERSION.SDK_INT < 33 ||
-                                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
-                        result.success(if (granted) "granted" else "denied")
+                        result.success(notificationPermissionStatus())
                     }
                     "requestPermission" -> {
-                        if (Build.VERSION.SDK_INT >= 33 &&
+                        if (notificationPermissionStatus() == "granted") {
+                            result.success(true)
+                        } else if (Build.VERSION.SDK_INT >= 33 &&
                             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                            pendingNotificationPermissionResult = result
+                            getPreferences(Context.MODE_PRIVATE)
+                                .edit()
+                                .putBoolean(notificationPermissionRequestedKey, true)
+                                .apply()
                             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), requestCode)
+                        } else {
+                            result.success(false)
                         }
-                        result.success(true)
                     }
                     "showMessage" -> {
                         val title = call.argument<String>("title") ?: "新消息"
@@ -151,6 +158,31 @@ class MainActivity : FlutterActivity() {
                 }
                 result.success(true)
             }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != this.requestCode) return
+        val result = pendingNotificationPermissionResult
+        pendingNotificationPermissionResult = null
+        result?.success(
+            grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED &&
+                NotificationManagerCompat.from(this).areNotificationsEnabled()
+        )
+    }
+
+    private fun notificationPermissionStatus(): String {
+        val granted = NotificationManagerCompat.from(this).areNotificationsEnabled() &&
+            (Build.VERSION.SDK_INT < 33 ||
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
+        if (granted) return "granted"
+        if (Build.VERSION.SDK_INT >= 33 &&
+            !getPreferences(Context.MODE_PRIVATE)
+                .getBoolean(notificationPermissionRequestedKey, false)) {
+            return "notDetermined"
+        }
+        return "denied"
     }
 
     private fun readJPushDeviceToken(): Map<String, String>? {

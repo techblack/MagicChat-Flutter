@@ -256,7 +256,12 @@ class _MagicChatAppState extends State<MagicChatApp> {
 
   Future<void> _registerPush(String server, String token) async {
     try {
-      await const LocalNotificationService().requestPermission();
+      final prefs = await SharedPreferences.getInstance();
+      if (!(prefs.getBool('magicchat.notifications.enabled') ?? true)) return;
+      if (await const LocalNotificationService().permissionStatus() !=
+          NotificationPermissionStatus.granted) {
+        return;
+      }
       await PushService().registerPlatformGrant(
           serverUrl: server,
           sessionToken: token,
@@ -264,6 +269,17 @@ class _MagicChatAppState extends State<MagicChatApp> {
     } catch (_) {
       // Push registration is optional; login must not be blocked by a plugin
       // or network failure.
+    }
+  }
+
+  Future<void> _setNotificationPreference(bool enabled) async {
+    final server = _serverUrl;
+    final token = await const SessionStore().readToken();
+    if (server == null || token == null) return;
+    if (enabled) {
+      await _registerPush(server, token);
+    } else {
+      await _revokePush(server, token);
     }
   }
 
@@ -605,6 +621,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
                     onConversationAppearanceChanged: _setConversationAppearance,
                     messageSoundEnabled: _messageSoundEnabled,
                     onMessageSoundChanged: _setMessageSoundEnabled,
+                    onNotificationPreferenceChanged: _setNotificationPreference,
                     notificationPrivacy: _notificationPrivacy,
                     onNotificationPrivacyChanged: _setNotificationPrivacy,
                     interfaceFontScale: _interfaceFontScale,
@@ -1295,6 +1312,7 @@ class AppShell extends StatefulWidget {
       this.onConversationAppearanceChanged,
       this.messageSoundEnabled = true,
       this.onMessageSoundChanged,
+      this.onNotificationPreferenceChanged,
       this.notificationPrivacy = MessageNotificationPrivacy.preview,
       this.onNotificationPrivacyChanged,
       this.interfaceFontScale = InterfaceFontScale.normal,
@@ -1326,6 +1344,7 @@ class AppShell extends StatefulWidget {
       onConversationAppearanceChanged;
   final bool messageSoundEnabled;
   final ValueChanged<bool>? onMessageSoundChanged;
+  final Future<void> Function(bool enabled)? onNotificationPreferenceChanged;
   final MessageNotificationPrivacy notificationPrivacy;
   final ValueChanged<MessageNotificationPrivacy>? onNotificationPrivacyChanged;
   final InterfaceFontScale interfaceFontScale;
@@ -2016,6 +2035,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           onChatAppearanceChanged: widget.onChatAppearanceChanged,
           messageSoundEnabled: widget.messageSoundEnabled,
           onMessageSoundChanged: widget.onMessageSoundChanged,
+          onNotificationPreferenceChanged:
+              widget.onNotificationPreferenceChanged,
           notificationPrivacy: widget.notificationPrivacy,
           onNotificationPrivacyChanged: widget.onNotificationPrivacyChanged,
           interfaceFontScale: widget.interfaceFontScale,

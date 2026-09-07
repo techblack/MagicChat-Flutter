@@ -36,23 +36,27 @@ void main() {
     expect(permissionRequests, 0);
   });
 
-  test('权限被系统拒绝时返回 false 并不发送通知', () async {
+  test('收到消息时只读权限状态且不主动请求授权', () async {
     const channel = MethodChannel('test/magicchat/notifications-denied');
     var showCalled = false;
+    var permissionRequests = 0;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
-      if (call.method == 'requestPermission') return false;
+      if (call.method == 'getPermissionStatus') return 'denied';
+      if (call.method == 'requestPermission') permissionRequests++;
       if (call.method == 'showMessage') showCalled = true;
-      return true;
+      return false;
     });
     addTearDown(() => TestDefaultBinaryMessengerBinding
         .instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null));
 
     const service = LocalNotificationService(channel: channel);
-    expect(await service.requestPermission(), isFalse);
     await service.showMessage(conversationId: 'c1', title: '测试', body: '正文');
+    expect(permissionRequests, 0);
     expect(showCalled, isFalse);
+    expect(await service.requestPermission(), isFalse);
+    expect(permissionRequests, 1);
   });
 
   test('本地消息通知携带会话和消息路由', () async {
@@ -60,7 +64,7 @@ void main() {
     Map<Object?, Object?>? arguments;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
-      if (call.method == 'requestPermission') return true;
+      if (call.method == 'getPermissionStatus') return 'granted';
       if (call.method == 'showMessage') {
         arguments = Map<Object?, Object?>.from(call.arguments as Map);
       }

@@ -70,7 +70,9 @@ class LocalNotificationService {
       return;
     }
     try {
-      if (!await requestPermission()) return;
+      if (await permissionStatus() != NotificationPermissionStatus.granted) {
+        return;
+      }
       await _channel.invokeMethod<void>('showMessage', {
         'conversation_id': conversationId,
         'message_id': messageId,
