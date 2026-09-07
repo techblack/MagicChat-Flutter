@@ -6,7 +6,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/painting.dart';
 import 'package:image/image.dart' as image;
 
-enum ScreenshotAnnotationTool { rectangle, arrow, brush, text, mosaic }
+enum ScreenshotAnnotationTool { select, rectangle, arrow, brush, text, mosaic }
 
 class ScreenshotAnnotationPoint {
   const ScreenshotAnnotationPoint(this.x, this.y);
@@ -141,6 +141,15 @@ class ScreenshotAnnotationHistory {
         present: [...present, annotation],
       );
 
+  ScreenshotAnnotationHistory remove(ScreenshotAnnotation annotation) {
+    final index = present.indexWhere((item) => identical(item, annotation));
+    if (index < 0) return this;
+    return ScreenshotAnnotationHistory(
+      past: [...past, present],
+      present: [...present]..removeAt(index),
+    );
+  }
+
   ScreenshotAnnotationHistory undo() {
     if (!canUndo) return this;
     return ScreenshotAnnotationHistory(
@@ -158,6 +167,119 @@ class ScreenshotAnnotationHistory {
       future: future.sublist(1),
     );
   }
+}
+
+ScreenshotAnnotation? hitTestScreenshotAnnotation({
+  required List<ScreenshotAnnotation> annotations,
+  required ScreenshotAnnotationPoint point,
+  required Size imageSize,
+  double tolerance = 8,
+}) {
+  for (final annotation in annotations.reversed) {
+    if (_annotationContainsPoint(annotation, point, imageSize, tolerance)) {
+      return annotation;
+    }
+  }
+  return null;
+}
+
+Rect screenshotAnnotationBounds(
+    ScreenshotAnnotation annotation, Size imageSize) {
+  if (annotation case ScreenshotRectangleAnnotation rectangle) {
+    return Rect.fromPoints(
+      Offset(rectangle.start.x, rectangle.start.y),
+      Offset(rectangle.end.x, rectangle.end.y),
+    );
+  }
+  if (annotation case ScreenshotArrowAnnotation arrow) {
+    return Rect.fromPoints(
+      Offset(arrow.start.x, arrow.start.y),
+      Offset(arrow.end.x, arrow.end.y),
+    );
+  }
+  if (annotation case ScreenshotBrushAnnotation brush) {
+    if (brush.points.isEmpty) return Rect.zero;
+    var left = brush.points.first.x;
+    var top = brush.points.first.y;
+    var right = left;
+    var bottom = top;
+    for (final point in brush.points.skip(1)) {
+      left = math.min(left, point.x);
+      top = math.min(top, point.y);
+      right = math.max(right, point.x);
+      bottom = math.max(bottom, point.y);
+    }
+    return Rect.fromLTRB(left, top, right, bottom);
+  }
+  if (annotation case ScreenshotTextAnnotation text) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: text.text,
+        style: TextStyle(
+          fontSize: text.fontSize,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      textDirection: ui.TextDirection.ltr,
+    )..layout(maxWidth: math.max(1, imageSize.width - text.position.x));
+    final bounds = Offset(text.position.x, text.position.y) & painter.size;
+    painter.dispose();
+    return bounds;
+  }
+  final mosaic = annotation as ScreenshotMosaicAnnotation;
+  return Rect.fromPoints(
+    Offset(mosaic.start.x, mosaic.start.y),
+    Offset(mosaic.end.x, mosaic.end.y),
+  );
+}
+
+bool _annotationContainsPoint(
+  ScreenshotAnnotation annotation,
+  ScreenshotAnnotationPoint point,
+  Size imageSize,
+  double tolerance,
+) {
+  final target = Offset(point.x, point.y);
+  if (annotation is ScreenshotRectangleAnnotation ||
+      annotation is ScreenshotTextAnnotation ||
+      annotation is ScreenshotMosaicAnnotation) {
+    return screenshotAnnotationBounds(annotation, imageSize)
+        .inflate(tolerance)
+        .contains(target);
+  }
+  if (annotation case ScreenshotArrowAnnotation arrow) {
+    return _distanceToSegment(target, Offset(arrow.start.x, arrow.start.y),
+            Offset(arrow.end.x, arrow.end.y)) <=
+        math.max(tolerance, arrow.lineWidth * 2);
+  }
+  final brush = annotation as ScreenshotBrushAnnotation;
+  if (brush.points.isEmpty) return false;
+  if (brush.points.length == 1) {
+    final only = brush.points.single;
+    return (target - Offset(only.x, only.y)).distance <=
+        math.max(tolerance, brush.lineWidth * 2);
+  }
+  for (var index = 1; index < brush.points.length; index++) {
+    final start = brush.points[index - 1];
+    final end = brush.points[index];
+    if (_distanceToSegment(
+            target, Offset(start.x, start.y), Offset(end.x, end.y)) <=
+        math.max(tolerance, brush.lineWidth * 2)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+double _distanceToSegment(Offset point, Offset start, Offset end) {
+  final segment = end - start;
+  final lengthSquared = segment.dx * segment.dx + segment.dy * segment.dy;
+  if (lengthSquared == 0) return (point - start).distance;
+  final offset = point - start;
+  final progress =
+      ((offset.dx * segment.dx + offset.dy * segment.dy) / lengthSquared)
+          .clamp(0.0, 1.0);
+  return (point - (start + segment * progress)).distance;
 }
 
 class ScreenshotAnnotationRenderer {

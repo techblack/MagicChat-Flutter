@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as image;
@@ -58,6 +59,99 @@ void main() {
         screenshotAnnotationLineWidth(displayWidth: 960, imageWidth: 3840), 12);
     expect(
         screenshotAnnotationFontSize(displayWidth: 960, imageWidth: 3840), 80);
+  });
+
+  test('选择命中最上层矩形、箭头、文字和马赛克，空白不命中', () {
+    const rectangle = ScreenshotRectangleAnnotation(
+      start: ScreenshotAnnotationPoint(10, 10),
+      end: ScreenshotAnnotationPoint(80, 60),
+      color: 0xffef4444,
+      lineWidth: 3,
+    );
+    const arrow = ScreenshotArrowAnnotation(
+      start: ScreenshotAnnotationPoint(100, 30),
+      end: ScreenshotAnnotationPoint(180, 30),
+      color: 0xff2563eb,
+      lineWidth: 3,
+    );
+    const text = ScreenshotTextAnnotation(
+      position: ScreenshotAnnotationPoint(210, 20),
+      text: '重点',
+      fontSize: 20,
+      color: 0xff22c55e,
+    );
+    const mosaic = ScreenshotMosaicAnnotation(
+      start: ScreenshotAnnotationPoint(30, 20),
+      end: ScreenshotAnnotationPoint(70, 50),
+      color: 0xfff59e0b,
+      lineWidth: 3,
+    );
+    const annotations = [rectangle, arrow, text, mosaic];
+    const imageSize = Size(320, 180);
+
+    expect(
+      hitTestScreenshotAnnotation(
+        annotations: annotations,
+        point: const ScreenshotAnnotationPoint(40, 30),
+        imageSize: imageSize,
+      ),
+      same(mosaic),
+    );
+    expect(
+      hitTestScreenshotAnnotation(
+        annotations: annotations,
+        point: const ScreenshotAnnotationPoint(120, 33),
+        imageSize: imageSize,
+      ),
+      same(arrow),
+    );
+    expect(
+      hitTestScreenshotAnnotation(
+        annotations: annotations,
+        point: const ScreenshotAnnotationPoint(215, 25),
+        imageSize: imageSize,
+      ),
+      same(text),
+    );
+    expect(
+      hitTestScreenshotAnnotation(
+        annotations: const [rectangle],
+        point: const ScreenshotAnnotationPoint(40, 30),
+        imageSize: imageSize,
+      ),
+      same(rectangle),
+    );
+    expect(
+      hitTestScreenshotAnnotation(
+        annotations: annotations,
+        point: const ScreenshotAnnotationPoint(300, 160),
+        imageSize: imageSize,
+      ),
+      isNull,
+    );
+  });
+
+  test('删除指定标注进入撤销重做历史', () {
+    const rectangle = ScreenshotRectangleAnnotation(
+      start: ScreenshotAnnotationPoint(2, 2),
+      end: ScreenshotAnnotationPoint(20, 15),
+      color: 0xffef4444,
+      lineWidth: 2,
+    );
+    const mosaic = ScreenshotMosaicAnnotation(
+      start: ScreenshotAnnotationPoint(4, 4),
+      end: ScreenshotAnnotationPoint(12, 10),
+      color: 0xff2563eb,
+      lineWidth: 2,
+    );
+    final initial =
+        const ScreenshotAnnotationHistory().commit(rectangle).commit(mosaic);
+
+    final removed = initial.remove(rectangle);
+    expect(removed.present, [mosaic]);
+    expect(removed.undo().present, [rectangle, mosaic]);
+    expect(removed.undo().redo().present, [mosaic]);
+    expect(identical(removed.remove(rectangle), removed), isTrue);
   });
 
   test('矩形箭头画笔和中文文字烘焙进 PNG，空标注保留原字节', () async {
