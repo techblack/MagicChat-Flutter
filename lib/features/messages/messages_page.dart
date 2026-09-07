@@ -1092,7 +1092,7 @@ class _ConversationListState extends State<_ConversationList> {
                   title: const Text('从列表移除'),
                   onTap: () => Navigator.pop(context, 'dismiss')),
               if (isGroup) ...[
-                if (canManage)
+                if (currentMember != null)
                   ListTile(
                       leading: const Icon(Icons.edit_outlined),
                       title: const Text('修改群名称'),
@@ -1147,23 +1147,24 @@ class _ConversationListState extends State<_ConversationList> {
       widget.onConversationRemoved?.call(conversation.id);
       if (widget.selectedId == conversation.id) widget.onSelect('');
     } else if (action == 'rename') {
-      final controller = TextEditingController(text: conversation.title);
+      var draftName = conversation.title;
       final name = await showDialog<String>(
           context: context,
           builder: (context) => AlertDialog(
                 title: const Text('修改群名称'),
-                content: TextField(controller: controller, autofocus: true),
+                content: TextFormField(
+                    initialValue: conversation.title,
+                    autofocus: true,
+                    onChanged: (value) => draftName = value),
                 actions: [
                   TextButton(
                       onPressed: () => Navigator.pop(context),
                       child: const Text('取消')),
                   FilledButton(
-                      onPressed: () =>
-                          Navigator.pop(context, controller.text.trim()),
+                      onPressed: () => Navigator.pop(context, draftName.trim()),
                       child: const Text('保存'))
                 ],
               ));
-      controller.dispose();
       if (name != null && name.isNotEmpty && context.mounted) {
         await widget.repository.renameGroupConversation(conversation.id, name);
       }

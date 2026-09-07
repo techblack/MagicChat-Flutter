@@ -113,7 +113,7 @@ void main() {
     await tester.longPress(find.text('角色群聊'));
     await tester.pumpAndSettle();
 
-    expect(find.text('修改群名称'), findsNothing);
+    expect(find.text('修改群名称'), findsOneWidget);
     expect(find.text('添加群成员'), findsOneWidget);
     expect(find.text('退出群聊'), findsOneWidget);
     expect(find.text('修改群公告'), findsNothing);
@@ -121,6 +121,13 @@ void main() {
     expect(find.text('设为公开群'), findsNothing);
     expect(find.text('移除群成员'), findsNothing);
     expect(find.text('解散群聊'), findsNothing);
+
+    await tester.tap(find.text('修改群名称'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, '成员修改群名');
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.pumpAndSettle();
+    expect(repository.renamedTo, '成员修改群名');
   });
 
   testWidgets('群主可见管理、公开和解散操作', (tester) async {
@@ -146,6 +153,13 @@ class _RoleRepository extends DemoRepository {
   _RoleRepository(this.role);
 
   final String role;
+  String? renamedTo;
+
+  @override
+  Future<void> renameGroupConversation(
+      String conversationId, String name) async {
+    renamedTo = name;
+  }
 
   @override
   Future<CurrentUser> currentUser() async =>
