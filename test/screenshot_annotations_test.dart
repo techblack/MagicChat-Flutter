@@ -302,6 +302,210 @@ void main() {
     expect(replaced.undo().redo().present.single, same(moved));
   });
 
+  test('不同标注只暴露实际可操作的缩放控制点', () {
+    const imageSize = Size(320, 180);
+    const rectangle = ScreenshotRectangleAnnotation(
+      start: ScreenshotAnnotationPoint(10, 20),
+      end: ScreenshotAnnotationPoint(50, 60),
+      color: 0xffef4444,
+      lineWidth: 3,
+    );
+    const arrow = ScreenshotArrowAnnotation(
+      start: ScreenshotAnnotationPoint(70, 30),
+      end: ScreenshotAnnotationPoint(120, 50),
+      color: 0xff2563eb,
+      lineWidth: 4,
+    );
+    const text = ScreenshotTextAnnotation(
+      position: ScreenshotAnnotationPoint(180, 50),
+      text: '重点',
+      fontSize: 20,
+      color: 0xfff59e0b,
+    );
+
+    expect(screenshotAnnotationResizeHandles(rectangle, imageSize).keys,
+        containsAll(ScreenshotAnnotationResizeHandle.values.take(4)));
+    expect(screenshotAnnotationResizeHandles(arrow, imageSize), {
+      ScreenshotAnnotationResizeHandle.arrowEnd: const Offset(120, 50),
+    });
+    expect(screenshotAnnotationResizeHandles(text, imageSize).keys,
+        [ScreenshotAnnotationResizeHandle.bottomRight]);
+    expect(
+      hitTestScreenshotAnnotationResizeHandle(
+        annotation: arrow,
+        point: const ScreenshotAnnotationPoint(123, 52),
+        imageSize: imageSize,
+      ),
+      ScreenshotAnnotationResizeHandle.arrowEnd,
+    );
+  });
+
+  test('矩形和马赛克四角缩放固定对角并限制边界', () {
+    const imageSize = Size(200, 140);
+    const rectangle = ScreenshotRectangleAnnotation(
+      start: ScreenshotAnnotationPoint(40, 30),
+      end: ScreenshotAnnotationPoint(120, 90),
+      color: 0xffef4444,
+      lineWidth: 3,
+    );
+    const mosaic = ScreenshotMosaicAnnotation(
+      start: ScreenshotAnnotationPoint(40, 30),
+      end: ScreenshotAnnotationPoint(120, 90),
+      color: 0xff2563eb,
+      lineWidth: 3,
+    );
+    const targets = {
+      ScreenshotAnnotationResizeHandle.topLeft:
+          ScreenshotAnnotationPoint(-100, -100),
+      ScreenshotAnnotationResizeHandle.topRight:
+          ScreenshotAnnotationPoint(300, -100),
+      ScreenshotAnnotationResizeHandle.bottomLeft:
+          ScreenshotAnnotationPoint(-100, 300),
+      ScreenshotAnnotationResizeHandle.bottomRight:
+          ScreenshotAnnotationPoint(300, 300),
+    };
+    const fixedCorners = {
+      ScreenshotAnnotationResizeHandle.topLeft: Offset(120, 90),
+      ScreenshotAnnotationResizeHandle.topRight: Offset(40, 90),
+      ScreenshotAnnotationResizeHandle.bottomLeft: Offset(120, 30),
+      ScreenshotAnnotationResizeHandle.bottomRight: Offset(40, 30),
+    };
+
+    for (final annotation in [rectangle, mosaic]) {
+      for (final handle in targets.keys) {
+        final resized = resizeScreenshotAnnotation(
+          annotation: annotation,
+          handle: handle,
+          point: targets[handle]!,
+          imageSize: imageSize,
+        );
+        final bounds = screenshotAnnotationBounds(resized, imageSize);
+        final fixed = switch (handle) {
+          ScreenshotAnnotationResizeHandle.topLeft => bounds.bottomRight,
+          ScreenshotAnnotationResizeHandle.topRight => bounds.bottomLeft,
+          ScreenshotAnnotationResizeHandle.bottomLeft => bounds.topRight,
+          ScreenshotAnnotationResizeHandle.bottomRight => bounds.topLeft,
+          ScreenshotAnnotationResizeHandle.arrowEnd => Offset.zero,
+        };
+        expect(fixed, fixedCorners[handle]);
+        expect(bounds.left, greaterThanOrEqualTo(0));
+        expect(bounds.top, greaterThanOrEqualTo(0));
+        expect(bounds.right, lessThanOrEqualTo(imageSize.width));
+        expect(bounds.bottom, lessThanOrEqualTo(imageSize.height));
+      }
+    }
+  });
+
+  test('箭头终点和文字字号缩放遵守最小值与图像边界', () {
+    const arrow = ScreenshotArrowAnnotation(
+      start: ScreenshotAnnotationPoint(40, 40),
+      end: ScreenshotAnnotationPoint(100, 60),
+      color: 0xff2563eb,
+      lineWidth: 4,
+    );
+    final extended = resizeScreenshotAnnotation(
+      annotation: arrow,
+      handle: ScreenshotAnnotationResizeHandle.arrowEnd,
+      point: const ScreenshotAnnotationPoint(1000, 1000),
+      imageSize: const Size(200, 140),
+    ) as ScreenshotArrowAnnotation;
+    final collapsed = resizeScreenshotAnnotation(
+      annotation: arrow,
+      handle: ScreenshotAnnotationResizeHandle.arrowEnd,
+      point: arrow.start,
+      imageSize: const Size(200, 140),
+    ) as ScreenshotArrowAnnotation;
+
+    expect((extended.end.x, extended.end.y), (200, 140));
+    expect(
+        (Offset(collapsed.end.x, collapsed.end.y) -
+                Offset(arrow.start.x, arrow.start.y))
+            .distance,
+        closeTo(screenshotAnnotationMinExtent, 0.000001));
+
+    const text = ScreenshotTextAnnotation(
+      position: ScreenshotAnnotationPoint(20, 20),
+      text: '重点文字',
+      fontSize: 20,
+      color: 0xffef4444,
+    );
+    const imageSize = Size(300, 200);
+    final bounds = screenshotAnnotationBounds(text, imageSize);
+    final grown = resizeScreenshotAnnotation(
+      annotation: text,
+      handle: ScreenshotAnnotationResizeHandle.bottomRight,
+      point: ScreenshotAnnotationPoint(
+        bounds.left + bounds.width * 3,
+        bounds.top + bounds.height * 3,
+      ),
+      imageSize: imageSize,
+    ) as ScreenshotTextAnnotation;
+    final shrunk = resizeScreenshotAnnotation(
+      annotation: text,
+      handle: ScreenshotAnnotationResizeHandle.bottomRight,
+      point: text.position,
+      imageSize: imageSize,
+    ) as ScreenshotTextAnnotation;
+
+    expect(grown.fontSize, greaterThan(text.fontSize));
+    expect(grown.fontSize, lessThanOrEqualTo(screenshotAnnotationMaxFontSize));
+    expect(screenshotAnnotationBounds(grown, imageSize).right,
+        lessThanOrEqualTo(imageSize.width));
+    expect(screenshotAnnotationBounds(grown, imageSize).bottom,
+        lessThanOrEqualTo(imageSize.height));
+    expect(shrunk.fontSize, screenshotAnnotationMinFontSize);
+  });
+
+  test('画笔按包围盒等比缩放并限制在图像边界', () {
+    final brush = ScreenshotBrushAnnotation(
+      points: const [
+        ScreenshotAnnotationPoint(20, 20),
+        ScreenshotAnnotationPoint(40, 30),
+        ScreenshotAnnotationPoint(60, 40),
+      ],
+      color: 0xff22c55e,
+      lineWidth: 3,
+    );
+    const imageSize = Size(200, 140);
+    final doubled = resizeScreenshotAnnotation(
+      annotation: brush,
+      handle: ScreenshotAnnotationResizeHandle.bottomRight,
+      point: const ScreenshotAnnotationPoint(100, 60),
+      imageSize: imageSize,
+    ) as ScreenshotBrushAnnotation;
+    final bounded = resizeScreenshotAnnotation(
+      annotation: brush,
+      handle: ScreenshotAnnotationResizeHandle.bottomRight,
+      point: const ScreenshotAnnotationPoint(1000, 1000),
+      imageSize: imageSize,
+    ) as ScreenshotBrushAnnotation;
+
+    expect((doubled.points.first.x, doubled.points.first.y), (20, 20));
+    expect((doubled.points.last.x, doubled.points.last.y), (100, 60));
+    expect(doubled.lineWidth, 6);
+    final boundedBounds = screenshotAnnotationBounds(bounded, imageSize);
+    expect(boundedBounds.right, lessThanOrEqualTo(imageSize.width));
+    expect(boundedBounds.bottom, lessThanOrEqualTo(imageSize.height));
+
+    final tinyAtEdge = ScreenshotBrushAnnotation(
+      points: const [
+        ScreenshotAnnotationPoint(199, 139),
+        ScreenshotAnnotationPoint(200, 140),
+      ],
+      color: 0xff22c55e,
+      lineWidth: 2,
+    );
+    expect(
+      resizeScreenshotAnnotation(
+        annotation: tinyAtEdge,
+        handle: ScreenshotAnnotationResizeHandle.bottomRight,
+        point: const ScreenshotAnnotationPoint(1000, 1000),
+        imageSize: imageSize,
+      ),
+      same(tinyAtEdge),
+    );
+  });
+
   test('矩形箭头画笔和中文文字烘焙进 PNG，空标注保留原字节', () async {
     final source = image.Image(width: 64, height: 48, numChannels: 4);
     image.fill(source, color: image.ColorRgba8(255, 255, 255, 255));

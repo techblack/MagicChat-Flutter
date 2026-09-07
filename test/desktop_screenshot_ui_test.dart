@@ -388,6 +388,153 @@ void main() {
     expect(painter().annotations.single, same(moved));
   });
 
+  testWidgets('拖动矩形控制点预览缩放并在松手后一次提交', (tester) async {
+    final source = image.Image(width: 800, height: 450, numChannels: 4);
+    image.fill(source, color: image.ColorRgba8(255, 255, 255, 255));
+    await tester.pumpWidget(MaterialApp(
+      home: ScreenshotAnnotationDialog(
+        screenshot: CapturedScreenshot(
+          bytes: Uint8List.fromList(image.encodePng(source)),
+          width: 800,
+          height: 450,
+          fileName: 'resize-rectangle.png',
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    Rect canvas() => tester
+        .getRect(find.byKey(const ValueKey('screenshot-annotation-canvas')));
+    ScreenshotAnnotationPainter painter() => tester
+        .widget<CustomPaint>(find.byWidgetPredicate((widget) =>
+            widget is CustomPaint &&
+            widget.painter is ScreenshotAnnotationPainter))
+        .painter! as ScreenshotAnnotationPainter;
+    Offset displayPoint(Offset point) =>
+        canvas().topLeft +
+        Offset(
+            point.dx * canvas().width / 800, point.dy * canvas().height / 450);
+
+    await tester.dragFrom(
+        canvas().topLeft + const Offset(40, 40), const Offset(120, 70));
+    await tester.pump();
+    final original =
+        painter().annotations.single as ScreenshotRectangleAnnotation;
+    await tester.tap(find.widgetWithText(ChoiceChip, '选择'));
+    final originalBounds =
+        screenshotAnnotationBounds(original, const Size(800, 450));
+    await tester.tapAt(displayPoint(originalBounds.center));
+    await tester.pump();
+    expect(painter().selected, same(original));
+
+    final gesture =
+        await tester.startGesture(displayPoint(originalBounds.bottomRight));
+    await gesture.moveBy(const Offset(20, 10));
+    await tester.pump();
+    await gesture.moveBy(const Offset(80, 50));
+    await tester.pump();
+    expect(painter().annotations.single, same(original));
+    expect(painter().movePreview, isA<ScreenshotRectangleAnnotation>());
+    await gesture.up();
+    await tester.pump();
+
+    final resized =
+        painter().annotations.single as ScreenshotRectangleAnnotation;
+    final resizedBounds =
+        screenshotAnnotationBounds(resized, const Size(800, 450));
+    expect(resizedBounds.width, greaterThan(originalBounds.width));
+    expect(resizedBounds.height, greaterThan(originalBounds.height));
+    await tester.tap(find.byTooltip('撤销'));
+    await tester.pump();
+    expect(painter().annotations.single, same(original));
+    await tester.tap(find.byTooltip('重做'));
+    await tester.pump();
+    expect(painter().annotations.single, same(resized));
+  });
+
+  testWidgets('箭头终点和文字字号使用各自控制点缩放', (tester) async {
+    final source = image.Image(width: 800, height: 450, numChannels: 4);
+    image.fill(source, color: image.ColorRgba8(255, 255, 255, 255));
+    await tester.pumpWidget(MaterialApp(
+      home: ScreenshotAnnotationDialog(
+        screenshot: CapturedScreenshot(
+          bytes: Uint8List.fromList(image.encodePng(source)),
+          width: 800,
+          height: 450,
+          fileName: 'resize-types.png',
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    Rect canvas() => tester
+        .getRect(find.byKey(const ValueKey('screenshot-annotation-canvas')));
+    ScreenshotAnnotationPainter painter() => tester
+        .widget<CustomPaint>(find.byWidgetPredicate((widget) =>
+            widget is CustomPaint &&
+            widget.painter is ScreenshotAnnotationPainter))
+        .painter! as ScreenshotAnnotationPainter;
+    Offset displayPoint(Offset point) =>
+        canvas().topLeft +
+        Offset(
+            point.dx * canvas().width / 800, point.dy * canvas().height / 450);
+    Future<void> dragHandle(Offset point, Offset delta) async {
+      final gesture = await tester.startGesture(displayPoint(point));
+      await gesture.moveBy(const Offset(20, 10));
+      await tester.pump();
+      await gesture.moveBy(delta - const Offset(20, 10));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+    }
+
+    await tester.tap(find.widgetWithText(ChoiceChip, '箭头'));
+    await tester.dragFrom(
+        canvas().topLeft + const Offset(80, 60), const Offset(150, 30));
+    await tester.pump();
+    final originalArrow =
+        painter().annotations.single as ScreenshotArrowAnnotation;
+    await tester.tap(find.widgetWithText(ChoiceChip, '选择'));
+    await tester.tapAt(displayPoint(Offset(
+      (originalArrow.start.x + originalArrow.end.x) / 2,
+      (originalArrow.start.y + originalArrow.end.y) / 2,
+    )));
+    await tester.pump();
+    expect(painter().selected, same(originalArrow));
+    await dragHandle(Offset(originalArrow.end.x, originalArrow.end.y),
+        const Offset(100, 60));
+
+    final resizedArrow =
+        painter().annotations.single as ScreenshotArrowAnnotation;
+    expect((resizedArrow.start.x, resizedArrow.start.y),
+        (originalArrow.start.x, originalArrow.start.y));
+    expect(resizedArrow.end.x, greaterThan(originalArrow.end.x));
+    expect(resizedArrow.end.y, greaterThan(originalArrow.end.y));
+
+    await tester.tap(find.widgetWithText(ChoiceChip, '文字'));
+    await tester.tapAt(canvas().topLeft + const Offset(420, 100));
+    await tester.pump();
+    await tester.enterText(
+        find.byKey(const ValueKey('screenshot-text-input')), '重点');
+    await tester.tap(find.widgetWithText(FilledButton, '添加'));
+    await tester.pumpAndSettle();
+    final originalText =
+        painter().annotations.whereType<ScreenshotTextAnnotation>().single;
+    await tester.tap(find.widgetWithText(ChoiceChip, '选择'));
+    await tester.tapAt(displayPoint(
+        Offset(originalText.position.x + 2, originalText.position.y + 2)));
+    await tester.pump();
+    final textHandle =
+        screenshotAnnotationResizeHandles(originalText, const Size(800, 450))
+            .values
+            .single;
+    await dragHandle(textHandle, const Offset(100, 50));
+
+    final resizedText =
+        painter().annotations.whereType<ScreenshotTextAnnotation>().single;
+    expect(resizedText.fontSize, greaterThan(originalText.fontSize));
+  });
+
   testWidgets('取消截图标注不进入发送队列', (tester) async {
     final directory = Directory.systemTemp.createTempSync('shot-ui-');
     addTearDown(() => directory.deleteSync(recursive: true));

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:flutter/gestures.dart' show DragStartBehavior;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
     show KeyDownEvent, KeyEvent, LogicalKeyboardKey;
@@ -43,6 +44,7 @@ class _ScreenshotAnnotationDialogState
   ScreenshotAnnotation? _selected;
   ScreenshotAnnotation? _movingOriginal;
   ScreenshotAnnotation? _movePreview;
+  ScreenshotAnnotationResizeHandle? _resizeHandle;
   ScreenshotAnnotationPoint? _start;
   List<ScreenshotAnnotationPoint> _brushPoints = const [];
   final FocusNode _keyboardFocusNode = FocusNode();
@@ -78,6 +80,7 @@ class _ScreenshotAnnotationDialogState
         _selected = null;
         _movingOriginal = null;
         _movePreview = null;
+        _resizeHandle = null;
       });
 
   void _redo() => setState(() {
@@ -86,17 +89,29 @@ class _ScreenshotAnnotationDialogState
         _selected = null;
         _movingOriginal = null;
         _movePreview = null;
+        _resizeHandle = null;
       });
 
   void _startDrawing(DragStartDetails details, Size displaySize) {
     if (_rendering || _tool == ScreenshotAnnotationTool.text) return;
     final point = _imagePoint(details.localPosition, displaySize);
     if (_tool == ScreenshotAnnotationTool.select) {
-      final selected = _annotationAt(point, displaySize);
+      final current = _selected;
+      final resizeHandle = current == null
+          ? null
+          : hitTestScreenshotAnnotationResizeHandle(
+              annotation: current,
+              point: point,
+              imageSize: Size(_imageWidth.toDouble(), _imageHeight.toDouble()),
+              tolerance: 8 * _imageWidth / displaySize.width,
+            );
+      final selected =
+          resizeHandle == null ? _annotationAt(point, displaySize) : current;
       setState(() {
         _selected = selected;
         _movingOriginal = selected;
         _movePreview = null;
+        _resizeHandle = resizeHandle;
         _start = point;
         _draft = null;
       });
@@ -122,11 +137,21 @@ class _ScreenshotAnnotationDialogState
         case ScreenshotAnnotationTool.select:
           final original = _movingOriginal;
           if (original != null) {
-            _movePreview = translateScreenshotAnnotation(
-              annotation: original,
-              delta: Offset(point.x - start.x, point.y - start.y),
-              imageSize: Size(_imageWidth.toDouble(), _imageHeight.toDouble()),
-            );
+            final imageSize =
+                Size(_imageWidth.toDouble(), _imageHeight.toDouble());
+            final resizeHandle = _resizeHandle;
+            _movePreview = resizeHandle == null
+                ? translateScreenshotAnnotation(
+                    annotation: original,
+                    delta: Offset(point.x - start.x, point.y - start.y),
+                    imageSize: imageSize,
+                  )
+                : resizeScreenshotAnnotation(
+                    annotation: original,
+                    handle: resizeHandle,
+                    point: point,
+                    imageSize: imageSize,
+                  );
           }
           return;
         case ScreenshotAnnotationTool.rectangle:
@@ -161,6 +186,7 @@ class _ScreenshotAnnotationDialogState
         }
         _movingOriginal = null;
         _movePreview = null;
+        _resizeHandle = null;
         _start = null;
       });
       return;
@@ -176,6 +202,7 @@ class _ScreenshotAnnotationDialogState
       _draft = null;
       _movingOriginal = null;
       _movePreview = null;
+      _resizeHandle = null;
     });
   }
 
@@ -185,6 +212,7 @@ class _ScreenshotAnnotationDialogState
         _draft = null;
         _movingOriginal = null;
         _movePreview = null;
+        _resizeHandle = null;
       });
 
   Future<void> _addText(TapUpDetails details, Size displaySize) async {
@@ -243,6 +271,7 @@ class _ScreenshotAnnotationDialogState
       _selected = _annotationAt(imagePoint, displaySize);
       _movingOriginal = null;
       _movePreview = null;
+      _resizeHandle = null;
     });
     _keyboardFocusNode.requestFocus();
   }
@@ -267,6 +296,7 @@ class _ScreenshotAnnotationDialogState
       _draft = null;
       _movingOriginal = null;
       _movePreview = null;
+      _resizeHandle = null;
     });
   }
 
@@ -442,6 +472,7 @@ class _ScreenshotAnnotationDialogState
                 GestureDetector(
                   key: const ValueKey('screenshot-annotation-canvas'),
                   behavior: HitTestBehavior.opaque,
+                  dragStartBehavior: DragStartBehavior.down,
                   onPanStart: (details) => _startDrawing(details, displaySize),
                   onPanUpdate: (details) =>
                       _updateDrawing(details, displaySize),
@@ -491,6 +522,7 @@ class _ScreenshotAnnotationDialogState
                         _selected = null;
                         _movingOriginal = null;
                         _movePreview = null;
+                        _resizeHandle = null;
                       }),
               avatar: Icon(icon, size: 18),
               label: Text(label),
@@ -579,8 +611,7 @@ class ScreenshotAnnotationPainter extends CustomPainter {
 
   void _drawSelection(
       Canvas canvas, ScreenshotAnnotation annotation, double scale) {
-    final bounds = screenshotAnnotationBounds(annotation, imageSize)
-        .inflate(math.max(annotation.lineWidth, 4 / scale));
+    final bounds = screenshotAnnotationBounds(annotation, imageSize);
     final outside = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.stroke
@@ -594,14 +625,10 @@ class ScreenshotAnnotationPainter extends CustomPainter {
     final handleFill = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.fill;
-    for (final corner in [
-      bounds.topLeft,
-      bounds.topRight,
-      bounds.bottomLeft,
-      bounds.bottomRight,
-    ]) {
-      canvas.drawCircle(corner, 4 / scale, handleFill);
-      canvas.drawCircle(corner, 4 / scale, accent);
+    for (final handle
+        in screenshotAnnotationResizeHandles(annotation, imageSize).values) {
+      canvas.drawCircle(handle, 4 / scale, handleFill);
+      canvas.drawCircle(handle, 4 / scale, accent);
     }
   }
 
