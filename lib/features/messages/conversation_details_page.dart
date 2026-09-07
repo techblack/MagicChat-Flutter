@@ -293,6 +293,8 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
     final currentMember = _currentMember(conversation, data.currentUser.id);
     final isOwner = currentMember?.role == 'owner';
     final canManage = isOwner || currentMember?.role == 'admin';
+    final canRenameGroup =
+        conversation.type == 'group' && currentMember != null;
     final canAddMembers = conversation.type == 'group' && currentMember != null;
     final visibleMembers = _visibleMembers(conversation, data.currentUser.id);
     final unavailableMemberCount = visibleMembers
@@ -386,12 +388,15 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
                     clipBehavior: Clip.antiAlias,
                     child: Column(children: [
                       ListTile(
-                        enabled: canManage && !_busy,
+                        enabled: canRenameGroup && !_busy,
                         title: const Text('群聊名称'),
                         subtitle: Text(conversation.displayTitle),
-                        trailing:
-                            canManage ? const Icon(Icons.chevron_right) : null,
-                        onTap: canManage ? () => _editName(conversation) : null,
+                        trailing: canRenameGroup
+                            ? const Icon(Icons.chevron_right)
+                            : null,
+                        onTap: canRenameGroup && !_busy
+                            ? () => _editName(conversation)
+                            : null,
                       ),
                       const Divider(height: 1, indent: 16),
                       ListTile(

@@ -325,6 +325,14 @@ void main() {
     expect(find.text('移除'), findsNothing);
     expect(find.text('退出群聊'), findsOneWidget);
 
+    await tester.tap(find.text('群聊名称'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '成员修改的群名');
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.pumpAndSettle();
+    expect(repository.conversation.title, '成员修改的群名');
+    expect(find.text('成员修改的群名'), findsOneWidget);
+
     await tester.tap(find.text('退出群聊'));
     await tester.pumpAndSettle();
     expect(find.text('确认退出群聊？'), findsOneWidget);
