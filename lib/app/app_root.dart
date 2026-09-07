@@ -700,7 +700,8 @@ class _LoginPageState extends State<LoginPage> {
     final selected = await Navigator.push<String>(
       context,
       MaterialPageRoute(
-          builder: (_) => ServerManagementPage(store: _serverStore)),
+          builder: (_) => ServerManagementPage(
+              store: _serverStore, mode: ServerManagementMode.select)),
     );
     if (selected == null || !mounted) return;
     _server.text = selected;

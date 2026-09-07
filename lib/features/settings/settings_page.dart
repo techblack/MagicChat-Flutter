@@ -571,10 +571,8 @@ class _SettingsPageState extends State<SettingsPage> {
       MaterialPageRoute(
         builder: (_) => ServerManagementPage(
           store: store,
+          mode: ServerManagementMode.manage,
           activeServerUrl: active,
-          onSelect: widget.onServerChanged == null
-              ? null
-              : (server) => widget.onServerChanged!(server.url),
         ),
       ),
     );
