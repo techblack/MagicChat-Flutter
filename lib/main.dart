@@ -53,6 +53,7 @@ import 'features/messages/history_attachments_dialog.dart';
 import 'features/messages/conversation_image_gallery.dart';
 import 'features/messages/conversation_details_page.dart';
 import 'features/messages/expression_picker.dart';
+import 'features/messages/group_visibility_confirmation.dart';
 import 'features/messages/message_link_card.dart';
 import 'features/messages/markdown_code_block.dart';
 import 'features/messages/message_mention_composer.dart';

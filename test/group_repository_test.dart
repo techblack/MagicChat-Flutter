@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -6,9 +7,19 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
+import 'package:magicchat_client/features/messages/group_visibility_confirmation.dart';
 import 'package:magicchat_client/main.dart';
 
 void main() {
+  test('群公开状态确认文案覆盖公开和私有影响', () {
+    expect(groupVisibilityConfirmationTitle(true), '设为公开群聊？');
+    expect(
+        groupVisibilityImpactDescription(true), contains('所有用户都可以在通讯录中发现并加入'));
+    expect(groupVisibilityConfirmationTitle(false), '设为私有群聊？');
+    expect(
+        groupVisibilityImpactDescription(false), contains('未加入的用户将不能再从通讯录加入'));
+  });
+
   test('调用恢复会话和加入公开群 API', () async {
     final requests = <http.BaseRequest>[];
     final repository = HttpMagicChatRepository(
@@ -147,6 +158,50 @@ void main() {
     expect(find.text('解散群聊'), findsOneWidget);
     expect(find.text('退出群聊'), findsNothing);
   });
+
+  testWidgets('长按菜单切换群公开状态需确认并在成功后刷新', (tester) async {
+    final repository = _RoleRepository('owner');
+    await tester
+        .pumpWidget(MaterialApp(home: AppShell(repository: repository)));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('角色群聊'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('设为公开群'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('设为公开群聊？'), findsOneWidget);
+    expect(find.textContaining('所有用户都可以在通讯录中发现并加入'), findsOneWidget);
+    expect(repository.visibilityChanges, isEmpty);
+    await tester.tap(find.byKey(const ValueKey('group-visibility-cancel')));
+    await tester.pumpAndSettle();
+    expect(repository.visibilityChanges, isEmpty);
+    expect(repository.isPublic, isFalse);
+
+    repository.visibilityCompleter = Completer<void>();
+    await tester.longPress(find.text('角色群聊'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('设为公开群'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('group-visibility-confirm')));
+    await tester.pump();
+
+    expect(repository.visibilityChanges, [true]);
+    expect(repository.isPublic, isFalse);
+    expect(
+        tester
+            .widget<FilledButton>(
+                find.byKey(const ValueKey('group-visibility-confirm')))
+            .onPressed,
+        isNull);
+
+    repository.visibilityCompleter!.complete();
+    await tester.pumpAndSettle();
+    expect(repository.isPublic, isTrue);
+    await tester.longPress(find.text('角色群聊'));
+    await tester.pumpAndSettle();
+    expect(find.text('设为私有群'), findsOneWidget);
+  });
 }
 
 class _RoleRepository extends DemoRepository {
@@ -154,11 +209,21 @@ class _RoleRepository extends DemoRepository {
 
   final String role;
   String? renamedTo;
+  bool isPublic = false;
+  final visibilityChanges = <bool>[];
+  Completer<void>? visibilityCompleter;
 
   @override
   Future<void> renameGroupConversation(
       String conversationId, String name) async {
     renamedTo = name;
+  }
+
+  @override
+  Future<void> setGroupVisibility(String conversationId, bool value) async {
+    visibilityChanges.add(value);
+    await visibilityCompleter?.future;
+    isPublic = value;
   }
 
   @override
@@ -171,6 +236,7 @@ class _RoleRepository extends DemoRepository {
           id: 'role-group',
           title: '角色群聊',
           type: 'group',
+          isPublic: isPublic,
           members: [
             Contact(id: 'me', name: '当前用户', role: role),
             const Contact(id: 'other', name: '其他成员'),

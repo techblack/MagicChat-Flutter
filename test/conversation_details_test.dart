@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -294,6 +295,46 @@ void main() {
     expect(find.text('Bob'), findsOneWidget);
   });
 
+  testWidgets('详情页切换群公开状态需确认并在成功后刷新', (tester) async {
+    final repository = _DetailsRepository.group('owner');
+    await _pumpDetails(tester, repository);
+
+    var visibility = find.widgetWithText(SwitchListTile, '公开群聊');
+    expect(tester.widget<SwitchListTile>(visibility).value, isFalse);
+    await tester.tap(visibility);
+    await tester.pumpAndSettle();
+
+    expect(find.text('设为公开群聊？'), findsOneWidget);
+    expect(find.textContaining('所有用户都可以在通讯录中发现并加入'), findsOneWidget);
+    expect(repository.visibilityChanges, isEmpty);
+    await tester.tap(find.byKey(const ValueKey('group-visibility-cancel')));
+    await tester.pumpAndSettle();
+    visibility = find.widgetWithText(SwitchListTile, '公开群聊');
+    expect(tester.widget<SwitchListTile>(visibility).value, isFalse);
+    expect(repository.visibilityChanges, isEmpty);
+
+    repository.visibilityCompleter = Completer<void>();
+    await tester.tap(visibility);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('group-visibility-confirm')));
+    await tester.pump();
+
+    expect(repository.visibilityChanges, [true]);
+    visibility = find.widgetWithText(SwitchListTile, '公开群聊');
+    expect(tester.widget<SwitchListTile>(visibility).value, isFalse);
+    expect(
+        tester
+            .widget<FilledButton>(
+                find.byKey(const ValueKey('group-visibility-confirm')))
+            .onPressed,
+        isNull);
+
+    repository.visibilityCompleter!.complete();
+    await tester.pumpAndSettle();
+    visibility = find.widgetWithText(SwitchListTile, '公开群聊');
+    expect(tester.widget<SwitchListTile>(visibility).value, isTrue);
+  });
+
   testWidgets('点击群成员可查看完整资料并发起私聊', (tester) async {
     final repository = _DetailsRepository.group('owner');
     String? openedConversationId;
@@ -566,6 +607,8 @@ class _DetailsRepository extends DemoRepository {
   final bool failFullResolutionBatch;
   int contactRequests = 0;
   Uint8List? uploadedAvatarBytes;
+  final visibilityChanges = <bool>[];
+  Completer<void>? visibilityCompleter;
 
   @override
   Future<void> bindConversationProject(
@@ -658,6 +701,8 @@ class _DetailsRepository extends DemoRepository {
 
   @override
   Future<void> setGroupVisibility(String conversationId, bool isPublic) async {
+    visibilityChanges.add(isPublic);
+    await visibilityCompleter?.future;
     conversation = _copy(isPublic: isPublic);
   }
 
