@@ -16,6 +16,8 @@ import 'package:magicchat_client/features/settings/account_deactivation_page.dar
 import 'package:magicchat_client/features/settings/server_management_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/app_version.dart';
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
@@ -83,6 +85,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(
         home: Scaffold(
             body: SettingsPage(
+                appVersion: testAppVersion,
                 repository: DemoRepository(),
                 serverUrl: 'https://chat.example.com',
                 updateService: service))));
@@ -90,7 +93,7 @@ void main() {
 
     await tester.scrollUntilVisible(find.text('检查更新'), 250,
         scrollable: find.byType(Scrollable).first);
-    expect(find.text('当前版本 ${UpdateService.currentVersion}'), findsOneWidget);
+    expect(find.text('当前版本 ${testAppVersion.version}'), findsOneWidget);
 
     await tester.tap(find.text('检查更新'));
     await tester.pump();
@@ -102,8 +105,7 @@ void main() {
 
     pending.complete(null);
     await tester.pumpAndSettle();
-    expect(
-        find.text('当前已是最新版本（${UpdateService.currentVersion}）'), findsOneWidget);
+    expect(find.text('当前已是最新版本（${testAppVersion.version}）'), findsOneWidget);
     expect(service.checks, 1);
   });
 
@@ -117,6 +119,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(
         home: Scaffold(
             body: SettingsPage(
+                appVersion: testAppVersion,
                 repository: DemoRepository(),
                 serverUrl: 'https://chat.example.com',
                 updateService: service))));
@@ -132,8 +135,7 @@ void main() {
 
     await tester.tap(find.text('检查更新'));
     await tester.pumpAndSettle();
-    expect(
-        find.text('当前已是最新版本（${UpdateService.currentVersion}）'), findsOneWidget);
+    expect(find.text('当前已是最新版本（${testAppVersion.version}）'), findsOneWidget);
     expect(service.checks, 2);
   });
 
@@ -545,7 +547,7 @@ class _RetryProfileRepository extends DemoRepository {
 }
 
 class _FakeUpdateService extends UpdateService {
-  _FakeUpdateService(this.actions);
+  _FakeUpdateService(this.actions) : super(appVersion: testAppVersion);
 
   final List<Future<AppRelease?> Function()> actions;
   int checks = 0;

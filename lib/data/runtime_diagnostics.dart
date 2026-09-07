@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'app_version_info.dart';
 import 'chat_preferences.dart';
 import 'local_notification_service.dart';
 import 'message_cache_store.dart';
@@ -11,7 +12,6 @@ import 'realtime.dart';
 import 'realtime_store.dart';
 import 'repository.dart';
 import 'storage_service.dart';
-import 'update_service.dart';
 
 enum HttpProbeState {
   reachable,
@@ -289,8 +289,8 @@ class RuntimeDiagnosticsService implements RuntimeDiagnosticsSource {
     this.messageSoundEnabled = true,
     this.notificationPrivacy = MessageNotificationPrivacy.preview,
     this.httpTimeout = const Duration(seconds: 10),
+    required AppVersionInfo appVersion,
     String? platform,
-    String? version,
     String? buildMode,
   })  : server = sanitizeDiagnosticServer(serverUrl),
         _messageCacheStore = messageCacheStore ?? MessageCacheStore(),
@@ -299,8 +299,7 @@ class RuntimeDiagnosticsService implements RuntimeDiagnosticsSource {
             notificationService ?? const LocalNotificationService(),
         _recordStore = recordStore ?? const RuntimeDiagnosticRecordStore(),
         platform = platform ?? runtimeDiagnosticPlatform(),
-        version = version ??
-            '${UpdateService.currentVersion}+${UpdateService.currentBuild}',
+        version = appVersion.versionWithBuild,
         buildMode = buildMode ?? runtimeDiagnosticBuildMode();
 
   final MagicChatRepository repository;

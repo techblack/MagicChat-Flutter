@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import 'app_version_info.dart';
+
 enum AppUpdatePlatform { android, ios, windows, macos, linux }
 
 extension on AppUpdatePlatform {
@@ -49,10 +51,12 @@ class AppRelease {
 
 class UpdateService {
   const UpdateService(
-      {http.Client? client,
+      {required this.appVersion,
+      http.Client? client,
       this.platform,
       this.desktopArchitecture = compiledDesktopArchitecture})
       : _client = client;
+  final AppVersionInfo appVersion;
   final http.Client? _client;
   final AppUpdatePlatform? platform;
   final String desktopArchitecture;
@@ -64,8 +68,6 @@ class UpdateService {
   static const updateSource = String.fromEnvironment('MAGICCHAT_UPDATE_SOURCE',
       defaultValue:
           String.fromEnvironment('UPDATE_SOURCE', defaultValue: 'release'));
-  static const currentBuild = 41;
-  static const currentVersion = '0.3.28';
   static const compiledDesktopArchitecture =
       String.fromEnvironment('MAGICCHAT_DESKTOP_ARCH', defaultValue: 'x64');
 
@@ -147,7 +149,7 @@ class UpdateService {
         size: sizeNumber,
         sha256: normalizedSha256,
         sha256Url: normalizedSha256Url);
-    return release.build > currentBuild ? release : null;
+    return release.build > appVersion.buildNumber ? release : null;
   }
 
   AppUpdatePlatform _defaultPlatform() => switch (defaultTargetPlatform) {
@@ -216,7 +218,7 @@ class UpdateService {
             !checksumUrl.trim().startsWith('https://'))) {
       throw const FormatException('桌面版本校验文件地址不正确');
     }
-    if (_compareVersions(version, currentVersion) <= 0) return null;
+    if (_compareVersions(version, appVersion.version) <= 0) return null;
     return AppRelease(
         version: version,
         build: _versionBuild(version),

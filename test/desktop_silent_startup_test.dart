@@ -6,6 +6,8 @@ import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/app_version.dart';
+
 void main() {
   testWidgets('隐藏启动在登录页也先创建系统托盘', (tester) async {
     SharedPreferences.setMockInitialValues({});
@@ -14,6 +16,7 @@ void main() {
 
     await tester.pumpWidget(
       MagicChatApp(
+        appVersion: testAppVersion,
         launchArguments: const ['--hidden'],
         desktopAutoLaunch: _FakeAutoLaunch(enabled: true),
         desktopTray: tray,
@@ -33,6 +36,7 @@ void main() {
 
     await tester.pumpWidget(
       MagicChatApp(
+        appVersion: testAppVersion,
         launchArguments: const ['--hidden'],
         desktopAutoLaunch: _FakeAutoLaunch(enabled: true),
         desktopTray: tray,
@@ -51,6 +55,7 @@ void main() {
 
     await tester.pumpWidget(
       MagicChatApp(
+        appVersion: testAppVersion,
         launchArguments: const ['--hidden'],
         desktopAutoLaunch: _FakeAutoLaunch(enabled: false),
         desktopTray: _FakeTray(ready: true),

@@ -36,21 +36,27 @@ Uri buildThirdPartyLoginUri(String serverUrl, String providerKey) {
 
 Future<void> main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
+  final appVersion = await AppVersionInfo.load();
   if (!kIsWeb &&
       kReleaseMode &&
       defaultTargetPlatform == TargetPlatform.macOS) {
     await FilePicker.skipEntitlementsChecks();
   }
-  runApp(MagicChatApp(launchArguments: arguments));
+  runApp(MagicChatApp(
+    appVersion: appVersion,
+    launchArguments: arguments,
+  ));
 }
 
 class MagicChatApp extends StatefulWidget {
   const MagicChatApp(
-      {this.launchArguments = const [],
+      {required this.appVersion,
+      this.launchArguments = const [],
       this.desktopAutoLaunch,
       this.desktopTray,
       this.desktopWindowController,
       super.key});
+  final AppVersionInfo appVersion;
   final List<String> launchArguments;
   final DesktopAutoLaunchController? desktopAutoLaunch;
   final DesktopSystemTrayController? desktopTray;
@@ -606,6 +612,7 @@ class _MagicChatAppState extends State<MagicChatApp> {
                     initialError: _loginError)
                 : AppShell(
                     key: ValueKey(_repository),
+                    appVersion: widget.appVersion,
                     repository: _repository!,
                     serverUrl: _serverUrl,
                     onServerChanged: _changeServer,
@@ -1298,6 +1305,7 @@ class _LoginPageState extends State<LoginPage> {
 class AppShell extends StatefulWidget {
   const AppShell(
       {required this.repository,
+      this.appVersion = AppVersionInfo.unavailable,
       this.serverUrl,
       this.onServerChanged,
       this.onAccountSwitch,
@@ -1328,6 +1336,7 @@ class AppShell extends StatefulWidget {
       this.themeMode = ThemeMode.system,
       super.key});
   final MagicChatRepository repository;
+  final AppVersionInfo appVersion;
   final String? serverUrl;
   final Future<void> Function(String server)? onServerChanged;
   final ValueChanged<StoredAccount>? onAccountSwitch;
@@ -2012,6 +2021,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           },
           documentCollaborationFactory: documentCollaborationFactory),
       SettingsPage(
+          appVersion: widget.appVersion,
+          updateService: UpdateService(appVersion: widget.appVersion),
           repository: _repository,
           realtimeSession: widget.realtime,
           realtimeStore: widget.realtimeStore,
