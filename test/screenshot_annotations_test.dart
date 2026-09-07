@@ -106,6 +106,38 @@ void main() {
     _expectRgb(output.getPixel(40, 40), 255, 255, 255);
   });
 
+  test('马赛克只像素化选中区域并保留边框', () async {
+    final source = image.Image(width: 48, height: 32, numChannels: 4);
+    for (var y = 0; y < source.height; y++) {
+      for (var x = 0; x < source.width; x++) {
+        source.setPixelRgba(x, y, x * 5, y * 7, (x + y) * 3, 255);
+      }
+    }
+    final sourceBytes = Uint8List.fromList(image.encodePng(source));
+    final rendered = await const ScreenshotAnnotationRenderer().render(
+      sourceBytes,
+      const [
+        ScreenshotMosaicAnnotation(
+          start: ScreenshotAnnotationPoint(10, 8),
+          end: ScreenshotAnnotationPoint(38, 26),
+          color: 0xffff0000,
+          lineWidth: 2,
+        ),
+      ],
+    );
+    final output = image.decodePng(rendered)!;
+
+    _expectRgb(output.getPixel(4, 4), 20, 28, 24);
+    _expectRgb(output.getPixel(10, 8), 255, 0, 0);
+    final mosaicColors = <String>{
+      for (var y = 10; y < 24; y++)
+        for (var x = 12; x < 36; x++) _rgbKey(output.getPixel(x, y)),
+    };
+    expect(mosaicColors.length, lessThan(30));
+    expect(_rgbKey(output.getPixel(15, 13)),
+        isNot(_rgbKey(source.getPixel(15, 13))));
+  });
+
   test('无效图片不生成标注结果', () {
     expect(
       () => const ScreenshotAnnotationRenderer()
@@ -127,3 +159,6 @@ void _expectRgb(image.Pixel pixel, int red, int green, int blue) {
   expect(pixel.g.toInt(), green);
   expect(pixel.b.toInt(), blue);
 }
+
+String _rgbKey(image.Pixel pixel) =>
+    '${pixel.r.toInt()}:${pixel.g.toInt()}:${pixel.b.toInt()}';
