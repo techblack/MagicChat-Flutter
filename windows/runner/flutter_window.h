@@ -20,6 +20,8 @@ class FlutterWindow : public Win32Window {
                          bool start_hidden = false);
   virtual ~FlutterWindow();
 
+  void Activate();
+
  protected:
   // Win32Window:
   bool OnCreate() override;

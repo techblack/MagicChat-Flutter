@@ -55,11 +55,7 @@ bool FlutterWindow::OnCreate() {
       [this](const auto& call, auto result) {
         const auto& method = call.method_name();
         if (method == "show") {
-          const auto window = GetHandle();
-          if (window != nullptr) {
-            ShowWindow(window, SW_RESTORE);
-            SetForegroundWindow(window);
-          }
+          Activate();
           result->Success();
         } else if (method == "setTitle") {
           const auto* title = std::get_if<std::string>(call.arguments());
@@ -201,6 +197,15 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
 }
 
+void FlutterWindow::Activate() {
+  const auto window = GetHandle();
+  if (window == nullptr) {
+    return;
+  }
+  ShowWindow(window, SW_RESTORE);
+  SetForegroundWindow(window);
+}
+
 bool FlutterWindow::ShowNotification(
     const flutter::EncodableMap& arguments) {
   const auto* conversation_id = StringArgument(arguments, "conversation_id");
@@ -250,8 +255,7 @@ void FlutterWindow::OpenNotification(UINT notification_id) {
       flutter::EncodableValue(route->second.conversation_id);
   arguments[flutter::EncodableValue("message_id")] =
       flutter::EncodableValue(route->second.message_id);
-  ShowWindow(GetHandle(), SW_RESTORE);
-  SetForegroundWindow(GetHandle());
+  Activate();
   push_channel_->InvokeMethod(
       "routeOpened",
       std::make_unique<flutter::EncodableValue>(arguments));
