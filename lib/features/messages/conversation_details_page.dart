@@ -847,15 +847,15 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
   Future<void> _createGroup(_ConversationDetailsData data) async {
     final initial = _visibleMembers(data.conversation, data.currentUser.id)
         .where((member) => member.type == 'user')
-        .map((member) => member.id)
+        .map(_memberSelectionKey)
         .toSet();
     final members =
         await _selectMembers(data, title: '选择联系人', initiallySelected: initial);
     if (members == null || members.isEmpty || !mounted) return;
     setState(() => _busy = true);
     try {
-      final created = await widget.repository
-          .createGroupConversation('新建群聊', memberIds: members);
+      final created = await widget.repository.createGroupConversation('新建群聊',
+          memberIds: members.map((member) => member.id).toList());
       if (mounted) {
         widget.onOpenConversation?.call(created.id);
         Navigator.pop(context);
@@ -868,49 +868,64 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
   }
 
   Future<void> _addMembers(_ConversationDetailsData data) async {
-    final existing = data.conversation.members
-        .where((member) => member.type == 'user')
-        .map((member) => member.id)
-        .toSet();
-    final members =
-        await _selectMembers(data, title: '添加群成员', excluded: existing);
+    final existing = data.conversation.members.map(_memberSelectionKey).toSet();
+    final currentMember =
+        _currentMember(data.conversation, data.currentUser.id);
+    final canAddApps =
+        currentMember?.role == 'owner' || currentMember?.role == 'admin';
+    final members = await _selectMembers(data,
+        title: '添加群成员', excluded: existing, includeApps: canAddApps);
     if (members == null || members.isEmpty || !mounted) return;
-    await _run(() => widget.repository
-        .addConversationMembers(data.conversation.id, memberIds: members));
+    await _run(() => widget.repository.addConversationMembers(
+        data.conversation.id,
+        memberIds: members
+            .where((member) => member.type == 'user')
+            .map((member) => member.id)
+            .toList(),
+        appIds: members
+            .where((member) => member.type == 'app')
+            .map((member) => member.id)
+            .toList()));
   }
 
-  Future<List<String>?> _selectMembers(_ConversationDetailsData data,
+  Future<List<Contact>?> _selectMembers(_ConversationDetailsData data,
       {required String title,
       Set<String> initiallySelected = const {},
-      Set<String> excluded = const {}}) async {
+      Set<String> excluded = const {},
+      bool includeApps = false}) async {
     final availableDirectory = <String, Contact>{
       // 只有用户明确打开“添加成员”时才读取完整通讯录；详情首屏只依赖
       // 当前会话成员，避免 2000 人组织打开详情时产生额外请求。
       for (final contact in await widget.repository.contacts())
-        if (contact.type == 'user') contact.id: contact,
+        if (contact.type == 'user' || includeApps)
+          _memberSelectionKey(contact): contact,
       for (final contact in data.contacts)
-        if (contact.type == 'user') contact.id: contact,
+        if (contact.type == 'user' || includeApps)
+          _memberSelectionKey(contact): contact,
       for (final member in data.conversation.members)
-        if (member.type == 'user') member.id: member,
+        if (member.type == 'user' || includeApps)
+          _memberSelectionKey(member): member,
     };
     final contacts = availableDirectory.values
         .where((contact) =>
             !_sameId(contact.id, data.currentUser.id) &&
-            !excluded.any((id) => _sameId(id, contact.id)))
+            !excluded.contains(_memberSelectionKey(contact)))
         .toList(growable: false)
       ..sort((left, right) => left.displayName
           .toLowerCase()
           .compareTo(right.displayName.toLowerCase()));
     final selected = {...initiallySelected};
     var query = '';
-    return showDialog<List<String>>(
+    var typeFilter = 'user';
+    return showDialog<List<Contact>>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
           final visible = contacts
               .where((contact) =>
-                  query.isEmpty ||
-                  contact.displayName.toLowerCase().contains(query))
+                  (!includeApps || contact.type == typeFilter) &&
+                  (query.isEmpty ||
+                      contact.displayName.toLowerCase().contains(query)))
               .toList(growable: false);
           return AlertDialog(
             title: Text(title),
@@ -918,6 +933,24 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
               width: 420,
               height: 420,
               child: Column(children: [
+                if (includeApps) ...[
+                  SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(
+                          value: 'user',
+                          label: Text('成员'),
+                          icon: Icon(Icons.people_outline)),
+                      ButtonSegment(
+                          value: 'app',
+                          label: Text('应用'),
+                          icon: Icon(Icons.smart_toy_outlined)),
+                    ],
+                    selected: {typeFilter},
+                    onSelectionChanged: (value) =>
+                        setDialogState(() => typeFilter = value.single),
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 TextField(
                   decoration: const InputDecoration(
                       prefixIcon: Icon(Icons.search), hintText: '搜索联系人'),
@@ -932,18 +965,21 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
                           itemCount: visible.length,
                           itemBuilder: (context, index) {
                             final contact = visible[index];
+                            final key = _memberSelectionKey(contact);
                             return CheckboxListTile(
-                              key: ValueKey(contact.id),
-                              value: selected.contains(contact.id),
+                              key: ValueKey(key),
+                              value: selected.contains(key),
                               title: Text(contact.displayName),
-                              subtitle: contact.email.trim().isEmpty
-                                  ? null
-                                  : Text(contact.email.trim()),
+                              subtitle: contact.type == 'app'
+                                  ? const Text('应用')
+                                  : contact.email.trim().isEmpty
+                                      ? null
+                                      : Text(contact.email.trim()),
                               onChanged: (checked) => setDialogState(() {
                                 if (checked == true) {
-                                  selected.add(contact.id);
+                                  selected.add(key);
                                 } else {
-                                  selected.remove(contact.id);
+                                  selected.remove(key);
                                 }
                               }),
                             );
@@ -959,7 +995,12 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
               FilledButton(
                   onPressed: selected.isEmpty
                       ? null
-                      : () => Navigator.pop(dialogContext, selected.toList()),
+                      : () => Navigator.pop(
+                          dialogContext,
+                          selected
+                              .map((key) => availableDirectory[key])
+                              .whereType<Contact>()
+                              .toList()),
                   child: const Text('完成')),
             ],
           );
@@ -967,6 +1008,9 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
       ),
     );
   }
+
+  String _memberSelectionKey(Contact contact) =>
+      '${contact.type}:${contact.id.toLowerCase()}';
 
   Future<void> _removeMember(
       _ConversationDetailsData data, List<Contact> members) async {
