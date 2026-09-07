@@ -279,6 +279,13 @@ static void push_method_call_cb(FlMethodChannel* channel,
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
+  if (self->window != nullptr) {
+    gtk_widget_show(GTK_WIDGET(self->window));
+    gtk_window_deiconify(self->window);
+    gtk_window_present(self->window);
+    return;
+  }
+
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
   self->window = window;
@@ -459,6 +466,6 @@ MyApplication* my_application_new() {
   g_set_prgname(APPLICATION_ID);
 
   return MY_APPLICATION(g_object_new(my_application_get_type(),
-                                     "application-id", APPLICATION_ID, "flags",
-                                     G_APPLICATION_NON_UNIQUE, nullptr));
+                                     "application-id", APPLICATION_ID,
+                                     nullptr));
 }
