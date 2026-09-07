@@ -229,6 +229,48 @@ void main() {
     expect(opened, 'direct-alice');
   });
 
+  testWidgets('好友模式的好友资料可直接发消息', (tester) async {
+    final repository = _FriendProfileRepository('friend');
+    await _pumpFriendProfile(tester, repository);
+
+    expect(find.widgetWithText(FilledButton, '发消息'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, '发消息'));
+    await tester.pumpAndSettle();
+    expect(repository.directUserId, 'user-alice');
+  });
+
+  testWidgets('好友模式的陌生人资料只能发送好友申请', (tester) async {
+    final repository = _FriendProfileRepository('none');
+    await _pumpFriendProfile(tester, repository);
+
+    await tester.tap(find.widgetWithText(FilledButton, '加好友'));
+    await tester.pumpAndSettle();
+    expect(repository.requestedUserId, 'user-alice');
+    expect(find.widgetWithText(FilledButton, '等待接受'), findsOneWidget);
+    expect(repository.directUserId, isNull);
+  });
+
+  testWidgets('好友模式可在资料页接受来向申请', (tester) async {
+    final repository = _FriendProfileRepository('incoming');
+    await _pumpFriendProfile(tester, repository);
+
+    await tester.tap(find.widgetWithText(FilledButton, '接受申请'));
+    await tester.pumpAndSettle();
+    expect(repository.acceptedRequestId, 'request-incoming');
+    expect(find.widgetWithText(FilledButton, '发消息'), findsOneWidget);
+  });
+
+  testWidgets('好友模式的去向申请不可重复提交', (tester) async {
+    final repository = _FriendProfileRepository('outgoing');
+    await _pumpFriendProfile(tester, repository);
+
+    final button =
+        tester.widget<FilledButton>(find.widgetWithText(FilledButton, '等待接受'));
+    expect(button.onPressed, isNull);
+    expect(repository.requestedUserId, isNull);
+    expect(repository.directUserId, isNull);
+  });
+
   testWidgets('应用资料展示描述、开发者和在线状态', (tester) async {
     final repository = _AppDetailsRepository();
     await tester.pumpWidget(MaterialApp(
@@ -319,6 +361,17 @@ void main() {
     expect(repository.keywords.last, isEmpty);
     expect(repository.keywords, hasLength(3));
   });
+}
+
+Future<void> _pumpFriendProfile(
+    WidgetTester tester, _FriendProfileRepository repository) async {
+  await tester.pumpWidget(MaterialApp(
+      home: EntityDetailsPage(
+    repository: repository,
+    contact: const Contact(id: 'user-alice', name: 'Alice'),
+    friendMode: true,
+  )));
+  await tester.pumpAndSettle();
 }
 
 class _FriendRepository extends DemoRepository {
@@ -483,6 +536,58 @@ class _UserDetailsRepository extends DemoRepository {
           phone: '+8613800000000',
         ),
       ];
+
+  @override
+  Future<ChatConversation> createDirectConversation(String userId) async {
+    directUserId = userId;
+    return const ChatConversation(id: 'direct-alice', title: 'Alice');
+  }
+}
+
+class _FriendProfileRepository extends DemoRepository {
+  _FriendProfileRepository(this.relationship);
+
+  String relationship;
+  String? requestedUserId;
+  String? acceptedRequestId;
+  String? directUserId;
+
+  @override
+  Future<List<Contact>> resolveUsers(List<String> userIds) async => const [
+        Contact(id: 'user-alice', name: 'Alice', email: 'alice@example.com'),
+      ];
+
+  @override
+  Future<ContactDirectory> contactDirectory({String keyword = ''}) async =>
+      ContactDirectory(
+          contacts: relationship == 'friend'
+              ? const [Contact(id: 'user-alice', name: 'Alice')]
+              : const [],
+          mode: 'friends');
+
+  @override
+  Future<List<FriendRequest>> friendRequests(
+          {String direction = 'incoming'}) async =>
+      relationship == direction
+          ? [
+              FriendRequest(
+                  id: 'request-$direction',
+                  userId: 'user-alice',
+                  status: 'pending')
+            ]
+          : const [];
+
+  @override
+  Future<void> createFriendRequest(String userId) async {
+    requestedUserId = userId;
+    relationship = 'outgoing';
+  }
+
+  @override
+  Future<void> acceptFriendRequest(String requestId) async {
+    acceptedRequestId = requestId;
+    relationship = 'friend';
+  }
 
   @override
   Future<ChatConversation> createDirectConversation(String userId) async {

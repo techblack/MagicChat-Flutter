@@ -25,6 +25,7 @@ class EntityDetailsPage extends StatefulWidget {
     this.cacheScope,
     this.sourceCategory,
     this.onOpenConversation,
+    this.friendMode = false,
     super.key,
   });
 
@@ -34,6 +35,7 @@ class EntityDetailsPage extends StatefulWidget {
   final MessageCacheScope? cacheScope;
   final ContactDirectoryCategory? sourceCategory;
   final ContactConversationCallback? onOpenConversation;
+  final bool friendMode;
 
   @override
   State<EntityDetailsPage> createState() => _EntityDetailsPageState();
@@ -42,6 +44,8 @@ class EntityDetailsPage extends StatefulWidget {
 class _EntityDetailsPageState extends State<EntityDetailsPage> {
   late Future<_EntityDetailsData> _future = _load();
   bool _openingConversation = false;
+  bool _updatingFriendship = false;
+  _FriendRelationship? _friendshipOverride;
 
   Future<_EntityDetailsData> _load() async {
     final currentUser = await widget.repository.currentUser();
@@ -70,10 +74,78 @@ class _EntityDetailsPageState extends State<EntityDetailsPage> {
         if (creators.isNotEmpty) developerName = creators.first.displayName;
       }
     }
+    var friendship = _FriendRelationship.unrestricted;
+    String? friendRequestId;
+    if (widget.friendMode && contact.type == 'user') {
+      final results = await Future.wait([
+        widget.repository.contactDirectory(),
+        widget.repository.friendRequests(),
+        widget.repository.friendRequests(direction: 'outgoing'),
+      ]);
+      final directory = results[0] as ContactDirectory;
+      final incoming = results[1] as List<FriendRequest>;
+      final outgoing = results[2] as List<FriendRequest>;
+      final id = contact.id.toLowerCase();
+      final isFriend = directory.contacts
+          .any((item) => item.type == 'user' && item.id.toLowerCase() == id);
+      final incomingRequest = incoming
+          .where((item) =>
+              item.status == 'pending' && item.userId.toLowerCase() == id)
+          .firstOrNull;
+      final outgoingRequest = outgoing
+          .where((item) =>
+              item.status == 'pending' && item.userId.toLowerCase() == id)
+          .firstOrNull;
+      if (isFriend) {
+        friendship = _FriendRelationship.friend;
+      } else if (incomingRequest != null) {
+        friendship = _FriendRelationship.incoming;
+        friendRequestId = incomingRequest.id;
+      } else if (outgoingRequest != null) {
+        friendship = _FriendRelationship.outgoing;
+        friendRequestId = outgoingRequest.id;
+      } else {
+        friendship = _FriendRelationship.none;
+      }
+    }
     return _EntityDetailsData(
         contact: contact,
         currentUserId: currentUser.id,
+        friendship: friendship,
+        friendRequestId: friendRequestId,
         developerName: developerName);
+  }
+
+  Future<void> _runPrimaryAction(_EntityDetailsData data) async {
+    if (_updatingFriendship) return;
+    final friendship = _friendshipOverride ?? data.friendship;
+    if (friendship == _FriendRelationship.outgoing) return;
+    if (friendship == _FriendRelationship.friend ||
+        friendship == _FriendRelationship.unrestricted) {
+      await _openConversation(data.contact);
+      return;
+    }
+    setState(() => _updatingFriendship = true);
+    try {
+      if (friendship == _FriendRelationship.incoming) {
+        await widget.repository.acceptFriendRequest(data.friendRequestId!);
+        if (mounted) {
+          setState(() => _friendshipOverride = _FriendRelationship.friend);
+        }
+      } else {
+        await widget.repository.createFriendRequest(data.contact.id);
+        if (mounted) {
+          setState(() => _friendshipOverride = _FriendRelationship.outgoing);
+        }
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('好友操作失败：${userFacingError(error)}')));
+      }
+    } finally {
+      if (mounted) setState(() => _updatingFriendship = false);
+    }
   }
 
   Future<void> _openConversation(Contact contact) async {
@@ -142,8 +214,15 @@ class _EntityDetailsPageState extends State<EntityDetailsPage> {
     final ownProfile = contact.type == 'user' &&
         contact.id.toLowerCase() == data.currentUserId.toLowerCase();
     final fields = _profileFields(contact, data.developerName);
-    final actionLabel =
-        contact.type == 'group' && !contact.joined ? '加入群聊' : '发消息';
+    final friendship = _friendshipOverride ?? data.friendship;
+    final actionLabel = contact.type == 'group' && !contact.joined
+        ? '加入群聊'
+        : switch (friendship) {
+            _FriendRelationship.none => '加好友',
+            _FriendRelationship.incoming => '接受申请',
+            _FriendRelationship.outgoing => '等待接受',
+            _ => '发消息',
+          };
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 24, 16, 32),
       children: [
@@ -224,16 +303,22 @@ class _EntityDetailsPageState extends State<EntityDetailsPage> {
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton.icon(
-                    onPressed: _openingConversation
+                    onPressed: _openingConversation ||
+                            _updatingFriendship ||
+                            friendship == _FriendRelationship.outgoing
                         ? null
-                        : () => _openConversation(contact),
-                    icon: _openingConversation
+                        : () => _runPrimaryAction(data),
+                    icon: _openingConversation || _updatingFriendship
                         ? const SizedBox.square(
                             dimension: 18,
                             child: CircularProgressIndicator(strokeWidth: 2))
                         : Icon(contact.type == 'group' && !contact.joined
                             ? Icons.group_add_outlined
-                            : Icons.chat_bubble_outline),
+                            : friendship == _FriendRelationship.none
+                                ? Icons.person_add_alt_1
+                                : friendship == _FriendRelationship.incoming
+                                    ? Icons.person_add_alt
+                                    : Icons.chat_bubble_outline),
                     label: Text(actionLabel),
                   ),
                 ),
@@ -331,12 +416,20 @@ class _AvatarPreviewPageState extends State<_AvatarPreviewPage> {
 
 class _EntityDetailsData {
   const _EntityDetailsData(
-      {required this.contact, required this.currentUserId, this.developerName});
+      {required this.contact,
+      required this.currentUserId,
+      required this.friendship,
+      this.friendRequestId,
+      this.developerName});
 
   final Contact contact;
   final String currentUserId;
+  final _FriendRelationship friendship;
+  final String? friendRequestId;
   final String? developerName;
 }
+
+enum _FriendRelationship { unrestricted, friend, incoming, outgoing, none }
 
 typedef _ProfileField = ({String label, String value});
 
