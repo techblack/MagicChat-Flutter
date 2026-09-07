@@ -8,6 +8,18 @@ import 'package:image/image.dart' as image;
 
 enum ScreenshotAnnotationTool { select, rectangle, arrow, brush, text, mosaic }
 
+enum ScreenshotAnnotationResizeHandle {
+  topLeft,
+  topRight,
+  bottomLeft,
+  bottomRight,
+  arrowEnd,
+}
+
+const screenshotAnnotationMinExtent = 4.0;
+const screenshotAnnotationMinFontSize = 12.0;
+const screenshotAnnotationMaxFontSize = 256.0;
+
 class ScreenshotAnnotationPoint {
   const ScreenshotAnnotationPoint(this.x, this.y);
 
@@ -242,6 +254,230 @@ Rect screenshotAnnotationBounds(
   return Rect.fromPoints(
     Offset(mosaic.start.x, mosaic.start.y),
     Offset(mosaic.end.x, mosaic.end.y),
+  );
+}
+
+Map<ScreenshotAnnotationResizeHandle, Offset> screenshotAnnotationResizeHandles(
+    ScreenshotAnnotation annotation, Size imageSize) {
+  if (annotation case ScreenshotArrowAnnotation arrow) {
+    return {
+      ScreenshotAnnotationResizeHandle.arrowEnd:
+          Offset(arrow.end.x, arrow.end.y),
+    };
+  }
+  final bounds = screenshotAnnotationBounds(annotation, imageSize);
+  if (annotation is ScreenshotTextAnnotation) {
+    return {
+      ScreenshotAnnotationResizeHandle.bottomRight: bounds.bottomRight,
+    };
+  }
+  return {
+    ScreenshotAnnotationResizeHandle.topLeft: bounds.topLeft,
+    ScreenshotAnnotationResizeHandle.topRight: bounds.topRight,
+    ScreenshotAnnotationResizeHandle.bottomLeft: bounds.bottomLeft,
+    ScreenshotAnnotationResizeHandle.bottomRight: bounds.bottomRight,
+  };
+}
+
+ScreenshotAnnotationResizeHandle? hitTestScreenshotAnnotationResizeHandle({
+  required ScreenshotAnnotation annotation,
+  required ScreenshotAnnotationPoint point,
+  required Size imageSize,
+  double tolerance = 8,
+}) {
+  final target = Offset(point.x, point.y);
+  ScreenshotAnnotationResizeHandle? closest;
+  var closestDistance = double.infinity;
+  for (final entry
+      in screenshotAnnotationResizeHandles(annotation, imageSize).entries) {
+    final distance = (target - entry.value).distance;
+    if (distance <= tolerance && distance < closestDistance) {
+      closest = entry.key;
+      closestDistance = distance;
+    }
+  }
+  return closest;
+}
+
+ScreenshotAnnotation resizeScreenshotAnnotation({
+  required ScreenshotAnnotation annotation,
+  required ScreenshotAnnotationResizeHandle handle,
+  required ScreenshotAnnotationPoint point,
+  required Size imageSize,
+}) {
+  final target = Offset(
+    point.x.clamp(0, imageSize.width),
+    point.y.clamp(0, imageSize.height),
+  );
+  if (annotation case ScreenshotArrowAnnotation arrow) {
+    if (handle != ScreenshotAnnotationResizeHandle.arrowEnd) return annotation;
+    final start = Offset(arrow.start.x, arrow.start.y);
+    final end = _minimumEndpoint(
+        start, target, Offset(arrow.end.x, arrow.end.y), imageSize);
+    if (end == Offset(arrow.end.x, arrow.end.y)) return annotation;
+    return ScreenshotArrowAnnotation(
+      start: arrow.start,
+      end: ScreenshotAnnotationPoint(end.dx, end.dy),
+      color: arrow.color,
+      lineWidth: arrow.lineWidth,
+    );
+  }
+  if (annotation case ScreenshotTextAnnotation text) {
+    if (handle != ScreenshotAnnotationResizeHandle.bottomRight) {
+      return annotation;
+    }
+    return _resizeTextAnnotation(text, target, imageSize);
+  }
+  if (annotation case ScreenshotBrushAnnotation brush) {
+    return _resizeBrushAnnotation(brush, handle, target, imageSize);
+  }
+  final bounds = screenshotAnnotationBounds(annotation, imageSize);
+  final anchor = _oppositeCorner(bounds, handle);
+  final resized = Rect.fromPoints(
+      anchor, _minimumCorner(anchor, target, handle, imageSize));
+  if (resized == bounds) return annotation;
+  final start = ScreenshotAnnotationPoint(resized.left, resized.top);
+  final end = ScreenshotAnnotationPoint(resized.right, resized.bottom);
+  return switch (annotation) {
+    ScreenshotRectangleAnnotation value => ScreenshotRectangleAnnotation(
+        start: start,
+        end: end,
+        color: value.color,
+        lineWidth: value.lineWidth,
+      ),
+    ScreenshotMosaicAnnotation value => ScreenshotMosaicAnnotation(
+        start: start,
+        end: end,
+        color: value.color,
+        lineWidth: value.lineWidth,
+      ),
+    _ => annotation,
+  };
+}
+
+Offset _oppositeCorner(Rect bounds, ScreenshotAnnotationResizeHandle handle) =>
+    switch (handle) {
+      ScreenshotAnnotationResizeHandle.topLeft => bounds.bottomRight,
+      ScreenshotAnnotationResizeHandle.topRight => bounds.bottomLeft,
+      ScreenshotAnnotationResizeHandle.bottomLeft => bounds.topRight,
+      ScreenshotAnnotationResizeHandle.bottomRight => bounds.topLeft,
+      ScreenshotAnnotationResizeHandle.arrowEnd => bounds.topLeft,
+    };
+
+Offset _minimumCorner(Offset anchor, Offset target,
+    ScreenshotAnnotationResizeHandle handle, Size imageSize) {
+  final left = handle == ScreenshotAnnotationResizeHandle.topLeft ||
+      handle == ScreenshotAnnotationResizeHandle.bottomLeft;
+  final top = handle == ScreenshotAnnotationResizeHandle.topLeft ||
+      handle == ScreenshotAnnotationResizeHandle.topRight;
+  double axis(double value, double fixed, bool negative, double limit) {
+    if ((value - fixed).abs() >= screenshotAnnotationMinExtent) return value;
+    return (fixed + (negative ? -1 : 1) * screenshotAnnotationMinExtent)
+        .clamp(0, limit)
+        .toDouble();
+  }
+
+  return Offset(
+    axis(target.dx, anchor.dx, left, imageSize.width),
+    axis(target.dy, anchor.dy, top, imageSize.height),
+  );
+}
+
+Offset _minimumEndpoint(
+    Offset start, Offset target, Offset original, Size imageSize) {
+  final distance = (target - start).distance;
+  if (distance >= screenshotAnnotationMinExtent) return target;
+  var direction = target - start;
+  if (direction.distance == 0) direction = original - start;
+  if (direction.distance == 0) direction = const Offset(1, 0);
+  final endpoint =
+      start + direction / direction.distance * screenshotAnnotationMinExtent;
+  return Offset(
+    endpoint.dx.clamp(0, imageSize.width),
+    endpoint.dy.clamp(0, imageSize.height),
+  );
+}
+
+ScreenshotAnnotation _resizeTextAnnotation(
+    ScreenshotTextAnnotation text, Offset target, Size imageSize) {
+  final bounds = screenshotAnnotationBounds(text, imageSize);
+  final diagonal = bounds.bottomRight - bounds.topLeft;
+  if (diagonal.distanceSquared == 0) return text;
+  final dragged = target - bounds.topLeft;
+  final scale = (dragged.dx * diagonal.dx + dragged.dy * diagonal.dy) /
+      diagonal.distanceSquared;
+  final desired = (text.fontSize * scale)
+      .clamp(screenshotAnnotationMinFontSize, screenshotAnnotationMaxFontSize);
+  ScreenshotTextAnnotation withSize(double fontSize) =>
+      ScreenshotTextAnnotation(
+        position: text.position,
+        text: text.text,
+        fontSize: fontSize,
+        color: text.color,
+      );
+  var resized = withSize(desired.toDouble());
+  if (screenshotAnnotationBounds(resized, imageSize).bottom >
+      imageSize.height) {
+    var low = screenshotAnnotationMinFontSize;
+    var high = desired.toDouble();
+    for (var iteration = 0; iteration < 12; iteration++) {
+      final middle = (low + high) / 2;
+      if (screenshotAnnotationBounds(withSize(middle), imageSize).bottom <=
+          imageSize.height) {
+        low = middle;
+      } else {
+        high = middle;
+      }
+    }
+    resized = withSize(low);
+  }
+  return resized.fontSize == text.fontSize ? text : resized;
+}
+
+ScreenshotAnnotation _resizeBrushAnnotation(ScreenshotBrushAnnotation brush,
+    ScreenshotAnnotationResizeHandle handle, Offset target, Size imageSize) {
+  if (handle == ScreenshotAnnotationResizeHandle.arrowEnd ||
+      brush.points.isEmpty) {
+    return brush;
+  }
+  final bounds = screenshotAnnotationBounds(brush, imageSize);
+  final anchor = _oppositeCorner(bounds, handle);
+  final corner = screenshotAnnotationResizeHandles(brush, imageSize)[handle]!;
+  final diagonal = corner - anchor;
+  if (diagonal.distanceSquared == 0) return brush;
+  final dragged = target - anchor;
+  final desired = (dragged.dx * diagonal.dx + dragged.dy * diagonal.dy) /
+      diagonal.distanceSquared;
+  final extent = math.max(bounds.width, bounds.height);
+  final requestedMinimumScale =
+      math.max(0.1, screenshotAnnotationMinExtent / extent);
+  var maximumScale = double.infinity;
+  if (bounds.width > 0) {
+    maximumScale = math.min(
+        maximumScale,
+        diagonal.dx > 0
+            ? (imageSize.width - anchor.dx) / bounds.width
+            : anchor.dx / bounds.width);
+  }
+  if (bounds.height > 0) {
+    maximumScale = math.min(
+        maximumScale,
+        diagonal.dy > 0
+            ? (imageSize.height - anchor.dy) / bounds.height
+            : anchor.dy / bounds.height);
+  }
+  final minimumScale = math.min(requestedMinimumScale, maximumScale);
+  final scale = desired.clamp(minimumScale, maximumScale).toDouble();
+  if (scale == 1) return brush;
+  ScreenshotAnnotationPoint resizePoint(ScreenshotAnnotationPoint point) {
+    final offset = anchor + (Offset(point.x, point.y) - anchor) * scale;
+    return ScreenshotAnnotationPoint(offset.dx, offset.dy);
+  }
+
+  return ScreenshotBrushAnnotation(
+    points: brush.points.map(resizePoint).toList(),
+    color: brush.color,
+    lineWidth: (brush.lineWidth * scale).clamp(1, 64).toDouble(),
   );
 }
 
