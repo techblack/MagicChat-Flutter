@@ -79,5 +79,7 @@ void main() {
 
     expect(arguments?['conversation_id'], 'c1');
     expect(arguments?['message_id'], 'm1');
+    expect(arguments?['title'], 'Alice');
+    expect(arguments?['body'], '正文');
   });
 }

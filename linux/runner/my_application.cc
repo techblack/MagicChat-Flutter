@@ -12,12 +12,132 @@ struct _MyApplication {
   char** dart_entrypoint_arguments;
   GtkWindow* window;
   FlMethodChannel* desktop_window_channel;
+  FlMethodChannel* notification_channel;
+  FlMethodChannel* push_channel;
+  GDBusProxy* notification_proxy;
+  GHashTable* notification_routes;
   gboolean tray_ready;
   gboolean quit_on_close;
   gboolean start_hidden;
 };
 
+typedef struct {
+  gchar* conversation_id;
+  gchar* message_id;
+} NotificationRoute;
+
+typedef struct {
+  MyApplication* application;
+  NotificationRoute* route;
+} PendingNotification;
+
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
+
+static void notification_route_free(gpointer data) {
+  NotificationRoute* route = static_cast<NotificationRoute*>(data);
+  g_free(route->conversation_id);
+  g_free(route->message_id);
+  g_free(route);
+}
+
+static FlValue* notification_route_value(const NotificationRoute* route) {
+  FlValue* value = fl_value_new_map();
+  fl_value_set_string_take(
+      value, "conversation_id",
+      fl_value_new_string(route->conversation_id));
+  fl_value_set_string_take(value, "message_id",
+                           fl_value_new_string(route->message_id));
+  return value;
+}
+
+static void open_notification_route(MyApplication* self,
+                                    const NotificationRoute* route) {
+  gtk_widget_show(GTK_WIDGET(self->window));
+  gtk_window_deiconify(self->window);
+  gtk_window_present(self->window);
+  g_autoptr(FlValue) value = notification_route_value(route);
+  fl_method_channel_invoke_method(self->push_channel, "routeOpened", value,
+                                  nullptr, nullptr, nullptr);
+}
+
+static void notification_signal_cb(GDBusProxy* proxy,
+                                   gchar* sender_name,
+                                   gchar* signal_name,
+                                   GVariant* parameters,
+                                   gpointer user_data) {
+  (void)proxy;
+  (void)sender_name;
+  MyApplication* self = MY_APPLICATION(user_data);
+  if (g_strcmp0(signal_name, "ActionInvoked") == 0) {
+    guint32 notification_id = 0;
+    const gchar* action = nullptr;
+    g_variant_get(parameters, "(u&s)", &notification_id, &action);
+    if (g_strcmp0(action, "default") == 0) {
+      NotificationRoute* route = static_cast<NotificationRoute*>(
+          g_hash_table_lookup(self->notification_routes,
+                              GUINT_TO_POINTER(notification_id)));
+      if (route != nullptr) {
+        open_notification_route(self, route);
+      }
+    }
+    g_hash_table_remove(self->notification_routes,
+                        GUINT_TO_POINTER(notification_id));
+  } else if (g_strcmp0(signal_name, "NotificationClosed") == 0) {
+    guint32 notification_id = 0;
+    guint32 reason = 0;
+    g_variant_get(parameters, "(uu)", &notification_id, &reason);
+    (void)reason;
+    g_hash_table_remove(self->notification_routes,
+                        GUINT_TO_POINTER(notification_id));
+  }
+}
+
+static void notification_sent_cb(GObject* object,
+                                 GAsyncResult* result,
+                                 gpointer user_data) {
+  PendingNotification* pending = static_cast<PendingNotification*>(user_data);
+  g_autoptr(GError) error = nullptr;
+  g_autoptr(GVariant) response =
+      g_dbus_proxy_call_finish(G_DBUS_PROXY(object), result, &error);
+  if (response != nullptr) {
+    guint32 notification_id = 0;
+    g_variant_get(response, "(u)", &notification_id);
+    g_hash_table_replace(pending->application->notification_routes,
+                         GUINT_TO_POINTER(notification_id), pending->route);
+    pending->route = nullptr;
+  }
+  if (pending->route != nullptr) {
+    notification_route_free(pending->route);
+  }
+  g_object_unref(pending->application);
+  g_free(pending);
+}
+
+static void show_notification(MyApplication* self,
+                              const gchar* conversation_id,
+                              const gchar* message_id,
+                              const gchar* title,
+                              const gchar* body) {
+  GVariantBuilder actions;
+  g_variant_builder_init(&actions, G_VARIANT_TYPE("as"));
+  g_variant_builder_add(&actions, "s", "default");
+  g_variant_builder_add(&actions, "s", "打开");
+  GVariantBuilder hints;
+  g_variant_builder_init(&hints, G_VARIANT_TYPE("a{sv}"));
+  g_variant_builder_add(&hints, "{sv}", "suppress-sound",
+                        g_variant_new_boolean(TRUE));
+  g_autofree gchar* escaped_body = g_markup_escape_text(body, -1);
+  PendingNotification* pending = g_new0(PendingNotification, 1);
+  pending->application = MY_APPLICATION(g_object_ref(self));
+  pending->route = g_new0(NotificationRoute, 1);
+  pending->route->conversation_id = g_strdup(conversation_id);
+  pending->route->message_id = g_strdup(message_id);
+  g_dbus_proxy_call(
+      self->notification_proxy, "Notify",
+      g_variant_new("(susssasa{sv}i)", "MagicChat", 0, "", title,
+                    escaped_body, &actions, &hints, -1),
+      G_DBUS_CALL_FLAGS_NONE, -1, nullptr, notification_sent_cb, pending);
+}
 
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
@@ -90,6 +210,70 @@ static void desktop_window_method_call_cb(FlMethodChannel* channel,
   if (strcmp(method, "quit") == 0) {
     g_application_quit(G_APPLICATION(self));
   }
+}
+
+static void notification_method_call_cb(FlMethodChannel* channel,
+                                        FlMethodCall* method_call,
+                                        gpointer user_data) {
+  (void)channel;
+  MyApplication* self = MY_APPLICATION(user_data);
+  const gchar* method = fl_method_call_get_name(method_call);
+  g_autoptr(FlMethodResponse) response = nullptr;
+  if (strcmp(method, "getPermissionStatus") == 0) {
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(
+        fl_value_new_string(self->notification_proxy == nullptr
+                                ? "unsupported"
+                                : "granted")));
+  } else if (strcmp(method, "requestPermission") == 0) {
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(
+        fl_value_new_bool(self->notification_proxy != nullptr)));
+  } else if (strcmp(method, "showMessage") == 0) {
+    FlValue* args = fl_method_call_get_args(method_call);
+    FlValue* conversation = args == nullptr
+                                ? nullptr
+                                : fl_value_lookup_string(args, "conversation_id");
+    FlValue* message =
+        args == nullptr ? nullptr : fl_value_lookup_string(args, "message_id");
+    FlValue* title =
+        args == nullptr ? nullptr : fl_value_lookup_string(args, "title");
+    FlValue* body =
+        args == nullptr ? nullptr : fl_value_lookup_string(args, "body");
+    if (self->notification_proxy == nullptr || conversation == nullptr ||
+        fl_value_get_type(conversation) != FL_VALUE_TYPE_STRING ||
+        strlen(fl_value_get_string(conversation)) == 0 || title == nullptr ||
+        fl_value_get_type(title) != FL_VALUE_TYPE_STRING || body == nullptr ||
+        fl_value_get_type(body) != FL_VALUE_TYPE_STRING) {
+      response = FL_METHOD_RESPONSE(fl_method_error_response_new(
+          "notification", "Unable to show notification", nullptr));
+    } else {
+      const gchar* message_id =
+          message != nullptr && fl_value_get_type(message) == FL_VALUE_TYPE_STRING
+              ? fl_value_get_string(message)
+              : "";
+      show_notification(self, fl_value_get_string(conversation), message_id,
+                        fl_value_get_string(title), fl_value_get_string(body));
+      response = FL_METHOD_RESPONSE(
+          fl_method_success_response_new(fl_value_new_bool(TRUE)));
+    }
+  } else {
+    response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
+  }
+  fl_method_call_respond(method_call, response, nullptr);
+}
+
+static void push_method_call_cb(FlMethodChannel* channel,
+                                FlMethodCall* method_call,
+                                gpointer user_data) {
+  (void)channel;
+  (void)user_data;
+  const gchar* method = fl_method_call_get_name(method_call);
+  g_autoptr(FlMethodResponse) response = nullptr;
+  if (strcmp(method, "getPendingRoute") == 0) {
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+  } else {
+    response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
+  }
+  fl_method_call_respond(method_call, response, nullptr);
 }
 
 // Implements GApplication::activate.
@@ -167,6 +351,26 @@ static void my_application_activate(GApplication* application) {
   fl_method_channel_set_method_call_handler(self->desktop_window_channel,
                                             desktop_window_method_call_cb, self,
                                             nullptr);
+  self->notification_channel = fl_method_channel_new(
+      fl_engine_get_binary_messenger(fl_view_get_engine(view)),
+      "magicchat/notifications", FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(self->notification_channel,
+                                            notification_method_call_cb, self,
+                                            nullptr);
+  self->push_channel = fl_method_channel_new(
+      fl_engine_get_binary_messenger(fl_view_get_engine(view)),
+      "magicchat/push", FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(self->push_channel,
+                                            push_method_call_cb, self, nullptr);
+
+  self->notification_proxy = g_dbus_proxy_new_for_bus_sync(
+      G_BUS_TYPE_SESSION, G_DBUS_PROXY_FLAGS_NONE, nullptr,
+      "org.freedesktop.Notifications", "/org/freedesktop/Notifications",
+      "org.freedesktop.Notifications", nullptr, nullptr);
+  if (self->notification_proxy != nullptr) {
+    g_signal_connect(self->notification_proxy, "g-signal",
+                     G_CALLBACK(notification_signal_cb), self);
+  }
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
@@ -221,6 +425,10 @@ static void my_application_shutdown(GApplication* application) {
 static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   g_clear_object(&self->desktop_window_channel);
+  g_clear_object(&self->notification_channel);
+  g_clear_object(&self->push_channel);
+  g_clear_object(&self->notification_proxy);
+  g_clear_pointer(&self->notification_routes, g_hash_table_unref);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
@@ -235,6 +443,9 @@ static void my_application_class_init(MyApplicationClass* klass) {
 }
 
 static void my_application_init(MyApplication* self) {
+  self->notification_routes =
+      g_hash_table_new_full(g_direct_hash, g_direct_equal, nullptr,
+                            notification_route_free);
   self->tray_ready = FALSE;
   self->quit_on_close = FALSE;
   self->start_hidden = FALSE;

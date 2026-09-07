@@ -12,8 +12,8 @@ enum NotificationPermissionStatus {
   unknown,
 }
 
-/// 统一通知桥接。原生端可实现 `magicchat/notifications`，未实现时保持静默，
-/// 不影响 Web、Linux 或无通知权限的运行环境。
+/// 统一通知桥接。原生端可实现 `magicchat/notifications`，未实现或无
+/// 通知权限时保持静默，不影响消息同步。
 class LocalNotificationService {
   static const channelName = 'magicchat/notifications';
 
@@ -80,7 +80,7 @@ class LocalNotificationService {
         'body': body,
       });
     } on MissingPluginException {
-      // Web/Linux without a notification adapter are valid fallback targets.
+      // Platforms without a notification adapter are valid fallback targets.
     } on PlatformException {
       // Permission or provider failures must not interrupt message sync.
     }

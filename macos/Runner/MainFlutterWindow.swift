@@ -11,6 +11,10 @@ class MainFlutterWindow: NSWindow {
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 
+    (NSApplication.shared.delegate as? AppDelegate)?.registerNotificationChannels(
+      binaryMessenger: flutterViewController.engine.binaryMessenger
+    )
+
     let badgeChannel = FlutterMethodChannel(
       name: "magicchat/app_badge",
       binaryMessenger: flutterViewController.engine.binaryMessenger
