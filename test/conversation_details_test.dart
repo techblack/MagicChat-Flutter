@@ -312,6 +312,27 @@ void main() {
     expect(openedConversationId, 'user-alice');
   });
 
+  testWidgets('群主可从应用分组邀请应用进入群聊', (tester) async {
+    final repository = _DetailsRepository.group('owner');
+    await _pumpDetails(tester, repository);
+
+    await tester.tap(find.text('添加'));
+    await tester.pumpAndSettle();
+    expect(find.byType(SegmentedButton<String>), findsOneWidget);
+    await tester.tap(find.text('应用'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(CheckboxListTile, '自动化助手'), findsOneWidget);
+    await tester.tap(find.widgetWithText(CheckboxListTile, '自动化助手'));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, '完成'));
+    await tester.pumpAndSettle();
+
+    expect(repository.addedMemberIds, isEmpty);
+    expect(repository.addedAppIds, ['app-helper']);
+    expect(repository.conversation.members.map((member) => member.id),
+        contains('app-helper'));
+  });
+
   testWidgets('普通群成员只能添加成员并退出群聊', (tester) async {
     final repository = _DetailsRepository.group('member');
     var removed = false;
@@ -538,6 +559,8 @@ class _DetailsRepository extends DemoRepository {
   bool left = false;
   String? createdName;
   List<String> createdMemberIds = const [];
+  List<String> addedMemberIds = const [];
+  List<String> addedAppIds = const [];
   List<String> resolvedUserIds = const [];
   final List<List<String>> resolvedUserBatches = [];
   final bool failFullResolutionBatch;
@@ -574,6 +597,7 @@ class _DetailsRepository extends DemoRepository {
     return const [
       Contact(id: 'user-alice', name: 'Alice', email: 'alice@example.com'),
       Contact(id: 'user-bob', name: 'Bob', email: 'bob@example.com'),
+      Contact(id: 'app-helper', name: '自动化助手', type: 'app'),
     ];
   }
 
@@ -653,12 +677,17 @@ class _DetailsRepository extends DemoRepository {
   Future<void> addConversationMembers(String conversationId,
       {List<String> memberIds = const [],
       List<String> appIds = const []}) async {
+    addedMemberIds = List.of(memberIds);
+    addedAppIds = List.of(appIds);
     final contactsById = {
       for (final contact in await contacts()) contact.id: contact
     };
     conversation = _copy(members: [
       ...conversation.members,
       for (final id in memberIds)
+        if (!conversation.members.any((member) => member.id == id))
+          contactsById[id]!,
+      for (final id in appIds)
         if (!conversation.members.any((member) => member.id == id))
           contactsById[id]!,
     ]);
