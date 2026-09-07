@@ -8,6 +8,7 @@ import 'package:flutter/services.dart'
 import 'package:image/image.dart' as image;
 
 import '../../data/desktop_screenshot.dart';
+import '../../data/image_save_service.dart';
 import '../../domain/screenshot_annotations.dart';
 
 const screenshotAnnotationColors = <int>[
@@ -27,9 +28,12 @@ Future<CapturedScreenshot?> showScreenshotAnnotationDialog(
     );
 
 class ScreenshotAnnotationDialog extends StatefulWidget {
-  const ScreenshotAnnotationDialog({required this.screenshot, super.key});
+  const ScreenshotAnnotationDialog(
+      {required this.screenshot, this.imageSaver, super.key});
 
   final CapturedScreenshot screenshot;
+  final Future<ImageSaveResult> Function(
+      Uint8List bytes, String suggestedName, int fallbackIndex)? imageSaver;
 
   @override
   State<ScreenshotAnnotationDialog> createState() =>
@@ -50,6 +54,7 @@ class _ScreenshotAnnotationDialogState
   final FocusNode _keyboardFocusNode = FocusNode();
   int _color = screenshotAnnotationColors.first;
   bool _rendering = false;
+  bool _saving = false;
   String _error = '';
   late final int _imageWidth;
   late final int _imageHeight;
@@ -351,15 +356,7 @@ class _ScreenshotAnnotationDialogState
     });
     await Future<void>.delayed(Duration.zero);
     try {
-      final rendered = const ScreenshotAnnotationRenderer()
-          .render(widget.screenshot.bytes, _history.present);
-      final bytes = rendered is Future<Uint8List> ? await rendered : rendered;
-      if (bytes.length > desktopScreenshotMaxImageBytes) {
-        throw const DesktopScreenshotException(
-          DesktopScreenshotErrorCode.imageTooLarge,
-          '截图标注结果超过 32MiB，请减少标注或缩小截图区域',
-        );
-      }
+      final bytes = await _renderBytes();
       if (!mounted) return;
       Navigator.pop(
           context,
@@ -384,6 +381,55 @@ class _ScreenshotAnnotationDialogState
       }
     }
   }
+
+  Future<Uint8List> _renderBytes() async {
+    final rendered = const ScreenshotAnnotationRenderer()
+        .render(widget.screenshot.bytes, _history.present);
+    final bytes = rendered is Future<Uint8List> ? await rendered : rendered;
+    if (bytes.length > desktopScreenshotMaxImageBytes) {
+      throw const DesktopScreenshotException(
+        DesktopScreenshotErrorCode.imageTooLarge,
+        '截图标注结果超过 32MiB，请减少标注或缩小截图区域',
+      );
+    }
+    return bytes;
+  }
+
+  Future<void> _save() async {
+    if (_rendering) return;
+    setState(() {
+      _rendering = true;
+      _saving = true;
+      _error = '';
+    });
+    try {
+      final bytes = await _renderBytes();
+      final result = await (widget.imageSaver ?? _saveImage)(
+          bytes, widget.screenshot.fileName, 1);
+      if (mounted && result.saved) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(result.message)));
+      }
+    } on ImageSaveException catch (error) {
+      if (mounted) setState(() => _error = '保存截图失败：${error.message}');
+    } on DesktopScreenshotException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = '截图保存失败，请重试');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _rendering = false;
+          _saving = false;
+        });
+      }
+    }
+  }
+
+  Future<ImageSaveResult> _saveImage(
+          Uint8List bytes, String suggestedName, int fallbackIndex) =>
+      const ImageSaveService().save(bytes,
+          suggestedName: suggestedName, fallbackIndex: fallbackIndex);
 
   @override
   Widget build(BuildContext context) {
@@ -430,6 +476,17 @@ class _ScreenshotAnnotationDialogState
                 ],
                 const SizedBox(height: 8),
                 Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                  IconButton(
+                    key: const ValueKey('screenshot-save'),
+                    tooltip: imageSaveActionLabel(),
+                    onPressed: _rendering ? null : _save,
+                    icon: _saving
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.download_outlined),
+                  ),
+                  const Spacer(),
                   TextButton(
                       onPressed:
                           _rendering ? null : () => Navigator.pop(context),
@@ -437,7 +494,7 @@ class _ScreenshotAnnotationDialogState
                   const SizedBox(width: 8),
                   FilledButton.icon(
                     onPressed: _rendering ? null : _finish,
-                    icon: _rendering
+                    icon: _rendering && !_saving
                         ? const SizedBox.square(
                             dimension: 18,
                             child: CircularProgressIndicator(strokeWidth: 2))
