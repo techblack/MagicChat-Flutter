@@ -1284,8 +1284,13 @@ class _ConversationListState extends State<_ConversationList> {
             .updateGroupAnnouncement(conversation.id, announcement.trim());
       }
     } else if (action == 'visibility') {
-      await widget.repository
-          .setGroupVisibility(conversation.id, !conversation.isPublic);
+      final changed = await showGroupVisibilityConfirmationDialog(
+        context,
+        makePublic: !conversation.isPublic,
+        onConfirm: () => widget.repository
+            .setGroupVisibility(conversation.id, !conversation.isPublic),
+      );
+      if (!changed || !context.mounted) return;
     } else if (action == 'avatar') {
       final result =
           await FilePicker.pickFiles(type: FileType.image, withData: true);

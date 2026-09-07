@@ -15,6 +15,7 @@ import '../shared/cached_avatar.dart';
 import '../shared/conversation_avatar.dart';
 import '../shared/custom_avatar_picker.dart';
 import '../shared/user_facing_error.dart';
+import 'group_visibility_confirmation.dart';
 
 class ConversationDetailsPage extends StatefulWidget {
   const ConversationDetailsPage({
@@ -439,8 +440,8 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
                           value: conversation.isPublic,
                           onChanged: _busy
                               ? null
-                              : (value) => _run(() => widget.repository
-                                  .setGroupVisibility(conversation.id, value)),
+                              : (value) => _confirmVisibilityChange(
+                                  conversation.id, value),
                         ),
                       ],
                     ]),
@@ -1117,6 +1118,17 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
       _reload();
       _showMessage('群头像已更新');
     }
+  }
+
+  Future<void> _confirmVisibilityChange(
+      String conversationId, bool makePublic) async {
+    final changed = await showGroupVisibilityConfirmationDialog(
+      context,
+      makePublic: makePublic,
+      onConfirm: () =>
+          widget.repository.setGroupVisibility(conversationId, makePublic),
+    );
+    if (changed && mounted) _reload();
   }
 
   Future<void> _confirmGroupExit(
