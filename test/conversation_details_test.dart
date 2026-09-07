@@ -10,6 +10,8 @@ import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/messages/conversation_details_page.dart';
 import 'package:magicchat_client/features/shared/cached_avatar.dart';
+import 'package:magicchat_client/features/shared/conversation_avatar.dart';
+import 'package:magicchat_client/features/shared/custom_avatar_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -67,8 +69,8 @@ void main() {
     expect(find.text('charlie@example.com'), findsOneWidget);
     expect(find.text('Dana'), findsOneWidget);
     expect(find.text('成员'), findsNothing);
-    final alice = tester.widget<CachedAvatar>(find.byWidgetPredicate(
-        (widget) => widget is CachedAvatar && widget.name == '小爱'));
+    final alice = tester.widget<CachedAvatar>(find.byWidgetPredicate((widget) =>
+        widget is CachedAvatar && widget.name == '小爱' && widget.radius == 22));
     expect(alice.avatarUri, avatarUri);
 
     realtimeStore.lastEvent = 'user.profile.updated';
@@ -180,6 +182,79 @@ void main() {
     expect(find.text('打开聊天详情'), findsOneWidget);
   });
 
+  testWidgets('普通群成员可在详情查看成员组合群头像', (tester) async {
+    final repository = _DetailsRepository.group('member');
+
+    await _pumpDetails(tester, repository);
+
+    final tile = find.widgetWithText(ListTile, '群头像');
+    expect(tile, findsOneWidget);
+    expect(find.descendant(of: tile, matching: find.byType(ConversationAvatar)),
+        findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('group-avatar-member-me')), findsOneWidget);
+    expect(tester.widget<ListTile>(tile).onTap, isNull);
+  });
+
+  testWidgets('群主拖动缩放裁剪群头像并确认上传', (tester) async {
+    final source = image.Image(width: 400, height: 200);
+    final sourceBytes = Uint8List.fromList(image.encodePng(source));
+    final repository = _DetailsRepository.group('owner',
+        avatar: 'https://chat.example.com/avatars/group.webp');
+
+    await _pumpDetails(
+      tester,
+      repository,
+      serverUrl: 'https://chat.example.com',
+      avatarImagePicker: () async =>
+          AvatarPickerImage(name: 'group.png', bytes: sourceBytes),
+    );
+
+    var avatar =
+        tester.widget<ConversationAvatar>(find.byType(ConversationAvatar));
+    expect(avatar.conversation.avatar,
+        'https://chat.example.com/avatars/group.webp');
+    var renderedAvatar = tester.widget<CachedAvatar>(find.descendant(
+        of: find.byType(ConversationAvatar),
+        matching: find.byType(CachedAvatar)));
+    expect(renderedAvatar.avatarUri,
+        Uri.parse('https://chat.example.com/avatars/group.webp'));
+
+    await tester.tap(find.text('群头像'));
+    await tester.pumpAndSettle();
+    expect(find.text('修改群头像'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('group-avatar-pick')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('group-avatar-crop')), findsOneWidget);
+    expect(repository.uploadedAvatarBytes, isNull);
+
+    final zoom = find.byKey(const ValueKey('group-avatar-zoom'));
+    await tester.drag(zoom, const Offset(80, 0));
+    await tester.pump();
+    expect(tester.widget<Slider>(zoom).value, greaterThan(1));
+    await tester.drag(
+        find.byKey(const ValueKey('group-avatar-crop')), const Offset(-30, 0));
+    await tester.pump();
+    final save = find.byKey(const ValueKey('group-avatar-save'));
+    await tester.ensureVisible(save);
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+
+    final uploaded = image.decodeWebP(repository.uploadedAvatarBytes!);
+    expect(uploaded, isNotNull);
+    expect(uploaded!.width, 256);
+    expect(uploaded.height, 256);
+    expect(find.text('修改群头像'), findsNothing);
+    avatar = tester.widget<ConversationAvatar>(find.byType(ConversationAvatar));
+    expect(avatar.conversation.avatar,
+        'https://chat.example.com/avatars/group-updated.webp');
+    renderedAvatar = tester.widget<CachedAvatar>(find.descendant(
+        of: find.byType(ConversationAvatar),
+        matching: find.byType(CachedAvatar)));
+    expect(renderedAvatar.avatarUri,
+        Uri.parse('https://chat.example.com/avatars/group-updated.webp'));
+  });
+
   testWidgets('群主可在聊天详情管理资料、偏好和成员', (tester) async {
     final repository = _DetailsRepository.group('owner');
     await _pumpDetails(tester, repository);
@@ -245,7 +320,7 @@ void main() {
 
     expect(find.text('群聊名称'), findsOneWidget);
     expect(find.text('群公告'), findsOneWidget);
-    expect(find.text('群头像'), findsNothing);
+    expect(find.text('群头像'), findsOneWidget);
     expect(find.text('公开群聊'), findsNothing);
     expect(find.text('移除'), findsNothing);
     expect(find.text('退出群聊'), findsOneWidget);
@@ -329,6 +404,8 @@ void main() {
 
 Future<void> _pumpDetails(WidgetTester tester, _DetailsRepository repository,
     {ValueChanged<String>? onOpenConversation,
+    String? serverUrl,
+    AvatarImagePicker? avatarImagePicker,
     VoidCallback? onConversationRemoved}) async {
   await tester.binding.setSurfaceSize(const Size(600, 850));
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -337,6 +414,8 @@ Future<void> _pumpDetails(WidgetTester tester, _DetailsRepository repository,
     repository: repository,
     conversationId: repository.conversation.id,
     initialConversation: repository.conversation,
+    serverUrl: serverUrl,
+    avatarImagePicker: avatarImagePicker ?? pickAvatarImage,
     onOpenConversation: onOpenConversation,
     onConversationRemoved: onConversationRemoved,
   )));
@@ -348,7 +427,7 @@ class _DetailsRepository extends DemoRepository {
       {this.failFullResolutionBatch = false});
 
   factory _DetailsRepository.group(String role,
-          {List<Project> projects = const []}) =>
+          {List<Project> projects = const [], String avatar = ''}) =>
       _DetailsRepository._(
         ChatConversation(
           id: 'group',
@@ -356,6 +435,7 @@ class _DetailsRepository extends DemoRepository {
           announcement: '欢迎加入工程群',
           type: 'group',
           isPublic: false,
+          avatar: avatar,
           members: [
             Contact(id: 'me', name: '当前用户', role: role),
             const Contact(
@@ -454,6 +534,7 @@ class _DetailsRepository extends DemoRepository {
   final List<List<String>> resolvedUserBatches = [];
   final bool failFullResolutionBatch;
   int contactRequests = 0;
+  Uint8List? uploadedAvatarBytes;
 
   @override
   Future<void> bindConversationProject(
@@ -533,6 +614,14 @@ class _DetailsRepository extends DemoRepository {
   Future<void> updateGroupAnnouncement(
       String conversationId, String announcement) async {
     conversation = _copy(announcement: announcement);
+  }
+
+  @override
+  Future<void> uploadConversationAvatar(
+      String conversationId, AttachmentUpload upload) async {
+    uploadedAvatarBytes = upload.bytes;
+    conversation =
+        _copy(avatar: 'https://chat.example.com/avatars/group-updated.webp');
   }
 
   @override
@@ -630,6 +719,7 @@ class _DetailsRepository extends DemoRepository {
   ChatConversation _copy({
     String? title,
     String? announcement,
+    String? avatar,
     bool? isPublic,
     bool? muted,
     bool? pinned,
@@ -642,7 +732,7 @@ class _DetailsRepository extends DemoRepository {
         preview: conversation.preview,
         announcement: announcement ?? conversation.announcement,
         isPublic: isPublic ?? conversation.isPublic,
-        avatar: conversation.avatar,
+        avatar: avatar ?? conversation.avatar,
         createdAt: conversation.createdAt,
         unread: conversation.unread,
         pinned: pinned ?? conversation.pinned,
