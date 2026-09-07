@@ -6,7 +6,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/painting.dart';
 import 'package:image/image.dart' as image;
 
-enum ScreenshotAnnotationTool { rectangle, arrow, brush, text }
+enum ScreenshotAnnotationTool { rectangle, arrow, brush, text, mosaic }
 
 class ScreenshotAnnotationPoint {
   const ScreenshotAnnotationPoint(this.x, this.y);
@@ -107,6 +107,18 @@ class ScreenshotTextAnnotation extends ScreenshotAnnotation {
   final ScreenshotAnnotationPoint position;
   final String text;
   final double fontSize;
+}
+
+class ScreenshotMosaicAnnotation extends ScreenshotAnnotation {
+  const ScreenshotMosaicAnnotation({
+    required this.start,
+    required this.end,
+    required super.color,
+    required super.lineWidth,
+  });
+
+  final ScreenshotAnnotationPoint start;
+  final ScreenshotAnnotationPoint end;
 }
 
 class ScreenshotAnnotationHistory {
@@ -213,6 +225,8 @@ class ScreenshotAnnotationRenderer {
               thickness: annotation.lineWidth,
               antialias: true);
         }
+      } else if (annotation case ScreenshotMosaicAnnotation mosaic) {
+        _drawRasterMosaic(output, mosaic, color);
       }
     }
     return Uint8List.fromList(image.encodePng(output));
@@ -244,19 +258,68 @@ class ScreenshotAnnotationRenderer {
     ]);
   }
 
+  void _drawRasterMosaic(image.Image output,
+      ScreenshotMosaicAnnotation annotation, image.Color color) {
+    final left = math
+        .min(annotation.start.x, annotation.end.x)
+        .floor()
+        .clamp(0, output.width - 1);
+    final top = math
+        .min(annotation.start.y, annotation.end.y)
+        .floor()
+        .clamp(0, output.height - 1);
+    final right = math
+        .max(annotation.start.x, annotation.end.x)
+        .ceil()
+        .clamp(left + 1, output.width);
+    final bottom = math
+        .max(annotation.start.y, annotation.end.y)
+        .ceil()
+        .clamp(top + 1, output.height);
+    final width = right - left;
+    final height = bottom - top;
+    final pixelSize = math.max(6, math.min(width, height) ~/ 12);
+    final sample =
+        image.copyCrop(output, x: left, y: top, width: width, height: height);
+    final reduced = image.copyResize(sample,
+        width: math.max(1, width ~/ pixelSize),
+        height: math.max(1, height ~/ pixelSize),
+        interpolation: image.Interpolation.nearest);
+    final pixelated = image.copyResize(reduced,
+        width: width,
+        height: height,
+        interpolation: image.Interpolation.nearest);
+    image.compositeImage(output, pixelated,
+        dstX: left, dstY: top, blend: image.BlendMode.direct);
+    image.drawRect(output,
+        x1: left,
+        y1: top,
+        x2: right - 1,
+        y2: bottom - 1,
+        color: color,
+        thickness: math.max(1, annotation.lineWidth / 2));
+  }
+
   Future<Uint8List> _renderTextAnnotations(
       Uint8List sourceBytes, List<ScreenshotAnnotation> annotations) async {
     ui.Codec? codec;
     ui.Image? source;
     ui.Image? output;
     try {
-      codec = await ui.instantiateImageCodec(sourceBytes);
+      final mosaics = annotations
+          .whereType<ScreenshotMosaicAnnotation>()
+          .toList(growable: false);
+      final preparedBytes = mosaics.isEmpty
+          ? sourceBytes
+          : _renderRasterAnnotations(sourceBytes, mosaics);
+      codec = await ui.instantiateImageCodec(preparedBytes);
       source = (await codec.getNextFrame()).image;
       final recorder = ui.PictureRecorder();
       final canvas = ui.Canvas(recorder);
       final imageSize = Size(source.width.toDouble(), source.height.toDouble());
       canvas.drawImage(source, ui.Offset.zero, ui.Paint());
       for (final annotation in annotations) {
+        if (annotation is ScreenshotMosaicAnnotation) continue;
         paintScreenshotAnnotation(canvas, annotation, imageSize);
       }
       output =
@@ -327,5 +390,23 @@ void paintScreenshotAnnotation(
     )..layout(maxWidth: math.max(1, imageSize.width - text.position.x));
     painter.paint(canvas, ui.Offset(text.position.x, text.position.y));
     painter.dispose();
+  } else if (annotation case ScreenshotMosaicAnnotation mosaic) {
+    final rect = ui.Rect.fromPoints(ui.Offset(mosaic.start.x, mosaic.start.y),
+        ui.Offset(mosaic.end.x, mosaic.end.y));
+    final blockSize = math.max(6.0, math.min(rect.width, rect.height) / 12);
+    final fill = ui.Paint()..style = ui.PaintingStyle.fill;
+    for (var y = rect.top; y < rect.bottom; y += blockSize) {
+      for (var x = rect.left; x < rect.right; x += blockSize) {
+        final dark = ((x / blockSize).floor() + (y / blockSize).floor()).isEven;
+        fill.color =
+            ui.Color(mosaic.color).withValues(alpha: dark ? 0.24 : 0.12);
+        canvas.drawRect(
+            ui.Rect.fromLTRB(x, y, math.min(x + blockSize, rect.right),
+                math.min(y + blockSize, rect.bottom)),
+            fill);
+      }
+    }
+    canvas.drawRect(
+        rect, paint..strokeWidth = math.max(1, mosaic.lineWidth / 2));
   }
 }

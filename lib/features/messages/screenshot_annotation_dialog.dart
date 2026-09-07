@@ -101,6 +101,9 @@ class _ScreenshotAnnotationDialogState
               points: _brushPoints, color: _color, lineWidth: lineWidth);
         case ScreenshotAnnotationTool.text:
           return;
+        case ScreenshotAnnotationTool.mosaic:
+          _draft = ScreenshotMosaicAnnotation(
+              start: start, end: point, color: _color, lineWidth: lineWidth);
       }
     });
   }
@@ -186,6 +189,7 @@ class _ScreenshotAnnotationDialogState
     final (start, end) = switch (annotation) {
       ScreenshotRectangleAnnotation value => (value.start, value.end),
       ScreenshotArrowAnnotation value => (value.start, value.end),
+      ScreenshotMosaicAnnotation value => (value.start, value.end),
       _ => throw StateError('不支持的截图标注'),
     };
     return math.sqrt(
@@ -351,6 +355,7 @@ class _ScreenshotAnnotationDialogState
             (ScreenshotAnnotationTool.arrow, '箭头', Icons.north_east),
             (ScreenshotAnnotationTool.brush, '画笔', Icons.brush_outlined),
             (ScreenshotAnnotationTool.text, '文字', Icons.text_fields),
+            (ScreenshotAnnotationTool.mosaic, '马赛克', Icons.grid_on_outlined),
           ])
             ChoiceChip(
               selected: _tool == tool,

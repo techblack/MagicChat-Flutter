@@ -56,6 +56,7 @@ void main() {
     expect(find.text('箭头'), findsOneWidget);
     expect(find.text('画笔'), findsOneWidget);
     expect(find.text('文字'), findsOneWidget);
+    expect(find.text('马赛克'), findsOneWidget);
     for (final color in screenshotAnnotationColors) {
       expect(find.byTooltip('使用颜色 #${color.toRadixString(16).substring(2)}'),
           findsOneWidget);
@@ -184,6 +185,37 @@ void main() {
     await tester.tap(find.byTooltip('重做'));
     await tester.pump();
     expect(painter().annotations.whereType<ScreenshotTextAnnotation>(),
+        hasLength(1));
+  });
+
+  testWidgets('截图可拖拽添加马赛克区域', (tester) async {
+    final source = image.Image(width: 160, height: 90, numChannels: 4);
+    image.fill(source, color: image.ColorRgba8(255, 255, 255, 255));
+    await tester.pumpWidget(MaterialApp(
+      home: ScreenshotAnnotationDialog(
+        screenshot: CapturedScreenshot(
+          bytes: Uint8List.fromList(image.encodePng(source)),
+          width: 160,
+          height: 90,
+          fileName: 'mosaic.png',
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(ChoiceChip, '马赛克'));
+    await tester.pump();
+    final canvas = tester
+        .getRect(find.byKey(const ValueKey('screenshot-annotation-canvas')));
+    await tester.dragFrom(
+        canvas.topLeft + const Offset(25, 20), const Offset(80, 40));
+    await tester.pump();
+
+    final annotationPaint = find.byWidgetPredicate((widget) =>
+        widget is CustomPaint && widget.painter is ScreenshotAnnotationPainter);
+    final painter = tester.widget<CustomPaint>(annotationPaint).painter!
+        as ScreenshotAnnotationPainter;
+    expect(painter.annotations.whereType<ScreenshotMosaicAnnotation>(),
         hasLength(1));
   });
 
