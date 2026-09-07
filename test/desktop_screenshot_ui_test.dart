@@ -10,6 +10,7 @@ import 'package:magicchat_client/data/desktop_screenshot.dart';
 import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
+import 'package:magicchat_client/domain/screenshot_annotations.dart';
 import 'package:magicchat_client/features/messages/screenshot_annotation_dialog.dart';
 import 'package:magicchat_client/features/settings/desktop_screenshot_shortcut_dialog.dart';
 import 'package:magicchat_client/features/settings/settings_page.dart';
@@ -54,6 +55,7 @@ void main() {
     expect(find.text('矩形'), findsOneWidget);
     expect(find.text('箭头'), findsOneWidget);
     expect(find.text('画笔'), findsOneWidget);
+    expect(find.text('文字'), findsOneWidget);
     for (final color in screenshotAnnotationColors) {
       expect(find.byTooltip('使用颜色 #${color.toRadixString(16).substring(2)}'),
           findsOneWidget);
@@ -113,7 +115,6 @@ void main() {
     await tester.dragFrom(
         canvas.topLeft + const Offset(80, 30), const Offset(70, 35));
     await tester.pump();
-
     final undo =
         tester.widget<IconButton>(find.widgetWithIcon(IconButton, Icons.undo));
     expect(undo.onPressed, isNotNull);
@@ -131,11 +132,59 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
     }
 
+    expect(find.byKey(const ValueKey('screenshot-annotation-error')),
+        findsNothing);
+    expect(find.text('发送截图'), findsNothing);
+    expect(repository.upload, isNotNull);
     expect(repository.upload?.bytes, isNot(equals(sourceBytes)));
     final output = image.decodePng(repository.upload!.bytes!)!;
     expect(output.width, 160);
     expect(output.height, 90);
     expect(_coloredPixelCount(output), greaterThan(0));
+  });
+
+  testWidgets('截图可在点击位置添加中文文字并撤销重做', (tester) async {
+    final source = image.Image(width: 160, height: 90, numChannels: 4);
+    image.fill(source, color: image.ColorRgba8(255, 255, 255, 255));
+    await tester.pumpWidget(MaterialApp(
+      home: ScreenshotAnnotationDialog(
+        screenshot: CapturedScreenshot(
+          bytes: Uint8List.fromList(image.encodePng(source)),
+          width: 160,
+          height: 90,
+          fileName: 'text.png',
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(ChoiceChip, '文字'));
+    await tester.pump();
+    final canvas = tester
+        .getRect(find.byKey(const ValueKey('screenshot-annotation-canvas')));
+    await tester.tapAt(canvas.topLeft + const Offset(30, 25));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.enterText(
+        find.byKey(const ValueKey('screenshot-text-input')), '重点');
+    await tester.tap(find.widgetWithText(FilledButton, '添加'));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    final annotationPaint = find.byWidgetPredicate((widget) =>
+        widget is CustomPaint && widget.painter is ScreenshotAnnotationPainter);
+    ScreenshotAnnotationPainter painter() =>
+        tester.widget<CustomPaint>(annotationPaint).painter!
+            as ScreenshotAnnotationPainter;
+    expect(
+        painter().annotations.whereType<ScreenshotTextAnnotation>().single.text,
+        '重点');
+    await tester.tap(find.byTooltip('撤销'));
+    await tester.pump();
+    expect(
+        painter().annotations.whereType<ScreenshotTextAnnotation>(), isEmpty);
+    await tester.tap(find.byTooltip('重做'));
+    await tester.pump();
+    expect(painter().annotations.whereType<ScreenshotTextAnnotation>(),
+        hasLength(1));
   });
 
   testWidgets('取消截图标注不进入发送队列', (tester) async {

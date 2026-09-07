@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as image;
@@ -70,7 +71,7 @@ class _ScreenshotAnnotationDialogState
       });
 
   void _startDrawing(DragStartDetails details, Size displaySize) {
-    if (_rendering) return;
+    if (_rendering || _tool == ScreenshotAnnotationTool.text) return;
     final point = _imagePoint(details.localPosition, displaySize);
     setState(() {
       _start = point;
@@ -98,6 +99,8 @@ class _ScreenshotAnnotationDialogState
           _brushPoints = [..._brushPoints, point];
           _draft = ScreenshotBrushAnnotation(
               points: _brushPoints, color: _color, lineWidth: lineWidth);
+        case ScreenshotAnnotationTool.text:
+          return;
       }
     });
   }
@@ -120,6 +123,49 @@ class _ScreenshotAnnotationDialogState
         _draft = null;
       });
 
+  Future<void> _addText(TapUpDetails details, Size displaySize) async {
+    if (_rendering || _tool != ScreenshotAnnotationTool.text) return;
+    final controller = TextEditingController();
+    final text = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('添加文字'),
+        content: TextField(
+          key: const ValueKey('screenshot-text-input'),
+          controller: controller,
+          autofocus: true,
+          maxLength: 80,
+          textInputAction: TextInputAction.done,
+          decoration: const InputDecoration(hintText: '输入标注内容'),
+          onSubmitted: (value) {
+            final normalized = value.trim();
+            if (normalized.isNotEmpty) Navigator.pop(context, normalized);
+          },
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context), child: const Text('取消')),
+          FilledButton(
+              onPressed: () {
+                final normalized = controller.text.trim();
+                if (normalized.isNotEmpty) Navigator.pop(context, normalized);
+              },
+              child: const Text('添加')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (!mounted || text == null) return;
+    final point = _imagePoint(details.localPosition, displaySize);
+    final fontSize = screenshotAnnotationFontSize(
+        displayWidth: displaySize.width, imageWidth: _imageWidth);
+    setState(() {
+      _history = _history.commit(ScreenshotTextAnnotation(
+          position: point, text: text, fontSize: fontSize, color: _color));
+      _error = '';
+    });
+  }
+
   ScreenshotAnnotationPoint _imagePoint(Offset point, Size displaySize) =>
       screenshotImagePointFromDisplay(
         x: point.dx,
@@ -133,6 +179,9 @@ class _ScreenshotAnnotationDialogState
   bool _isVisible(ScreenshotAnnotation annotation) {
     if (annotation case ScreenshotBrushAnnotation brush) {
       return brush.points.length > 1;
+    }
+    if (annotation case ScreenshotTextAnnotation text) {
+      return text.text.trim().isNotEmpty;
     }
     final (start, end) = switch (annotation) {
       ScreenshotRectangleAnnotation value => (value.start, value.end),
@@ -156,8 +205,9 @@ class _ScreenshotAnnotationDialogState
     });
     await Future<void>.delayed(Duration.zero);
     try {
-      final bytes = const ScreenshotAnnotationRenderer()
+      final rendered = const ScreenshotAnnotationRenderer()
           .render(widget.screenshot.bytes, _history.present);
+      final bytes = rendered is Future<Uint8List> ? await rendered : rendered;
       if (bytes.length > desktopScreenshotMaxImageBytes) {
         throw const DesktopScreenshotException(
           DesktopScreenshotErrorCode.imageTooLarge,
@@ -274,6 +324,7 @@ class _ScreenshotAnnotationDialogState
                       _updateDrawing(details, displaySize),
                   onPanEnd: _finishDrawing,
                   onPanCancel: _cancelDrawing,
+                  onTapUp: (details) => _addText(details, displaySize),
                   child: CustomPaint(
                     painter: ScreenshotAnnotationPainter(
                       annotations: _history.present,
@@ -299,6 +350,7 @@ class _ScreenshotAnnotationDialogState
             (ScreenshotAnnotationTool.rectangle, '矩形', Icons.crop_square),
             (ScreenshotAnnotationTool.arrow, '箭头', Icons.north_east),
             (ScreenshotAnnotationTool.brush, '画笔', Icons.brush_outlined),
+            (ScreenshotAnnotationTool.text, '文字', Icons.text_fields),
           ])
             ChoiceChip(
               selected: _tool == tool,
@@ -379,43 +431,7 @@ class ScreenshotAnnotationPainter extends CustomPainter {
   }
 
   void _draw(Canvas canvas, ScreenshotAnnotation annotation) {
-    final paint = Paint()
-      ..color = Color(annotation.color)
-      ..strokeWidth = annotation.lineWidth
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..style = PaintingStyle.stroke;
-    if (annotation case ScreenshotRectangleAnnotation rectangle) {
-      canvas.drawRect(
-          Rect.fromPoints(Offset(rectangle.start.x, rectangle.start.y),
-              Offset(rectangle.end.x, rectangle.end.y)),
-          paint);
-    } else if (annotation case ScreenshotArrowAnnotation arrow) {
-      final start = Offset(arrow.start.x, arrow.start.y);
-      final end = Offset(arrow.end.x, arrow.end.y);
-      canvas.drawLine(start, end, paint);
-      final angle = math.atan2(end.dy - start.dy, end.dx - start.dx);
-      final headLength = math.max(12.0, annotation.lineWidth * 4);
-      final halfWidth = math.max(1.0, annotation.lineWidth * 1.5);
-      final base = Offset(end.dx - headLength * math.cos(angle),
-          end.dy - headLength * math.sin(angle));
-      final offset =
-          Offset(halfWidth * math.sin(angle), -halfWidth * math.cos(angle));
-      canvas.drawPath(
-          Path()
-            ..moveTo(end.dx, end.dy)
-            ..lineTo(base.dx + offset.dx, base.dy + offset.dy)
-            ..lineTo(base.dx - offset.dx, base.dy - offset.dy)
-            ..close(),
-          paint..style = PaintingStyle.fill);
-    } else if (annotation case ScreenshotBrushAnnotation brush) {
-      if (brush.points.isEmpty) return;
-      final path = Path()..moveTo(brush.points.first.x, brush.points.first.y);
-      for (final point in brush.points.skip(1)) {
-        path.lineTo(point.x, point.y);
-      }
-      canvas.drawPath(path, paint);
-    }
+    paintScreenshotAnnotation(canvas, annotation, imageSize);
   }
 
   @override

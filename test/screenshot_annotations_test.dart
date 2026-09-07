@@ -56,15 +56,17 @@ void main() {
     expect(bounded.y, 0);
     expect(
         screenshotAnnotationLineWidth(displayWidth: 960, imageWidth: 3840), 12);
+    expect(
+        screenshotAnnotationFontSize(displayWidth: 960, imageWidth: 3840), 80);
   });
 
-  test('矩形箭头和画笔烘焙进 PNG，空标注保留原字节', () {
+  test('矩形箭头画笔和中文文字烘焙进 PNG，空标注保留原字节', () async {
     final source = image.Image(width: 64, height: 48, numChannels: 4);
     image.fill(source, color: image.ColorRgba8(255, 255, 255, 255));
     final sourceBytes = Uint8List.fromList(image.encodePng(source));
     const renderer = ScreenshotAnnotationRenderer();
-    final empty = renderer.render(sourceBytes, const []);
-    final rendered = renderer.render(sourceBytes, [
+    final empty = await renderer.render(sourceBytes, const []);
+    final rendered = await renderer.render(sourceBytes, [
       const ScreenshotRectangleAnnotation(
         start: ScreenshotAnnotationPoint(2, 2),
         end: ScreenshotAnnotationPoint(20, 15),
@@ -85,6 +87,12 @@ void main() {
         ],
         color: 0xff00ff00,
         lineWidth: 3,
+      ),
+      const ScreenshotTextAnnotation(
+        position: ScreenshotAnnotationPoint(6, 33),
+        text: '重点',
+        fontSize: 12,
+        color: 0xffef4444,
       ),
     ]);
     final output = image.decodePng(rendered)!;
