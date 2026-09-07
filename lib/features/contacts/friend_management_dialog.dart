@@ -270,6 +270,7 @@ class _FriendManagementDialogState extends State<FriendManagementDialog> {
                       return _FriendTile(
                         user: friend,
                         subtitle: friend.email.isEmpty ? '未提供邮箱' : friend.email,
+                        onTap: () => _openProfile(friend),
                         trailing: TextButton(
                           key: ValueKey('delete-friend-${friend.id}'),
                           onPressed: _updatingKey.isEmpty

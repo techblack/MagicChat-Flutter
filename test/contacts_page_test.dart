@@ -156,6 +156,24 @@ void main() {
     expect(find.text('已删除好友'), findsOneWidget);
   });
 
+  testWidgets('好友管理可从好友行进入完整资料', (tester) async {
+    final repository = _FriendRepository();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: ContactsPage(repository: repository))));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('friend-management-button')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.descendant(
+        of: find.byType(Dialog),
+        matching: find.widgetWithText(ListTile, 'Bob')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(EntityDetailsPage), findsOneWidget);
+    expect(find.text('联系人详情'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '发消息'), findsOneWidget);
+  });
+
   testWidgets('公开群组未加入时先加入再打开会话', (tester) async {
     String? opened;
     final repository = _GroupRepository();
