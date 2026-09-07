@@ -59,6 +59,26 @@ void main() {
     expect(info.totalBytes, info.mediaBytes + info.messageBytes);
   });
 
+  test('清理全部时媒体成功不受消息缓存失败影响', () async {
+    final root = await Directory.systemTemp.createTemp('magicchat-storage-');
+    addTearDown(() => root.delete(recursive: true));
+    final temporary = Directory('${root.path}/temporary')..createSync();
+    final support = Directory('${root.path}/support')..createSync();
+    File('${temporary.path}/preview.bin').writeAsBytesSync(List.filled(32, 1));
+    final service = StorageService(
+      messageCacheStore: _FailingMessageCacheStore(),
+      temporaryDirectoryPath: temporary.path,
+      applicationSupportDirectoryPath: support.path,
+    );
+
+    final result = await service.clear(StoragePart.all);
+
+    expect(result.cleared, {StoragePart.media});
+    expect(result.failed, {StoragePart.messages});
+    expect(result.partiallySucceeded, isTrue);
+    expect(temporary.listSync(), isEmpty);
+  });
+
   testWidgets('存储页展示分项并在确认后单独清理', (tester) async {
     final service = _FakeStorageService();
     await tester.binding.setSurfaceSize(const Size(600, 800));
@@ -93,26 +113,59 @@ void main() {
     expect(service.cleared, [StoragePart.media]);
     expect(find.text('0 B'), findsOneWidget);
   });
+
+  testWidgets('清理全部部分成功后刷新统计并提示失败分项', (tester) async {
+    final service = _FakeStorageService()
+      ..nextResult = const StorageClearResult(
+          cleared: {StoragePart.media}, failed: {StoragePart.messages});
+    await tester
+        .pumpWidget(MaterialApp(home: StorageManagementPage(service: service)));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('清理全部'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '清理'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('媒体与文件已清理，离线消息清理失败'), findsOneWidget);
+    expect(service.inspections, 2);
+    expect(service.info.mediaBytes, 0);
+    expect(service.info.messageBytes, 2 * 1024 * 1024);
+  });
+}
+
+class _FailingMessageCacheStore extends MessageCacheStore {
+  @override
+  Future<void> clearAll() async => throw StateError('message clear failed');
 }
 
 class _FakeStorageService extends StorageService {
   StorageInfo info =
       const StorageInfo(mediaBytes: 1536, messageBytes: 2 * 1024 * 1024);
   final cleared = <StoragePart>[];
+  int inspections = 0;
+  StorageClearResult? nextResult;
 
   @override
-  Future<StorageInfo> inspect() async => info;
+  Future<StorageInfo> inspect() async {
+    inspections++;
+    return info;
+  }
 
   @override
-  Future<void> clear(StoragePart part) async {
+  Future<StorageClearResult> clear(StoragePart part) async {
     cleared.add(part);
+    final result = nextResult ?? StorageClearResult(cleared: {part});
     info = StorageInfo(
-      mediaBytes: part == StoragePart.media || part == StoragePart.all
+      mediaBytes: result.cleared.contains(StoragePart.media) ||
+              result.cleared.contains(StoragePart.all)
           ? 0
           : info.mediaBytes,
-      messageBytes: part == StoragePart.messages || part == StoragePart.all
+      messageBytes: result.cleared.contains(StoragePart.messages) ||
+              result.cleared.contains(StoragePart.all)
           ? 0
           : info.messageBytes,
     );
+    return result;
   }
 }

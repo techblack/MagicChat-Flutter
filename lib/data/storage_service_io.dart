@@ -50,18 +50,34 @@ class StorageService {
     );
   }
 
-  Future<void> clear(StoragePart part) async {
-    if (part == StoragePart.media || part == StoragePart.all) {
-      await _assetCacheStore.clearAll();
-      await _clearDirectory(await _assetDirectory());
-      await _clearDirectory(await _temporaryDirectory());
+  Future<StorageClearResult> clear(StoragePart part) async {
+    final targets = part == StoragePart.all
+        ? const [StoragePart.media, StoragePart.messages]
+        : [part];
+    final cleared = <StoragePart>{};
+    final failed = <StoragePart>{};
+    for (final target in targets) {
+      try {
+        if (target == StoragePart.media) {
+          await _clearMedia();
+        } else {
+          await _messageCacheStore.clearAll();
+        }
+        cleared.add(target);
+      } catch (_) {
+        failed.add(target);
+      }
     }
-    if (part == StoragePart.messages || part == StoragePart.all) {
-      await _messageCacheStore.clearAll();
-    }
+    return StorageClearResult(cleared: cleared, failed: failed);
   }
 
-  Future<void> clearCache() => clear(StoragePart.all);
+  Future<void> _clearMedia() async {
+    await _assetCacheStore.clearAll();
+    await _clearDirectory(await _assetDirectory());
+    await _clearDirectory(await _temporaryDirectory());
+  }
+
+  Future<StorageClearResult> clearCache() => clear(StoragePart.all);
 
   Future<void> _clearDirectory(Directory directory) async {
     if (!directory.existsSync()) return;
