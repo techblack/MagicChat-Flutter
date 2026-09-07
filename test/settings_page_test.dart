@@ -2,13 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/data/chat_preferences.dart';
 import 'package:magicchat_client/data/desktop_auto_launch.dart';
 import 'package:magicchat_client/data/desktop_window_controller.dart';
+import 'package:magicchat_client/data/local_notification_service.dart';
 import 'package:magicchat_client/data/update_service.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/settings/settings_page.dart';
@@ -40,6 +40,8 @@ void main() {
               body: SettingsPage(
                 repository: DemoRepository(),
                 serverUrl: 'https://chat.example.com',
+                notificationService: _FakeNotificationService(
+                    status: NotificationPermissionStatus.granted),
                 onLogout: () async {},
               ),
             ),
@@ -135,33 +137,99 @@ void main() {
     expect(service.checks, 2);
   });
 
-  testWidgets('系统拒绝通知权限时开关回滚并提示用户', (tester) async {
-    const channel = MethodChannel('magicchat/notifications');
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, (call) async {
-      if (call.method == 'requestPermission') return false;
-      return true;
+  testWidgets('初始化区分用户偏好与系统拒绝状态且不主动授权', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'magicchat.notifications.enabled': true,
     });
-    addTearDown(() => TestDefaultBinaryMessengerBinding
-        .instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, null));
+    final notifications = _FakeNotificationService(
+        status: NotificationPermissionStatus.denied, requestResult: false);
 
     await tester.pumpWidget(MaterialApp(
         home: Scaffold(
             body: SettingsPage(
                 repository: DemoRepository(),
-                serverUrl: 'https://chat.example.com'))));
+                serverUrl: 'https://chat.example.com',
+                notificationService: notifications))));
     await tester.pumpAndSettle();
 
     final toggle = find.widgetWithText(SwitchListTile, '通知');
     expect(toggle, findsOneWidget);
+    expect((tester.widget<SwitchListTile>(toggle)).value, isFalse);
+    expect(find.text('系统通知权限已拒绝'), findsOneWidget);
+    expect(notifications.statusReads, 1);
+    expect(notifications.permissionRequests, 0);
+  });
+
+  testWidgets('用户显式开启通知后请求授权并同步 push 偏好', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'magicchat.notifications.enabled': false,
+    });
+    final notifications = _FakeNotificationService(
+        status: NotificationPermissionStatus.notDetermined,
+        requestResult: true);
+    final changes = <bool>[];
+
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SettingsPage(
+                repository: DemoRepository(),
+                serverUrl: 'https://chat.example.com',
+                notificationService: notifications,
+                onNotificationPreferenceChanged: (enabled) async {
+                  changes.add(enabled);
+                }))));
+    await tester.pumpAndSettle();
+
+    final toggle = find.widgetWithText(SwitchListTile, '通知');
+    expect((tester.widget<SwitchListTile>(toggle)).value, isFalse);
+    expect(notifications.permissionRequests, 0);
+
     await tester.tap(toggle);
     await tester.pumpAndSettle();
+
+    expect(notifications.permissionRequests, 1);
+    expect((tester.widget<SwitchListTile>(toggle)).value, isTrue);
+    expect(changes, [true]);
+    expect(
+        (await SharedPreferences.getInstance())
+            .getBool('magicchat.notifications.enabled'),
+        isTrue);
+
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+
+    expect(notifications.permissionRequests, 1);
+    expect((tester.widget<SwitchListTile>(toggle)).value, isFalse);
+    expect(changes, [true, false]);
+  });
+
+  testWidgets('用户显式开启但系统拒绝时保持关闭', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'magicchat.notifications.enabled': false,
+    });
+    final notifications = _FakeNotificationService(
+        status: NotificationPermissionStatus.notDetermined,
+        requestResult: false);
+
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SettingsPage(
+                repository: DemoRepository(),
+                serverUrl: 'https://chat.example.com',
+                notificationService: notifications))));
+    await tester.pumpAndSettle();
+
+    final toggle = find.widgetWithText(SwitchListTile, '通知');
     await tester.tap(toggle);
     await tester.pumpAndSettle();
 
     expect(find.text('系统通知权限未开启，请在系统设置中允许通知'), findsOneWidget);
     expect((tester.widget<SwitchListTile>(toggle)).value, isFalse);
+    expect(notifications.permissionRequests, 1);
+    expect(
+        (await SharedPreferences.getInstance())
+            .getBool('magicchat.notifications.enabled'),
+        isFalse);
   });
 
   testWidgets('新消息提示音开关即时回调', (tester) async {
@@ -503,5 +571,32 @@ class _FakeDesktopAutoLaunch implements DesktopAutoLaunchController {
     changes.add(enabled);
     if (failChanges) throw StateError('denied');
     this.enabled = enabled;
+  }
+}
+
+class _FakeNotificationService extends LocalNotificationService {
+  _FakeNotificationService({
+    required this.status,
+    this.requestResult = true,
+  });
+
+  NotificationPermissionStatus status;
+  final bool requestResult;
+  int statusReads = 0;
+  int permissionRequests = 0;
+
+  @override
+  Future<NotificationPermissionStatus> permissionStatus() async {
+    statusReads++;
+    return status;
+  }
+
+  @override
+  Future<bool> requestPermission() async {
+    permissionRequests++;
+    status = requestResult
+        ? NotificationPermissionStatus.granted
+        : NotificationPermissionStatus.denied;
+    return requestResult;
   }
 }

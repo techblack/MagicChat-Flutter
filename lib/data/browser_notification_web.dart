@@ -19,7 +19,7 @@ Future<bool> browserNotificationShow({
   required String conversationId,
   required String messageId,
 }) async {
-  if (!await browserNotificationRequestPermission()) return false;
+  if (browserNotificationPermissionStatus() != 'granted') return false;
   final notification = web.Notification(
       title, web.NotificationOptions(body: body, tag: tag, silent: true));
   void handleClick(web.Event _) {
