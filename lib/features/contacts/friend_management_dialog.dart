@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../../data/contact_directory_realtime_sync.dart';
+import '../../data/message_cache_store.dart';
 import '../../data/realtime_store.dart';
 import '../../data/repository.dart';
 import '../../domain/models.dart';
+import 'entity_details_page.dart';
 import '../shared/user_facing_error.dart';
 
 class FriendManagementDialog extends StatefulWidget {
@@ -11,11 +13,17 @@ class FriendManagementDialog extends StatefulWidget {
       {required this.repository,
       required this.friends,
       this.realtimeStore,
+      this.serverUrl,
+      this.cacheScope,
+      this.onOpenConversation,
       super.key});
 
   final MagicChatRepository repository;
   final List<Contact> friends;
   final RealtimeStore? realtimeStore;
+  final String? serverUrl;
+  final MessageCacheScope? cacheScope;
+  final ContactConversationCallback? onOpenConversation;
 
   @override
   State<FriendManagementDialog> createState() => _FriendManagementDialogState();
@@ -171,6 +179,31 @@ class _FriendManagementDialogState extends State<FriendManagementDialog> {
         () => widget.repository.deleteFriend(friend.id), '已删除好友');
   }
 
+  Future<void> _openProfile(Contact user) async {
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EntityDetailsPage(
+          repository: widget.repository,
+          contact: user,
+          serverUrl: widget.serverUrl,
+          cacheScope: widget.cacheScope,
+          friendMode: true,
+          onOpenConversation: (conversationId, source) {
+            Navigator.pop(context);
+            widget.onOpenConversation?.call(conversationId, source);
+          },
+        ),
+      ),
+    );
+    if (mounted) {
+      setState(() {
+        _realtimeData = null;
+        _dataFuture = _loadData();
+      });
+    }
+  }
+
   void _showMessage(String message) => ScaffoldMessenger.of(context)
       .showSnackBar(SnackBar(content: Text(message)));
 
@@ -316,6 +349,7 @@ class _FriendManagementDialogState extends State<FriendManagementDialog> {
     return _FriendTile(
       user: user,
       subtitle: user.email.isEmpty ? '未提供邮箱' : user.email,
+      onTap: () => _openProfile(user),
       trailing: FilledButton.tonalIcon(
           onPressed: disabled
               ? null
@@ -372,6 +406,7 @@ class _FriendManagementDialogState extends State<FriendManagementDialog> {
         // 好友资料暂时不可用时也不要把内部用户 ID 直接展示给用户。
         user: user ?? Contact(id: request.userId, name: '成员'),
         subtitle: entry.incoming ? '请求添加你为好友' : '你发出了好友申请',
+        onTap: user == null ? null : () => _openProfile(user),
         trailing: trailing);
   }
 
@@ -403,17 +438,20 @@ class _FriendTile extends StatelessWidget {
       {required this.user,
       required this.subtitle,
       required this.trailing,
+      this.onTap,
       super.key});
 
   final Contact user;
   final String subtitle;
   final Widget trailing;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) => Card(
         margin: EdgeInsets.zero,
         elevation: 0,
         child: ListTile(
+          onTap: onTap,
           leading: CircleAvatar(
               child: Text(user.displayName.isEmpty
                   ? '?'

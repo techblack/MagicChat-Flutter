@@ -54,6 +54,7 @@ class _ContactsPageState extends State<ContactsPage> {
   Future<ContactDirectory>? _directoryFuture;
   String? _openedInitialContactId;
   String _currentUserId = '';
+  String _directoryMode = 'organization';
   String? _activeIndexLabel;
   Timer? _searchDebounce;
   Timer? _indexLabelTimer;
@@ -291,6 +292,7 @@ class _ContactsPageState extends State<ContactsPage> {
   Future<ContactDirectory> _loadDirectory() async {
     final directory = await widget.repository
         .contactDirectory(keyword: _searchController.text.trim());
+    _directoryMode = directory.mode;
     // 联系人资料缓存不应阻塞首屏。组织通讯录可能包含数千人，等待
     // SharedPreferences 序列化会让网络请求完成后仍卡住页面布局。
     unawaited(_writeContactCache(directory.contacts));
@@ -700,6 +702,7 @@ class _ContactsPageState extends State<ContactsPage> {
             contact: contact,
             serverUrl: widget.serverUrl,
             cacheScope: widget.cacheScope,
+            friendMode: _directoryMode == 'friends',
             onOpenConversation: widget.onOpenConversation,
           ),
         ),
@@ -736,6 +739,9 @@ class _ContactsPageState extends State<ContactsPage> {
           builder: (_) => FriendManagementDialog(
               repository: widget.repository,
               realtimeStore: widget.realtimeStore,
+              serverUrl: widget.serverUrl,
+              cacheScope: widget.cacheScope,
+              onOpenConversation: widget.onOpenConversation,
               friends: directory.contacts
                   .where((contact) => contact.type == 'user')
                   .toList()));
