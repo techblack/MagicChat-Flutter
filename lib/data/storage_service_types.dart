@@ -1,5 +1,15 @@
 enum StoragePart { media, messages, all }
 
+class StorageClearResult {
+  const StorageClearResult({this.cleared = const {}, this.failed = const {}});
+
+  final Set<StoragePart> cleared;
+  final Set<StoragePart> failed;
+
+  bool get succeeded => failed.isEmpty;
+  bool get partiallySucceeded => cleared.isNotEmpty && failed.isNotEmpty;
+}
+
 class StorageInfo {
   const StorageInfo({required this.mediaBytes, required this.messageBytes});
 

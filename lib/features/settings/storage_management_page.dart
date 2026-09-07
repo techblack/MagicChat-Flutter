@@ -49,11 +49,11 @@ class _StorageManagementPageState extends State<StorageManagementPage> {
     if (confirmed != true || !mounted) return;
     setState(() => _clearing = true);
     try {
-      await widget.service.clear(part);
+      final result = await widget.service.clear(part);
       await _reload();
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('$label已清理')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(_clearResultMessage(result, label))));
       }
     } catch (_) {
       if (mounted) {
@@ -64,6 +64,20 @@ class _StorageManagementPageState extends State<StorageManagementPage> {
       if (mounted) setState(() => _clearing = false);
     }
   }
+
+  String _clearResultMessage(StorageClearResult result, String label) {
+    if (result.succeeded) return '$label已清理';
+    if (!result.partiallySucceeded) return '$label清理失败，请稍后重试';
+    final cleared = result.cleared.map(_storagePartLabel).join('、');
+    final failed = result.failed.map(_storagePartLabel).join('、');
+    return '$cleared已清理，$failed清理失败';
+  }
+
+  String _storagePartLabel(StoragePart part) => switch (part) {
+        StoragePart.media => '媒体与文件',
+        StoragePart.messages => '离线消息',
+        StoragePart.all => '全部缓存',
+      };
 
   @override
   Widget build(BuildContext context) => Scaffold(

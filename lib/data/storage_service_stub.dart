@@ -36,14 +36,26 @@ class StorageService {
     return StorageInfo(mediaBytes: mediaBytes, messageBytes: messageBytes);
   }
 
-  Future<void> clear(StoragePart part) async {
-    if (part == StoragePart.media || part == StoragePart.all) {
-      await _assetCacheStore.clearAll();
+  Future<StorageClearResult> clear(StoragePart part) async {
+    final targets = part == StoragePart.all
+        ? const [StoragePart.media, StoragePart.messages]
+        : [part];
+    final cleared = <StoragePart>{};
+    final failed = <StoragePart>{};
+    for (final target in targets) {
+      try {
+        if (target == StoragePart.media) {
+          await _assetCacheStore.clearAll();
+        } else {
+          await _messageCacheStore.clearAll();
+        }
+        cleared.add(target);
+      } catch (_) {
+        failed.add(target);
+      }
     }
-    if (part == StoragePart.messages || part == StoragePart.all) {
-      await _messageCacheStore.clearAll();
-    }
+    return StorageClearResult(cleared: cleared, failed: failed);
   }
 
-  Future<void> clearCache() => clear(StoragePart.all);
+  Future<StorageClearResult> clearCache() => clear(StoragePart.all);
 }
