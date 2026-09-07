@@ -1,9 +1,9 @@
 import 'dart:async';
+import 'dart:math' as math;
+import 'dart:typed_data';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
-import '../../data/avatar_processor.dart';
 import '../../data/chat_appearance_preferences.dart';
 import '../../data/contact_cache_store.dart';
 import '../../data/message_cache_store.dart';
@@ -12,6 +12,8 @@ import '../../data/repository.dart';
 import '../../domain/models.dart';
 import '../contacts/entity_details_page.dart';
 import '../shared/cached_avatar.dart';
+import '../shared/conversation_avatar.dart';
+import '../shared/custom_avatar_picker.dart';
 import '../shared/user_facing_error.dart';
 
 class ConversationDetailsPage extends StatefulWidget {
@@ -22,6 +24,7 @@ class ConversationDetailsPage extends StatefulWidget {
     this.serverUrl,
     this.cacheScope,
     this.realtimeStore,
+    this.avatarImagePicker = pickAvatarImage,
     this.onOpenConversation,
     this.onOpenProject,
     this.onConversationRemoved,
@@ -37,6 +40,7 @@ class ConversationDetailsPage extends StatefulWidget {
   final String? serverUrl;
   final MessageCacheScope? cacheScope;
   final RealtimeStore? realtimeStore;
+  final AvatarImagePicker avatarImagePicker;
   final ValueChanged<String>? onOpenConversation;
   final ValueChanged<String>? onOpenProject;
   final VoidCallback? onConversationRemoved;
@@ -402,16 +406,23 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
                             ? () => _editAnnouncement(conversation)
                             : null,
                       ),
-                      if (canManage) ...[
-                        const Divider(height: 1, indent: 16),
-                        ListTile(
-                          enabled: !_busy,
-                          leading: const Icon(Icons.image_outlined),
-                          title: const Text('群头像'),
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: () => _pickAvatar(conversation),
+                      const Divider(height: 1, indent: 16),
+                      ListTile(
+                        enabled: !canManage || !_busy,
+                        leading: ConversationAvatar(
+                          repository: widget.repository,
+                          conversation: conversation,
+                          serverUrl: widget.serverUrl,
+                          cacheScope: widget.cacheScope,
+                          radius: 22,
                         ),
-                      ],
+                        title: const Text('群头像'),
+                        trailing:
+                            canManage ? const Icon(Icons.chevron_right) : null,
+                        onTap: canManage && !_busy
+                            ? () => _pickAvatar(conversation)
+                            : null,
+                      ),
                       if (isOwner) ...[
                         const Divider(height: 1, indent: 16),
                         SwitchListTile(
@@ -1037,21 +1048,25 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
       );
 
   Future<void> _pickAvatar(ChatConversation conversation) async {
-    final result =
-        await FilePicker.pickFiles(type: FileType.image, withData: true);
-    final file = result?.files.single;
-    if (file?.bytes == null || !mounted) return;
-    try {
-      final bytes = const AvatarProcessor().process(file!.bytes!);
-      await _run(() => widget.repository.uploadConversationAvatar(
+    final updated = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => _GroupAvatarPickerDialog(
+        imagePicker: widget.avatarImagePicker,
+        onSave: (bytes) => widget.repository.uploadConversationAvatar(
           conversation.id,
           AttachmentUpload(
-              path: file.path ?? '',
-              name: 'group-avatar.webp',
-              mimeType: 'image/webp',
-              bytes: bytes)));
-    } catch (error) {
-      if (mounted) _showMessage('群头像更新失败：${userFacingError(error)}');
+            path: '',
+            name: 'group-avatar.webp',
+            mimeType: 'image/webp',
+            bytes: bytes,
+          ),
+        ),
+      ),
+    );
+    if (updated == true && mounted) {
+      _reload();
+      _showMessage('群头像已更新');
     }
   }
 
@@ -1318,6 +1333,108 @@ class _DangerAction extends StatelessWidget {
           onTap: onTap,
         ),
       );
+}
+
+class _GroupAvatarPickerDialog extends StatefulWidget {
+  const _GroupAvatarPickerDialog({
+    required this.imagePicker,
+    required this.onSave,
+  });
+
+  final AvatarImagePicker imagePicker;
+  final Future<void> Function(Uint8List bytes) onSave;
+
+  @override
+  State<_GroupAvatarPickerDialog> createState() =>
+      _GroupAvatarPickerDialogState();
+}
+
+class _GroupAvatarPickerDialogState extends State<_GroupAvatarPickerDialog> {
+  bool _saving = false;
+  String _error = '';
+
+  Future<void> _save(Uint8List bytes) async {
+    if (_saving) return;
+    setState(() {
+      _saving = true;
+      _error = '';
+    });
+    try {
+      await widget.onSave(bytes);
+      if (mounted) Navigator.pop(context, true);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _error = '上传失败：${userFacingError(error)}');
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final height = math.max(320.0, MediaQuery.sizeOf(context).height - 24);
+    return PopScope(
+      canPop: !_saving,
+      child: Dialog(
+        insetPadding: const EdgeInsets.all(12),
+        clipBehavior: Clip.antiAlias,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: 640, maxHeight: height),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(children: [
+                    Expanded(
+                      child: Text(
+                        '修改群头像',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                    ),
+                    IconButton(
+                      key: const ValueKey('group-avatar-close'),
+                      tooltip: '关闭群头像选择',
+                      onPressed: _saving ? null : () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ]),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          CustomAvatarPicker(
+                            keyPrefix: 'group-avatar',
+                            imagePicker: widget.imagePicker,
+                            saving: _saving,
+                            onSourceChanged: () => setState(() => _error = ''),
+                            onSave: _save,
+                          ),
+                          if (_error.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              _error,
+                              key: const ValueKey('group-avatar-upload-error'),
+                              style: TextStyle(
+                                  color: Theme.of(context).colorScheme.error),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _ConversationTextDialog extends StatefulWidget {
