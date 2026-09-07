@@ -16,6 +16,8 @@ import 'package:magicchat_client/features/settings/runtime_diagnostics_page.dart
 import 'package:magicchat_client/features/settings/settings_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/app_version.dart';
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({
         'magicchat.notifications.enabled': false,
@@ -45,6 +47,7 @@ void main() {
       ..messages['message-secret'] = const ChatMessage(
           id: 'message-secret', author: 'Alice', text: '私密消息正文');
     final service = RuntimeDiagnosticsService(
+      appVersion: testAppVersion,
       repository: _DiagnosticRepository(),
       serverUrl:
           'https://alice:password@chat.example.com/base/?token=secret#cookie',
@@ -56,7 +59,6 @@ void main() {
       storageService: _DiagnosticStorageService(),
       notificationService: _DiagnosticNotificationService(),
       platform: 'Linux x64',
-      version: '1.2.3+4',
       buildMode: 'release',
       messageSoundEnabled: false,
       notificationPrivacy: MessageNotificationPrivacy.metadata,
@@ -66,6 +68,7 @@ void main() {
     final report = service.buildReport(view);
 
     expect(view.snapshot.server, 'https://chat.example.com/base');
+    expect(view.snapshot.version, testAppVersion.versionWithBuild);
     expect(view.snapshot.http.state, HttpProbeState.reachable);
     expect(view.snapshot.http.statusCode, 200);
     expect(view.snapshot.realtimeStatus, RealtimeStatus.reconnecting);

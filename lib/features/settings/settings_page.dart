@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/auth_service.dart';
+import '../../data/app_version_info.dart';
 import '../../data/chat_preferences.dart';
 import '../../data/chat_appearance_preferences.dart';
 import '../../data/desktop_auto_launch.dart';
@@ -47,6 +48,7 @@ Uri? _resolveAssetUri(String? serverUrl, String value) {
 class SettingsPage extends StatefulWidget {
   const SettingsPage(
       {required this.repository,
+      this.appVersion = AppVersionInfo.unavailable,
       this.realtimeStore,
       this.realtimeSession,
       required this.serverUrl,
@@ -79,11 +81,12 @@ class SettingsPage extends StatefulWidget {
       this.themeMode = ThemeMode.system,
       this.sendMessageShortcut = MessageSendShortcut.enter,
       this.desktopAutoLaunch,
-      this.updateService = const UpdateService(),
+      this.updateService,
       super.key});
   final Future<void> Function()? onLogout;
   final Future<void> Function(String code)? onDeactivateAccount;
   final MagicChatRepository repository;
+  final AppVersionInfo appVersion;
   final RealtimeStore? realtimeStore;
   final RealtimeSession? realtimeSession;
   final String? serverUrl;
@@ -116,7 +119,7 @@ class SettingsPage extends StatefulWidget {
   final ThemeMode themeMode;
   final MessageSendShortcut sendMessageShortcut;
   final DesktopAutoLaunchController? desktopAutoLaunch;
-  final UpdateService updateService;
+  final UpdateService? updateService;
   @override
   State<SettingsPage> createState() => _SettingsPageState();
 }
@@ -437,7 +440,9 @@ class _SettingsPageState extends State<SettingsPage> {
       _updateError = null;
     });
     try {
-      final release = await widget.updateService.check();
+      final release = await (widget.updateService ??
+              UpdateService(appVersion: widget.appVersion))
+          .check();
       if (!mounted) return;
       setState(() => _checkingForUpdate = false);
       await showDialog<void>(
@@ -445,7 +450,7 @@ class _SettingsPageState extends State<SettingsPage> {
         builder: (dialogContext) => release == null
             ? AlertDialog(
                 title: const Text('检查更新'),
-                content: Text('当前已是最新版本（${UpdateService.currentVersion}）'),
+                content: Text('当前已是最新版本（${widget.appVersion.version}）'),
                 actions: [
                   TextButton(
                       onPressed: () => Navigator.pop(dialogContext),
@@ -485,6 +490,7 @@ class _SettingsPageState extends State<SettingsPage> {
           messageCacheStore: widget.messageCacheStore,
           messageSoundEnabled: _messageSoundEnabled,
           notificationPrivacy: _notificationPrivacy,
+          appVersion: widget.appVersion,
         );
     await Navigator.push(
         context,
@@ -996,7 +1002,7 @@ class _SettingsPageState extends State<SettingsPage> {
               subtitle: Text(_checkingForUpdate
                   ? '正在检查更新'
                   : _updateError == null
-                      ? '当前版本 ${UpdateService.currentVersion}'
+                      ? '当前版本 ${widget.appVersion.version}'
                       : '检查失败：$_updateError，点击重试'),
               trailing: _checkingForUpdate
                   ? const SizedBox.square(
@@ -1014,7 +1020,8 @@ class _SettingsPageState extends State<SettingsPage> {
               onTap: () => Navigator.push<void>(
                   context,
                   MaterialPageRoute(
-                      builder: (_) => const AboutMagicChatPage()))),
+                      builder: (_) =>
+                          AboutMagicChatPage(appVersion: widget.appVersion)))),
         ])),
         if (widget.onLogout != null)
           Padding(

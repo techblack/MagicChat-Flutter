@@ -1,12 +1,12 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magicchat_client/data/app_links.dart';
 import 'package:magicchat_client/data/repository.dart';
-import 'package:magicchat_client/data/update_service.dart';
 import 'package:magicchat_client/features/settings/about_magicchat_page.dart';
 import 'package:magicchat_client/features/settings/settings_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'support/app_version.dart';
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -18,6 +18,7 @@ void main() {
       home: Scaffold(
         appBar: AppBar(title: const Text('设置')),
         body: SettingsPage(
+          appVersion: testAppVersion,
           repository: DemoRepository(),
           serverUrl: 'https://chat.example.com',
         ),
@@ -31,8 +32,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(AboutMagicChatPage), findsOneWidget);
     expect(
-        find.text('版本 ${UpdateService.currentVersion} · 构建 '
-            '${UpdateService.currentBuild}'),
+        find.text('版本 ${testAppVersion.version} · 构建 '
+            '${testAppVersion.buildNumber}'),
         findsOneWidget);
 
     await tester.pageBack();
@@ -47,8 +48,7 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(MaterialApp(
       home: AboutMagicChatPage(
-        version: '1.2.3',
-        buildNumber: 45,
+        appVersion: testAppVersion,
         isWeb: false,
         platform: TargetPlatform.windows,
         linkLauncher: (uri) async {
@@ -83,8 +83,7 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(const MaterialApp(
       home: AboutMagicChatPage(
-        version: '1.2.3',
-        buildNumber: 45,
+        appVersion: testAppVersion,
         isWeb: true,
       ),
     ));
@@ -111,6 +110,7 @@ void main() {
   testWidgets('外链打开失败显示可读提示并停留当前页面', (tester) async {
     await tester.pumpWidget(MaterialApp(
       home: AboutMagicChatPage(
+        appVersion: testAppVersion,
         linkLauncher: (_) async => false,
       ),
     ));

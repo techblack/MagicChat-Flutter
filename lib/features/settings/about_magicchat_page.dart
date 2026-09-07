@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/app_links.dart';
-import '../../data/update_service.dart';
+import '../../data/app_version_info.dart';
 import '../shared/external_link_launcher.dart';
 
 String magicChatPlatformLabel({bool? isWeb, TargetPlatform? platform}) {
@@ -19,16 +19,14 @@ String magicChatPlatformLabel({bool? isWeb, TargetPlatform? platform}) {
 
 class AboutMagicChatPage extends StatelessWidget {
   const AboutMagicChatPage({
-    this.version = UpdateService.currentVersion,
-    this.buildNumber = UpdateService.currentBuild,
+    required this.appVersion,
     this.isWeb,
     this.platform,
     this.linkLauncher,
     super.key,
   });
 
-  final String version;
-  final int buildNumber;
+  final AppVersionInfo appVersion;
   final bool? isWeb;
   final TargetPlatform? platform;
   final ExternalUriLauncher? linkLauncher;
@@ -52,7 +50,7 @@ class AboutMagicChatPage extends StatelessWidget {
       MaterialPageRoute(
         builder: (_) => LicensePage(
           applicationName: 'MagicChat',
-          applicationVersion: '$version+$buildNumber',
+          applicationVersion: appVersion.versionWithBuild,
           applicationIcon: Padding(
             padding: const EdgeInsets.all(12),
             child: Image.asset(
@@ -159,7 +157,7 @@ class AboutMagicChatPage extends StatelessWidget {
               ?.copyWith(fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 8),
-        Text('版本 $version · 构建 $buildNumber'),
+        Text('版本 ${appVersion.version} · 构建 ${appVersion.buildNumber}'),
         const SizedBox(height: 4),
         Text(
           '运行平台 · $platformName',
