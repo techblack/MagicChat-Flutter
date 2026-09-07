@@ -202,6 +202,28 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('设为私有群'), findsOneWidget);
   });
+
+  testWidgets('群主可从长按菜单的应用分组邀请应用', (tester) async {
+    final repository = _RoleRepository('owner');
+    await tester
+        .pumpWidget(MaterialApp(home: AppShell(repository: repository)));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('角色群聊'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('添加群成员'));
+    await tester.tap(find.text('添加群成员'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('应用'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(CheckboxListTile, '自动化助手'));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, '添加'));
+    await tester.pumpAndSettle();
+
+    expect(repository.addedMemberIds, isEmpty);
+    expect(repository.addedAppIds, ['app-helper']);
+  });
 }
 
 class _RoleRepository extends DemoRepository {
@@ -212,6 +234,8 @@ class _RoleRepository extends DemoRepository {
   bool isPublic = false;
   final visibilityChanges = <bool>[];
   Completer<void>? visibilityCompleter;
+  List<String> addedMemberIds = const [];
+  List<String> addedAppIds = const [];
 
   @override
   Future<void> renameGroupConversation(
@@ -224,6 +248,20 @@ class _RoleRepository extends DemoRepository {
     visibilityChanges.add(value);
     await visibilityCompleter?.future;
     isPublic = value;
+  }
+
+  @override
+  Future<List<Contact>> contacts({String keyword = ''}) async => const [
+        Contact(id: 'user-new', name: '新成员'),
+        Contact(id: 'app-helper', name: '自动化助手', type: 'app'),
+      ];
+
+  @override
+  Future<void> addConversationMembers(String conversationId,
+      {List<String> memberIds = const [],
+      List<String> appIds = const []}) async {
+    addedMemberIds = List.of(memberIds);
+    addedAppIds = List.of(appIds);
   }
 
   @override

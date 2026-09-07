@@ -1155,63 +1155,68 @@ class _ConversationListState extends State<_ConversationList> {
         .toList();
     final action = await showModalBottomSheet<String>(
         context: context,
+        isScrollControlled: true,
         builder: (context) => SafeArea(
-                child: Wrap(children: [
-              ListTile(
-                  leading: const Icon(Icons.push_pin_outlined),
-                  title: Text(conversation.pinned ? '取消置顶' : '置顶会话'),
-                  onTap: () => Navigator.pop(
-                      context, conversation.pinned ? 'unpin' : 'pin')),
-              ListTile(
-                  leading: const Icon(Icons.notifications_off_outlined),
-                  title: Text(conversation.muted ? '取消免打扰' : '消息免打扰'),
-                  onTap: () => Navigator.pop(
-                      context, conversation.muted ? 'unmute' : 'mute')),
-              ListTile(
-                  leading: const Icon(Icons.archive_outlined),
-                  title: const Text('从列表移除'),
-                  onTap: () => Navigator.pop(context, 'dismiss')),
-              if (isGroup) ...[
-                if (currentMember != null)
-                  ListTile(
-                      leading: const Icon(Icons.edit_outlined),
-                      title: const Text('修改群名称'),
-                      onTap: () => Navigator.pop(context, 'rename')),
-                if (canManage)
-                  ListTile(
-                      leading: const Icon(Icons.campaign_outlined),
-                      title: const Text('修改群公告'),
-                      onTap: () => Navigator.pop(context, 'announcement')),
-                if (isOwner)
-                  ListTile(
-                      leading: const Icon(Icons.public_outlined),
-                      title: Text(conversation.isPublic ? '设为私有群' : '设为公开群'),
-                      onTap: () => Navigator.pop(context, 'visibility')),
-                if (canManage)
-                  ListTile(
-                      leading: const Icon(Icons.image_outlined),
-                      title: const Text('修改群头像'),
-                      onTap: () => Navigator.pop(context, 'avatar')),
-                if (currentMember != null)
-                  ListTile(
-                      leading: const Icon(Icons.person_add_outlined),
-                      title: const Text('添加群成员'),
-                      onTap: () => Navigator.pop(context, 'members')),
-                if (canManage && removableMembers.isNotEmpty)
-                  ListTile(
-                      leading: const Icon(Icons.person_remove_outlined),
-                      title: const Text('移除群成员'),
-                      onTap: () => Navigator.pop(context, 'remove_member')),
-                if (currentMember != null)
-                  ListTile(
-                      leading: Icon(isOwner
-                          ? Icons.delete_forever_outlined
-                          : Icons.logout_outlined),
-                      title: Text(isOwner ? '解散群聊' : '退出群聊'),
-                      onTap: () => Navigator.pop(
-                          context, isOwner ? 'dissolve' : 'leave')),
-              ],
-            ])));
+                child: ConstrainedBox(
+              constraints: BoxConstraints(
+                  maxHeight: MediaQuery.sizeOf(context).height * .85),
+              child: ListView(shrinkWrap: true, children: [
+                ListTile(
+                    leading: const Icon(Icons.push_pin_outlined),
+                    title: Text(conversation.pinned ? '取消置顶' : '置顶会话'),
+                    onTap: () => Navigator.pop(
+                        context, conversation.pinned ? 'unpin' : 'pin')),
+                ListTile(
+                    leading: const Icon(Icons.notifications_off_outlined),
+                    title: Text(conversation.muted ? '取消免打扰' : '消息免打扰'),
+                    onTap: () => Navigator.pop(
+                        context, conversation.muted ? 'unmute' : 'mute')),
+                ListTile(
+                    leading: const Icon(Icons.archive_outlined),
+                    title: const Text('从列表移除'),
+                    onTap: () => Navigator.pop(context, 'dismiss')),
+                if (isGroup) ...[
+                  if (currentMember != null)
+                    ListTile(
+                        leading: const Icon(Icons.edit_outlined),
+                        title: const Text('修改群名称'),
+                        onTap: () => Navigator.pop(context, 'rename')),
+                  if (canManage)
+                    ListTile(
+                        leading: const Icon(Icons.campaign_outlined),
+                        title: const Text('修改群公告'),
+                        onTap: () => Navigator.pop(context, 'announcement')),
+                  if (isOwner)
+                    ListTile(
+                        leading: const Icon(Icons.public_outlined),
+                        title: Text(conversation.isPublic ? '设为私有群' : '设为公开群'),
+                        onTap: () => Navigator.pop(context, 'visibility')),
+                  if (canManage)
+                    ListTile(
+                        leading: const Icon(Icons.image_outlined),
+                        title: const Text('修改群头像'),
+                        onTap: () => Navigator.pop(context, 'avatar')),
+                  if (currentMember != null)
+                    ListTile(
+                        leading: const Icon(Icons.person_add_outlined),
+                        title: const Text('添加群成员'),
+                        onTap: () => Navigator.pop(context, 'members')),
+                  if (canManage && removableMembers.isNotEmpty)
+                    ListTile(
+                        leading: const Icon(Icons.person_remove_outlined),
+                        title: const Text('移除群成员'),
+                        onTap: () => Navigator.pop(context, 'remove_member')),
+                  if (currentMember != null)
+                    ListTile(
+                        leading: Icon(isOwner
+                            ? Icons.delete_forever_outlined
+                            : Icons.logout_outlined),
+                        title: Text(isOwner ? '解散群聊' : '退出群聊'),
+                        onTap: () => Navigator.pop(
+                            context, isOwner ? 'dissolve' : 'leave')),
+                ],
+              ]),
+            )));
     if (!context.mounted || action == null) return;
     if (action == 'pin' || action == 'unpin') {
       await widget.repository
@@ -1309,50 +1314,107 @@ class _ConversationListState extends State<_ConversationList> {
     } else if (action == 'members') {
       final contacts = await widget.repository.contacts();
       if (!context.mounted) return;
-      final existingIds =
-          conversation.members.map((member) => member.id).toSet();
+      String selectionKey(Contact contact) =>
+          '${contact.type}:${contact.id.toLowerCase()}';
+      final existingIds = conversation.members.map(selectionKey).toSet();
       final available = contacts
           .where((contact) =>
-              contact.type == 'user' && !existingIds.contains(contact.id))
+              (contact.type == 'user' ||
+                  (canManage && contact.type == 'app')) &&
+              !existingIds.contains(selectionKey(contact)))
           .toList(growable: false);
+      final availableByKey = {
+        for (final contact in available) selectionKey(contact): contact
+      };
       final selected = <String>{};
-      final members = await showDialog<List<String>>(
+      var typeFilter = 'user';
+      final members = await showDialog<List<Contact>>(
         context: context,
         builder: (dialogContext) => StatefulBuilder(
-          builder: (dialogContext, setDialogState) => AlertDialog(
-            title: const Text('添加群成员'),
-            content: SizedBox(
-                width: 360,
-                height: 320,
-                child: ListView(
-                    children: available
-                        .map((contact) => CheckboxListTile(
-                              value: selected.contains(contact.id),
-                              title: Text(contact.displayName),
-                              onChanged: (checked) => setDialogState(() {
-                                if (checked == true) {
-                                  selected.add(contact.id);
-                                } else {
-                                  selected.remove(contact.id);
-                                }
-                              }),
-                            ))
-                        .toList())),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('取消')),
-              FilledButton(
-                  onPressed: () =>
-                      Navigator.pop(dialogContext, selected.toList()),
-                  child: const Text('添加')),
-            ],
-          ),
+          builder: (dialogContext, setDialogState) {
+            final visible = available
+                .where((contact) => !canManage || contact.type == typeFilter)
+                .toList(growable: false);
+            return AlertDialog(
+              title: const Text('添加群成员'),
+              content: SizedBox(
+                  width: 360,
+                  height: 360,
+                  child: Column(children: [
+                    if (canManage) ...[
+                      SegmentedButton<String>(
+                        segments: const [
+                          ButtonSegment(
+                              value: 'user',
+                              label: Text('成员'),
+                              icon: Icon(Icons.people_outline)),
+                          ButtonSegment(
+                              value: 'app',
+                              label: Text('应用'),
+                              icon: Icon(Icons.smart_toy_outlined)),
+                        ],
+                        selected: {typeFilter},
+                        onSelectionChanged: (value) =>
+                            setDialogState(() => typeFilter = value.single),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                    Expanded(
+                      child: visible.isEmpty
+                          ? Center(
+                              child:
+                                  Text(canManage ? '没有可添加的成员或应用' : '没有可添加的成员'))
+                          : ListView(
+                              children: visible.map((contact) {
+                                final key = selectionKey(contact);
+                                return CheckboxListTile(
+                                  key: ValueKey(key),
+                                  value: selected.contains(key),
+                                  title: Text(contact.displayName),
+                                  subtitle: contact.type == 'app'
+                                      ? const Text('应用')
+                                      : null,
+                                  onChanged: (checked) => setDialogState(() {
+                                    if (checked == true) {
+                                      selected.add(key);
+                                    } else {
+                                      selected.remove(key);
+                                    }
+                                  }),
+                                );
+                              }).toList(),
+                            ),
+                    ),
+                  ])),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('取消')),
+                FilledButton(
+                    onPressed: selected.isEmpty
+                        ? null
+                        : () => Navigator.pop(
+                            dialogContext,
+                            selected
+                                .map((key) => availableByKey[key])
+                                .whereType<Contact>()
+                                .toList()),
+                    child: const Text('添加')),
+              ],
+            );
+          },
         ),
       );
       if (members != null && members.isNotEmpty && context.mounted) {
-        await widget.repository
-            .addConversationMembers(conversation.id, memberIds: members);
+        await widget.repository.addConversationMembers(conversation.id,
+            memberIds: members
+                .where((member) => member.type == 'user')
+                .map((member) => member.id)
+                .toList(),
+            appIds: members
+                .where((member) => member.type == 'app')
+                .map((member) => member.id)
+                .toList());
       }
     } else if (action == 'remove_member') {
       final member = await showDialog<Contact>(
