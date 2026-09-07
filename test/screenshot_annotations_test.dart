@@ -154,6 +154,154 @@ void main() {
     expect(identical(removed.remove(rectangle), removed), isTrue);
   });
 
+  test('矩形箭头画笔文字和马赛克统一按原图坐标平移', () {
+    const imageSize = Size(320, 180);
+    const delta = Offset(15, 12);
+    const rectangle = ScreenshotRectangleAnnotation(
+      start: ScreenshotAnnotationPoint(10, 20),
+      end: ScreenshotAnnotationPoint(50, 60),
+      color: 0xffef4444,
+      lineWidth: 3,
+    );
+    const arrow = ScreenshotArrowAnnotation(
+      start: ScreenshotAnnotationPoint(70, 30),
+      end: ScreenshotAnnotationPoint(120, 50),
+      color: 0xff2563eb,
+      lineWidth: 4,
+    );
+    final brush = ScreenshotBrushAnnotation(
+      points: const [
+        ScreenshotAnnotationPoint(130, 40),
+        ScreenshotAnnotationPoint(150, 55),
+      ],
+      color: 0xff22c55e,
+      lineWidth: 5,
+    );
+    const text = ScreenshotTextAnnotation(
+      position: ScreenshotAnnotationPoint(180, 50),
+      text: '重点',
+      fontSize: 20,
+      color: 0xfff59e0b,
+    );
+    const mosaic = ScreenshotMosaicAnnotation(
+      start: ScreenshotAnnotationPoint(230, 70),
+      end: ScreenshotAnnotationPoint(270, 110),
+      color: 0xffef4444,
+      lineWidth: 3,
+    );
+
+    final movedRectangle = translateScreenshotAnnotation(
+        annotation: rectangle,
+        delta: delta,
+        imageSize: imageSize) as ScreenshotRectangleAnnotation;
+    final movedArrow = translateScreenshotAnnotation(
+        annotation: arrow,
+        delta: delta,
+        imageSize: imageSize) as ScreenshotArrowAnnotation;
+    final movedBrush = translateScreenshotAnnotation(
+        annotation: brush,
+        delta: delta,
+        imageSize: imageSize) as ScreenshotBrushAnnotation;
+    final movedText = translateScreenshotAnnotation(
+        annotation: text,
+        delta: delta,
+        imageSize: imageSize) as ScreenshotTextAnnotation;
+    final movedMosaic = translateScreenshotAnnotation(
+        annotation: mosaic,
+        delta: delta,
+        imageSize: imageSize) as ScreenshotMosaicAnnotation;
+
+    expect((movedRectangle.start.x, movedRectangle.start.y), (25, 32));
+    expect((movedRectangle.end.x, movedRectangle.end.y), (65, 72));
+    expect((movedArrow.start.x, movedArrow.start.y), (85, 42));
+    expect((movedArrow.end.x, movedArrow.end.y), (135, 62));
+    expect((movedBrush.points.first.x, movedBrush.points.first.y), (145, 52));
+    expect((movedBrush.points.last.x, movedBrush.points.last.y), (165, 67));
+    expect((movedText.position.x, movedText.position.y), (195, 62));
+    expect((movedMosaic.start.x, movedMosaic.start.y), (245, 82));
+    expect((movedMosaic.end.x, movedMosaic.end.y), (285, 122));
+  });
+
+  test('各类标注平移时整体限制在图像边界', () {
+    const imageSize = Size(320, 180);
+    final annotations = <ScreenshotAnnotation>[
+      const ScreenshotRectangleAnnotation(
+        start: ScreenshotAnnotationPoint(10, 20),
+        end: ScreenshotAnnotationPoint(50, 60),
+        color: 0xffef4444,
+        lineWidth: 3,
+      ),
+      const ScreenshotArrowAnnotation(
+        start: ScreenshotAnnotationPoint(70, 30),
+        end: ScreenshotAnnotationPoint(120, 50),
+        color: 0xff2563eb,
+        lineWidth: 4,
+      ),
+      ScreenshotBrushAnnotation(
+        points: const [
+          ScreenshotAnnotationPoint(130, 40),
+          ScreenshotAnnotationPoint(150, 55),
+        ],
+        color: 0xff22c55e,
+        lineWidth: 5,
+      ),
+      const ScreenshotTextAnnotation(
+        position: ScreenshotAnnotationPoint(180, 50),
+        text: '重点',
+        fontSize: 20,
+        color: 0xfff59e0b,
+      ),
+      const ScreenshotMosaicAnnotation(
+        start: ScreenshotAnnotationPoint(230, 70),
+        end: ScreenshotAnnotationPoint(270, 110),
+        color: 0xffef4444,
+        lineWidth: 3,
+      ),
+    ];
+
+    for (final annotation in annotations) {
+      final bottomRight = translateScreenshotAnnotation(
+        annotation: annotation,
+        delta: const Offset(1000, 1000),
+        imageSize: imageSize,
+      );
+      final topLeft = translateScreenshotAnnotation(
+        annotation: bottomRight,
+        delta: const Offset(-1000, -1000),
+        imageSize: imageSize,
+      );
+      final bottomRightBounds =
+          screenshotAnnotationBounds(bottomRight, imageSize);
+      final topLeftBounds = screenshotAnnotationBounds(topLeft, imageSize);
+      expect(bottomRightBounds.right, lessThanOrEqualTo(imageSize.width));
+      expect(bottomRightBounds.bottom, lessThanOrEqualTo(imageSize.height));
+      expect(topLeftBounds.left, greaterThanOrEqualTo(0));
+      expect(topLeftBounds.top, greaterThanOrEqualTo(0));
+    }
+  });
+
+  test('一次标注替换只产生一个撤销历史提交', () {
+    const rectangle = ScreenshotRectangleAnnotation(
+      start: ScreenshotAnnotationPoint(10, 20),
+      end: ScreenshotAnnotationPoint(50, 60),
+      color: 0xffef4444,
+      lineWidth: 3,
+    );
+    final initial = const ScreenshotAnnotationHistory().commit(rectangle);
+    final moved = translateScreenshotAnnotation(
+      annotation: rectangle,
+      delta: const Offset(20, 10),
+      imageSize: const Size(320, 180),
+    );
+
+    final replaced = initial.replace(rectangle, moved);
+
+    expect(replaced.past, hasLength(initial.past.length + 1));
+    expect(replaced.present.single, same(moved));
+    expect(replaced.undo().present.single, same(rectangle));
+    expect(replaced.undo().redo().present.single, same(moved));
+  });
+
   test('矩形箭头画笔和中文文字烘焙进 PNG，空标注保留原字节', () async {
     final source = image.Image(width: 64, height: 48, numChannels: 4);
     image.fill(source, color: image.ColorRgba8(255, 255, 255, 255));

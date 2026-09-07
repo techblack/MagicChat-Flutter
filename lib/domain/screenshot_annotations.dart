@@ -150,6 +150,18 @@ class ScreenshotAnnotationHistory {
     );
   }
 
+  ScreenshotAnnotationHistory replace(
+      ScreenshotAnnotation annotation, ScreenshotAnnotation replacement) {
+    final index = present.indexWhere((item) => identical(item, annotation));
+    if (index < 0 || identical(annotation, replacement)) return this;
+    final next = [...present];
+    next[index] = replacement;
+    return ScreenshotAnnotationHistory(
+      past: [...past, present],
+      present: next,
+    );
+  }
+
   ScreenshotAnnotationHistory undo() {
     if (!canUndo) return this;
     return ScreenshotAnnotationHistory(
@@ -231,6 +243,72 @@ Rect screenshotAnnotationBounds(
     Offset(mosaic.start.x, mosaic.start.y),
     Offset(mosaic.end.x, mosaic.end.y),
   );
+}
+
+ScreenshotAnnotation translateScreenshotAnnotation({
+  required ScreenshotAnnotation annotation,
+  required Offset delta,
+  required Size imageSize,
+}) {
+  final bounds = screenshotAnnotationBounds(annotation, imageSize);
+  final dx =
+      _boundedTranslation(delta.dx, bounds.left, bounds.right, imageSize.width);
+  final dy = _boundedTranslation(
+      delta.dy, bounds.top, bounds.bottom, imageSize.height);
+  if (dx == 0 && dy == 0) return annotation;
+  var translated = _translateAnnotation(annotation, dx, dy);
+  final translatedBounds = screenshotAnnotationBounds(translated, imageSize);
+  final correctionX = _boundedTranslation(
+      0, translatedBounds.left, translatedBounds.right, imageSize.width);
+  final correctionY = _boundedTranslation(
+      0, translatedBounds.top, translatedBounds.bottom, imageSize.height);
+  if (correctionX != 0 || correctionY != 0) {
+    translated = _translateAnnotation(translated, correctionX, correctionY);
+  }
+  return translated;
+}
+
+double _boundedTranslation(
+    double requested, double start, double end, double limit) {
+  if (end - start >= limit) return -start;
+  return requested.clamp(-start, limit - end).toDouble();
+}
+
+ScreenshotAnnotation _translateAnnotation(
+    ScreenshotAnnotation annotation, double dx, double dy) {
+  ScreenshotAnnotationPoint move(ScreenshotAnnotationPoint point) =>
+      ScreenshotAnnotationPoint(point.x + dx, point.y + dy);
+  return switch (annotation) {
+    ScreenshotRectangleAnnotation value => ScreenshotRectangleAnnotation(
+        start: move(value.start),
+        end: move(value.end),
+        color: value.color,
+        lineWidth: value.lineWidth,
+      ),
+    ScreenshotArrowAnnotation value => ScreenshotArrowAnnotation(
+        start: move(value.start),
+        end: move(value.end),
+        color: value.color,
+        lineWidth: value.lineWidth,
+      ),
+    ScreenshotBrushAnnotation value => ScreenshotBrushAnnotation(
+        points: value.points.map(move).toList(),
+        color: value.color,
+        lineWidth: value.lineWidth,
+      ),
+    ScreenshotTextAnnotation value => ScreenshotTextAnnotation(
+        position: move(value.position),
+        text: value.text,
+        fontSize: value.fontSize,
+        color: value.color,
+      ),
+    ScreenshotMosaicAnnotation value => ScreenshotMosaicAnnotation(
+        start: move(value.start),
+        end: move(value.end),
+        color: value.color,
+        lineWidth: value.lineWidth,
+      ),
+  };
 }
 
 bool _annotationContainsPoint(
