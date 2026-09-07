@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
+import 'package:flutter/painting.dart';
 import 'package:image/image.dart' as image;
 
-enum ScreenshotAnnotationTool { rectangle, arrow, brush }
+enum ScreenshotAnnotationTool { rectangle, arrow, brush, text }
 
 class ScreenshotAnnotationPoint {
   const ScreenshotAnnotationPoint(this.x, this.y);
@@ -40,6 +43,16 @@ double screenshotAnnotationLineWidth({
     throw ArgumentError('截图坐标系尺寸必须大于 0');
   }
   return math.max(2, 3 / (displayWidth / imageWidth));
+}
+
+double screenshotAnnotationFontSize({
+  required double displayWidth,
+  required int imageWidth,
+}) {
+  if (displayWidth <= 0 || imageWidth <= 0) {
+    throw ArgumentError('截图坐标系尺寸必须大于 0');
+  }
+  return math.max(16, 20 / (displayWidth / imageWidth));
 }
 
 sealed class ScreenshotAnnotation {
@@ -81,6 +94,19 @@ class ScreenshotBrushAnnotation extends ScreenshotAnnotation {
   }) : points = List.unmodifiable(points);
 
   final List<ScreenshotAnnotationPoint> points;
+}
+
+class ScreenshotTextAnnotation extends ScreenshotAnnotation {
+  const ScreenshotTextAnnotation({
+    required this.position,
+    required this.text,
+    required this.fontSize,
+    required super.color,
+  }) : super(lineWidth: 0);
+
+  final ScreenshotAnnotationPoint position;
+  final String text;
+  final double fontSize;
 }
 
 class ScreenshotAnnotationHistory {
@@ -125,9 +151,18 @@ class ScreenshotAnnotationHistory {
 class ScreenshotAnnotationRenderer {
   const ScreenshotAnnotationRenderer();
 
-  Uint8List render(
+  FutureOr<Uint8List> render(
       Uint8List sourceBytes, List<ScreenshotAnnotation> annotations) {
     if (annotations.isEmpty) return sourceBytes;
+    if (!annotations
+        .any((annotation) => annotation is ScreenshotTextAnnotation)) {
+      return _renderRasterAnnotations(sourceBytes, annotations);
+    }
+    return _renderTextAnnotations(sourceBytes, annotations);
+  }
+
+  Uint8List _renderRasterAnnotations(
+      Uint8List sourceBytes, List<ScreenshotAnnotation> annotations) {
     image.Image? output;
     try {
       output = image.decodeImage(sourceBytes);
@@ -136,7 +171,12 @@ class ScreenshotAnnotationRenderer {
     }
     if (output == null) throw const FormatException('无法读取截图图片');
     for (final annotation in annotations) {
-      final color = _imageColor(annotation.color);
+      final color = image.ColorRgba8(
+        (annotation.color >> 16) & 0xff,
+        (annotation.color >> 8) & 0xff,
+        annotation.color & 0xff,
+        (annotation.color >> 24) & 0xff,
+      );
       if (annotation case ScreenshotRectangleAnnotation rectangle) {
         image.drawRect(output,
             x1: rectangle.start.x.round(),
@@ -147,45 +187,39 @@ class ScreenshotAnnotationRenderer {
             thickness: rectangle.lineWidth,
             blend: image.BlendMode.alpha);
       } else if (annotation case ScreenshotArrowAnnotation arrow) {
-        _drawArrow(output, arrow, color);
+        _drawRasterArrow(output, arrow, color);
       } else if (annotation case ScreenshotBrushAnnotation brush) {
-        _drawBrush(output, brush, color);
+        if (brush.points.length == 1) {
+          final point = brush.points.single;
+          image.drawLine(output,
+              x1: point.x.round(),
+              y1: point.y.round(),
+              x2: point.x.round(),
+              y2: point.y.round(),
+              color: color,
+              thickness: annotation.lineWidth,
+              antialias: true);
+          continue;
+        }
+        for (var index = 1; index < brush.points.length; index++) {
+          final start = brush.points[index - 1];
+          final end = brush.points[index];
+          image.drawLine(output,
+              x1: start.x.round(),
+              y1: start.y.round(),
+              x2: end.x.round(),
+              y2: end.y.round(),
+              color: color,
+              thickness: annotation.lineWidth,
+              antialias: true);
+        }
       }
     }
     return Uint8List.fromList(image.encodePng(output));
   }
 
-  void _drawBrush(image.Image output, ScreenshotBrushAnnotation annotation,
-      image.Color color) {
-    if (annotation.points.isEmpty) return;
-    if (annotation.points.length == 1) {
-      final point = annotation.points.single;
-      image.drawLine(output,
-          x1: point.x.round(),
-          y1: point.y.round(),
-          x2: point.x.round(),
-          y2: point.y.round(),
-          color: color,
-          thickness: annotation.lineWidth,
-          antialias: true);
-      return;
-    }
-    for (var index = 1; index < annotation.points.length; index++) {
-      final start = annotation.points[index - 1];
-      final end = annotation.points[index];
-      image.drawLine(output,
-          x1: start.x.round(),
-          y1: start.y.round(),
-          x2: end.x.round(),
-          y2: end.y.round(),
-          color: color,
-          thickness: annotation.lineWidth,
-          antialias: true);
-    }
-  }
-
-  void _drawArrow(image.Image output, ScreenshotArrowAnnotation annotation,
-      image.Color color) {
+  void _drawRasterArrow(image.Image output,
+      ScreenshotArrowAnnotation annotation, image.Color color) {
     final start = annotation.start;
     final end = annotation.end;
     image.drawLine(output,
@@ -210,10 +244,88 @@ class ScreenshotAnnotationRenderer {
     ]);
   }
 
-  image.Color _imageColor(int value) => image.ColorRgba8(
-        (value >> 16) & 0xff,
-        (value >> 8) & 0xff,
-        value & 0xff,
-        (value >> 24) & 0xff,
-      );
+  Future<Uint8List> _renderTextAnnotations(
+      Uint8List sourceBytes, List<ScreenshotAnnotation> annotations) async {
+    ui.Codec? codec;
+    ui.Image? source;
+    ui.Image? output;
+    try {
+      codec = await ui.instantiateImageCodec(sourceBytes);
+      source = (await codec.getNextFrame()).image;
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder);
+      final imageSize = Size(source.width.toDouble(), source.height.toDouble());
+      canvas.drawImage(source, ui.Offset.zero, ui.Paint());
+      for (final annotation in annotations) {
+        paintScreenshotAnnotation(canvas, annotation, imageSize);
+      }
+      output =
+          await recorder.endRecording().toImage(source.width, source.height);
+      final encoded = await output.toByteData(format: ui.ImageByteFormat.png);
+      if (encoded == null) throw const FormatException('无法生成截图图片');
+      return encoded.buffer
+          .asUint8List(encoded.offsetInBytes, encoded.lengthInBytes);
+    } catch (_) {
+      throw const FormatException('无法读取截图图片');
+    } finally {
+      output?.dispose();
+      source?.dispose();
+      codec?.dispose();
+    }
+  }
+}
+
+void paintScreenshotAnnotation(
+    ui.Canvas canvas, ScreenshotAnnotation annotation, Size imageSize) {
+  final paint = ui.Paint()
+    ..color = ui.Color(annotation.color)
+    ..strokeWidth = annotation.lineWidth
+    ..strokeCap = ui.StrokeCap.round
+    ..strokeJoin = ui.StrokeJoin.round
+    ..style = ui.PaintingStyle.stroke;
+  if (annotation case ScreenshotRectangleAnnotation rectangle) {
+    canvas.drawRect(
+        ui.Rect.fromPoints(ui.Offset(rectangle.start.x, rectangle.start.y),
+            ui.Offset(rectangle.end.x, rectangle.end.y)),
+        paint);
+  } else if (annotation case ScreenshotArrowAnnotation arrow) {
+    final start = ui.Offset(arrow.start.x, arrow.start.y);
+    final end = ui.Offset(arrow.end.x, arrow.end.y);
+    canvas.drawLine(start, end, paint);
+    final angle = math.atan2(end.dy - start.dy, end.dx - start.dx);
+    final headLength = math.max(12.0, annotation.lineWidth * 4);
+    final halfWidth = math.max(1.0, annotation.lineWidth * 1.5);
+    final base = ui.Offset(end.dx - headLength * math.cos(angle),
+        end.dy - headLength * math.sin(angle));
+    final offset =
+        ui.Offset(halfWidth * math.sin(angle), -halfWidth * math.cos(angle));
+    canvas.drawPath(
+        ui.Path()
+          ..moveTo(end.dx, end.dy)
+          ..lineTo(base.dx + offset.dx, base.dy + offset.dy)
+          ..lineTo(base.dx - offset.dx, base.dy - offset.dy)
+          ..close(),
+        paint..style = ui.PaintingStyle.fill);
+  } else if (annotation case ScreenshotBrushAnnotation brush) {
+    if (brush.points.isEmpty) return;
+    final path = ui.Path()..moveTo(brush.points.first.x, brush.points.first.y);
+    for (final point in brush.points.skip(1)) {
+      path.lineTo(point.x, point.y);
+    }
+    canvas.drawPath(path, paint);
+  } else if (annotation case ScreenshotTextAnnotation text) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: text.text,
+        style: TextStyle(
+          color: ui.Color(text.color),
+          fontSize: text.fontSize,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      textDirection: ui.TextDirection.ltr,
+    )..layout(maxWidth: math.max(1, imageSize.width - text.position.x));
+    painter.paint(canvas, ui.Offset(text.position.x, text.position.y));
+    painter.dispose();
+  }
 }
