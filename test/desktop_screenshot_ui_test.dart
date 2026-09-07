@@ -219,6 +219,99 @@ void main() {
         hasLength(1));
   });
 
+  testWidgets('选择最上层标注后支持按钮和键盘删除并可撤销重做', (tester) async {
+    final source = image.Image(width: 800, height: 450, numChannels: 4);
+    image.fill(source, color: image.ColorRgba8(255, 255, 255, 255));
+    await tester.pumpWidget(MaterialApp(
+      home: ScreenshotAnnotationDialog(
+        screenshot: CapturedScreenshot(
+          bytes: Uint8List.fromList(image.encodePng(source)),
+          width: 800,
+          height: 450,
+          fileName: 'selection.png',
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    Rect canvas() => tester
+        .getRect(find.byKey(const ValueKey('screenshot-annotation-canvas')));
+    ScreenshotAnnotationPainter painter() => tester
+        .widget<CustomPaint>(find.byWidgetPredicate((widget) =>
+            widget is CustomPaint &&
+            widget.painter is ScreenshotAnnotationPainter))
+        .painter! as ScreenshotAnnotationPainter;
+
+    await tester.dragFrom(
+        canvas().topLeft + const Offset(30, 20), const Offset(140, 80));
+    await tester.tap(find.widgetWithText(ChoiceChip, '箭头'));
+    await tester.dragFrom(
+        canvas().topLeft + const Offset(250, 50), const Offset(150, 0));
+    await tester.tap(find.widgetWithText(ChoiceChip, '文字'));
+    await tester.tapAt(canvas().topLeft + const Offset(500, 60));
+    await tester.pump();
+    await tester.enterText(
+        find.byKey(const ValueKey('screenshot-text-input')), '重点');
+    await tester.tap(find.widgetWithText(FilledButton, '添加'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, '马赛克'));
+    await tester.dragFrom(
+        canvas().topLeft + const Offset(60, 40), const Offset(80, 40));
+    await tester.tap(find.widgetWithText(ChoiceChip, '选择'));
+    await tester.pump();
+
+    expect(painter().annotations, hasLength(4));
+    await tester.tapAt(canvas().topLeft + const Offset(80, 60));
+    await tester.pump();
+    expect(painter().selected, isA<ScreenshotMosaicAnnotation>());
+    expect(
+        tester
+            .widget<IconButton>(
+                find.widgetWithIcon(IconButton, Icons.delete_outline))
+            .onPressed,
+        isNotNull);
+
+    await tester.tap(find.byTooltip('删除标注'));
+    await tester.pump();
+    expect(
+        painter().annotations.whereType<ScreenshotMosaicAnnotation>(), isEmpty);
+    await tester.tap(find.byTooltip('撤销'));
+    await tester.pump();
+    expect(painter().annotations.whereType<ScreenshotMosaicAnnotation>(),
+        hasLength(1));
+    await tester.tap(find.byTooltip('重做'));
+    await tester.pump();
+    expect(
+        painter().annotations.whereType<ScreenshotMosaicAnnotation>(), isEmpty);
+
+    await tester.tapAt(canvas().topLeft + const Offset(320, 50));
+    await tester.pump();
+    expect(painter().selected, isA<ScreenshotArrowAnnotation>());
+    await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+    await tester.pump();
+    expect(
+        painter().annotations.whereType<ScreenshotArrowAnnotation>(), isEmpty);
+
+    await tester.tapAt(canvas().topLeft + const Offset(510, 70));
+    await tester.pump();
+    expect(painter().selected, isA<ScreenshotTextAnnotation>());
+    await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
+    await tester.pump();
+    expect(
+        painter().annotations.whereType<ScreenshotTextAnnotation>(), isEmpty);
+
+    await tester.tapAt(canvas().topLeft + const Offset(50, 30));
+    await tester.pump();
+    expect(painter().selected, isA<ScreenshotRectangleAnnotation>());
+    await tester.tapAt(canvas().bottomRight - const Offset(5, 5));
+    await tester.pump();
+    expect(painter().selected, isNull);
+    await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+    await tester.pump();
+    expect(painter().annotations.whereType<ScreenshotRectangleAnnotation>(),
+        hasLength(1));
+  });
+
   testWidgets('取消截图标注不进入发送队列', (tester) async {
     final directory = Directory.systemTemp.createTempSync('shot-ui-');
     addTearDown(() => directory.deleteSync(recursive: true));
