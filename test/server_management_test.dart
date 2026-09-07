@@ -68,7 +68,9 @@ void main() {
     await tester.pumpWidget(MaterialApp(
         debugShowCheckedModeBanner: false,
         home: ServerManagementPage(
-            store: store, activeServerUrl: officialServerUrl)));
+            store: store,
+            mode: ServerManagementMode.manage,
+            activeServerUrl: officialServerUrl)));
     await _pumpUi(tester);
 
     expect(find.text('即应官方服务器'), findsOneWidget);
@@ -123,7 +125,9 @@ void main() {
         child: MaterialApp(
           debugShowCheckedModeBanner: false,
           home: ServerManagementPage(
-              store: store, activeServerUrl: officialServerUrl),
+              store: store,
+              mode: ServerManagementMode.manage,
+              activeServerUrl: officialServerUrl),
         ),
       ),
     ));
@@ -142,6 +146,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(
         home: ServerManagementPage(
       store: store,
+      mode: ServerManagementMode.select,
       activeServerUrl: officialServerUrl,
       onSelect: (server) async => selected = server,
     )));

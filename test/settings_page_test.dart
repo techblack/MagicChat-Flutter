@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/data/realtime_store.dart';
+import 'package:magicchat_client/data/server_store.dart';
 import 'package:magicchat_client/data/chat_preferences.dart';
 import 'package:magicchat_client/data/desktop_auto_launch.dart';
 import 'package:magicchat_client/data/desktop_window_controller.dart';
@@ -477,12 +478,16 @@ void main() {
     expect(find.text('demo@example.com'), findsOneWidget);
   });
 
-  testWidgets('设置页可进入完整服务器管理页', (tester) async {
+  testWidgets('设置中管理服务器不切换当前登录目标', (tester) async {
+    const store = ServerStore();
+    await store.add('团队环境', 'https://team.example.com');
+    var switches = 0;
     await tester.pumpWidget(MaterialApp(
         home: Scaffold(
             body: SettingsPage(
                 repository: DemoRepository(),
-                serverUrl: 'https://chat.example.com'))));
+                serverUrl: officialServerUrl,
+                onServerChanged: (_) async => switches++))));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('服务器'));
@@ -490,7 +495,17 @@ void main() {
 
     expect(find.byType(ServerManagementPage), findsOneWidget);
     expect(find.text('即应官方服务器'), findsOneWidget);
-    expect(find.text('chat.example.com'), findsOneWidget);
+    expect(find.text('管理服务器'), findsOneWidget);
+
+    await tester.tap(find.text('团队环境'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('修改'), findsOneWidget);
+    expect(find.text('删除'), findsOneWidget);
+    expect(find.text('切换服务器？'), findsNothing);
+    expect(find.byType(ServerManagementPage), findsOneWidget);
+    expect(switches, 0);
+    expect((await store.read()).selectedServerId, ServerStore.officialServerId);
   });
 
   testWidgets('设置页只在当前用户资料变更时刷新账户资料', (tester) async {

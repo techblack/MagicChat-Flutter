@@ -4,15 +4,19 @@ import '../../data/auth_service.dart';
 import '../../data/server_store.dart';
 import '../shared/user_facing_error.dart';
 
+enum ServerManagementMode { manage, select }
+
 class ServerManagementPage extends StatefulWidget {
   const ServerManagementPage({
     required this.store,
+    required this.mode,
     this.activeServerUrl,
     this.onSelect,
     super.key,
   });
 
   final ServerStore store;
+  final ServerManagementMode mode;
   final String? activeServerUrl;
   final Future<void> Function(StoredServer server)? onSelect;
 
@@ -70,6 +74,33 @@ class _ServerManagementPageState extends State<ServerManagementPage> {
       }
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _manage(StoredServer server) async {
+    if (server.builtIn) return;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('修改'),
+              onTap: () => Navigator.pop(context, 'edit')),
+          ListTile(
+              leading: Icon(Icons.delete_outline,
+                  color: Theme.of(context).colorScheme.error),
+              title: Text('删除',
+                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              onTap: () => Navigator.pop(context, 'delete')),
+        ]),
+      ),
+    );
+    if (!mounted) return;
+    if (action == 'edit') {
+      await _edit(server);
+    } else if (action == 'delete') {
+      await _remove(server);
     }
   }
 
@@ -183,7 +214,10 @@ class _ServerManagementPageState extends State<ServerManagementPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Text('选择服务器',
+                        Text(
+                            widget.mode == ServerManagementMode.manage
+                                ? '管理服务器'
+                                : '选择服务器',
                             style: Theme.of(context).textTheme.titleMedium),
                         const SizedBox(height: 10),
                         Card(
@@ -269,7 +303,11 @@ class _ServerManagementPageState extends State<ServerManagementPage> {
                 PopupMenuItem(value: 'delete', child: Text('删除')),
               ],
             ),
-      onTap: _busy ? null : () => _select(server),
+      onTap: _busy
+          ? null
+          : () => widget.mode == ServerManagementMode.manage
+              ? _manage(server)
+              : _select(server),
     );
   }
 }
