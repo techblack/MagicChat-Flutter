@@ -312,6 +312,82 @@ void main() {
         hasLength(1));
   });
 
+  testWidgets('拖动已选标注只在松手时提交一次且点击选择不写历史', (tester) async {
+    final source = image.Image(width: 800, height: 450, numChannels: 4);
+    image.fill(source, color: image.ColorRgba8(255, 255, 255, 255));
+    await tester.pumpWidget(MaterialApp(
+      home: ScreenshotAnnotationDialog(
+        screenshot: CapturedScreenshot(
+          bytes: Uint8List.fromList(image.encodePng(source)),
+          width: 800,
+          height: 450,
+          fileName: 'move.png',
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    Rect canvas() => tester
+        .getRect(find.byKey(const ValueKey('screenshot-annotation-canvas')));
+    ScreenshotAnnotationPainter painter() => tester
+        .widget<CustomPaint>(find.byWidgetPredicate((widget) =>
+            widget is CustomPaint &&
+            widget.painter is ScreenshotAnnotationPainter))
+        .painter! as ScreenshotAnnotationPainter;
+    Offset displayPoint(ScreenshotAnnotationPoint point) =>
+        canvas().topLeft +
+        Offset(point.x * canvas().width / 800, point.y * canvas().height / 450);
+
+    await tester.dragFrom(
+        canvas().topLeft + const Offset(40, 40), const Offset(120, 70));
+    await tester.pump();
+    final original =
+        painter().annotations.single as ScreenshotRectangleAnnotation;
+    await tester.tap(find.widgetWithText(ChoiceChip, '选择'));
+    await tester.tapAt(displayPoint(ScreenshotAnnotationPoint(
+      (original.start.x + original.end.x) / 2,
+      (original.start.y + original.end.y) / 2,
+    )));
+    await tester.pump();
+
+    expect(painter().selected, same(original));
+    expect(painter().annotations.single, same(original));
+
+    final gesture = await tester.startGesture(displayPoint(
+        ScreenshotAnnotationPoint((original.start.x + original.end.x) / 2,
+            (original.start.y + original.end.y) / 2)));
+    await gesture.moveBy(const Offset(20, 10));
+    await tester.pump();
+    await gesture.moveBy(const Offset(40, 20));
+    await tester.pump();
+    expect(painter().annotations.single, same(original));
+    expect(painter().movePreview, isA<ScreenshotRectangleAnnotation>());
+    await gesture.moveBy(const Offset(60, 30));
+    await tester.pump();
+    expect(painter().annotations.single, same(original));
+    await gesture.up();
+    await tester.pump();
+
+    final moved = painter().annotations.single as ScreenshotRectangleAnnotation;
+    expect(moved, isNot(same(original)));
+    expect(moved.start.x, greaterThan(original.start.x));
+    expect(moved.start.y, greaterThan(original.start.y));
+    expect(painter().movePreview, isNull);
+
+    await tester.tapAt(displayPoint(ScreenshotAnnotationPoint(
+      (moved.start.x + moved.end.x) / 2,
+      (moved.start.y + moved.end.y) / 2,
+    )));
+    await tester.pump();
+    expect(painter().selected, same(moved));
+    await tester.tap(find.byTooltip('撤销'));
+    await tester.pump();
+    expect(painter().annotations.single, same(original));
+    await tester.tap(find.byTooltip('重做'));
+    await tester.pump();
+    expect(painter().annotations.single, same(moved));
+  });
+
   testWidgets('取消截图标注不进入发送队列', (tester) async {
     final directory = Directory.systemTemp.createTempSync('shot-ui-');
     addTearDown(() => directory.deleteSync(recursive: true));

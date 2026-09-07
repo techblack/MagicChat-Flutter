@@ -41,6 +41,8 @@ class _ScreenshotAnnotationDialogState
   ScreenshotAnnotationTool _tool = ScreenshotAnnotationTool.rectangle;
   ScreenshotAnnotation? _draft;
   ScreenshotAnnotation? _selected;
+  ScreenshotAnnotation? _movingOriginal;
+  ScreenshotAnnotation? _movePreview;
   ScreenshotAnnotationPoint? _start;
   List<ScreenshotAnnotationPoint> _brushPoints = const [];
   final FocusNode _keyboardFocusNode = FocusNode();
@@ -74,21 +76,33 @@ class _ScreenshotAnnotationDialogState
         _history = _history.undo();
         _draft = null;
         _selected = null;
+        _movingOriginal = null;
+        _movePreview = null;
       });
 
   void _redo() => setState(() {
         _history = _history.redo();
         _draft = null;
         _selected = null;
+        _movingOriginal = null;
+        _movePreview = null;
       });
 
   void _startDrawing(DragStartDetails details, Size displaySize) {
-    if (_rendering ||
-        _tool == ScreenshotAnnotationTool.select ||
-        _tool == ScreenshotAnnotationTool.text) {
+    if (_rendering || _tool == ScreenshotAnnotationTool.text) return;
+    final point = _imagePoint(details.localPosition, displaySize);
+    if (_tool == ScreenshotAnnotationTool.select) {
+      final selected = _annotationAt(point, displaySize);
+      setState(() {
+        _selected = selected;
+        _movingOriginal = selected;
+        _movePreview = null;
+        _start = point;
+        _draft = null;
+      });
+      _keyboardFocusNode.requestFocus();
       return;
     }
-    final point = _imagePoint(details.localPosition, displaySize);
     setState(() {
       _start = point;
       _brushPoints = [point];
@@ -106,6 +120,14 @@ class _ScreenshotAnnotationDialogState
     setState(() {
       switch (_tool) {
         case ScreenshotAnnotationTool.select:
+          final original = _movingOriginal;
+          if (original != null) {
+            _movePreview = translateScreenshotAnnotation(
+              annotation: original,
+              delta: Offset(point.x - start.x, point.y - start.y),
+              imageSize: Size(_imageWidth.toDouble(), _imageHeight.toDouble()),
+            );
+          }
           return;
         case ScreenshotAnnotationTool.rectangle:
           _draft = ScreenshotRectangleAnnotation(
@@ -127,6 +149,22 @@ class _ScreenshotAnnotationDialogState
   }
 
   void _finishDrawing(DragEndDetails _) {
+    if (_tool == ScreenshotAnnotationTool.select) {
+      final original = _movingOriginal;
+      final preview = _movePreview;
+      setState(() {
+        if (original != null &&
+            preview != null &&
+            !identical(original, preview)) {
+          _history = _history.replace(original, preview);
+          _selected = preview;
+        }
+        _movingOriginal = null;
+        _movePreview = null;
+        _start = null;
+      });
+      return;
+    }
     final draft = _draft;
     setState(() {
       if (draft != null && _isVisible(draft)) {
@@ -136,6 +174,8 @@ class _ScreenshotAnnotationDialogState
       _start = null;
       _brushPoints = const [];
       _draft = null;
+      _movingOriginal = null;
+      _movePreview = null;
     });
   }
 
@@ -143,6 +183,8 @@ class _ScreenshotAnnotationDialogState
         _start = null;
         _brushPoints = const [];
         _draft = null;
+        _movingOriginal = null;
+        _movePreview = null;
       });
 
   Future<void> _addText(TapUpDetails details, Size displaySize) async {
@@ -197,17 +239,22 @@ class _ScreenshotAnnotationDialogState
     }
     if (_tool != ScreenshotAnnotationTool.select) return;
     final imagePoint = _imagePoint(details.localPosition, displaySize);
-    final tolerance = 8 * _imageWidth / displaySize.width;
     setState(() {
-      _selected = hitTestScreenshotAnnotation(
-        annotations: _history.present,
-        point: imagePoint,
-        imageSize: Size(_imageWidth.toDouble(), _imageHeight.toDouble()),
-        tolerance: tolerance,
-      );
+      _selected = _annotationAt(imagePoint, displaySize);
+      _movingOriginal = null;
+      _movePreview = null;
     });
     _keyboardFocusNode.requestFocus();
   }
+
+  ScreenshotAnnotation? _annotationAt(
+          ScreenshotAnnotationPoint point, Size displaySize) =>
+      hitTestScreenshotAnnotation(
+        annotations: _history.present,
+        point: point,
+        imageSize: Size(_imageWidth.toDouble(), _imageHeight.toDouble()),
+        tolerance: 8 * _imageWidth / displaySize.width,
+      );
 
   void _deleteSelected() {
     final selected = _selected;
@@ -218,6 +265,8 @@ class _ScreenshotAnnotationDialogState
       _history = next;
       _selected = null;
       _draft = null;
+      _movingOriginal = null;
+      _movePreview = null;
     });
   }
 
@@ -404,6 +453,7 @@ class _ScreenshotAnnotationDialogState
                       annotations: _history.present,
                       draft: _draft,
                       selected: _selected,
+                      movePreview: _movePreview,
                       imageSize:
                           Size(_imageWidth.toDouble(), _imageHeight.toDouble()),
                     ),
@@ -439,6 +489,8 @@ class _ScreenshotAnnotationDialogState
                         _brushPoints = const [];
                         _draft = null;
                         _selected = null;
+                        _movingOriginal = null;
+                        _movePreview = null;
                       }),
               avatar: Icon(icon, size: 18),
               label: Text(label),
@@ -495,25 +547,28 @@ class ScreenshotAnnotationPainter extends CustomPainter {
     required this.imageSize,
     this.draft,
     this.selected,
+    this.movePreview,
   });
 
   final List<ScreenshotAnnotation> annotations;
   final ScreenshotAnnotation? draft;
   final ScreenshotAnnotation? selected;
+  final ScreenshotAnnotation? movePreview;
   final Size imageSize;
 
   @override
   void paint(Canvas canvas, Size size) {
     canvas.save();
     canvas.scale(size.width / imageSize.width, size.height / imageSize.height);
-    for (final annotation in [
-      ...annotations,
-      if (draft != null) draft!,
-    ]) {
+    for (final annotation in annotations) {
+      if (movePreview != null && identical(annotation, selected)) continue;
       _draw(canvas, annotation);
     }
-    if (selected != null) {
-      _drawSelection(canvas, selected!, size.width / imageSize.width);
+    if (draft != null) _draw(canvas, draft!);
+    if (movePreview != null) _draw(canvas, movePreview!);
+    final highlighted = movePreview ?? selected;
+    if (highlighted != null) {
+      _drawSelection(canvas, highlighted, size.width / imageSize.width);
     }
     canvas.restore();
   }
@@ -555,5 +610,6 @@ class ScreenshotAnnotationPainter extends CustomPainter {
       oldDelegate.annotations != annotations ||
       oldDelegate.draft != draft ||
       oldDelegate.selected != selected ||
+      oldDelegate.movePreview != movePreview ||
       oldDelegate.imageSize != imageSize;
 }
