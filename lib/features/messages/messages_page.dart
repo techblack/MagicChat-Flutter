@@ -593,6 +593,86 @@ class _ConversationStatusIndicatorState
   }
 }
 
+class _DismissConversationDialog extends StatefulWidget {
+  const _DismissConversationDialog({
+    required this.conversationName,
+    required this.onConfirm,
+  });
+
+  final String conversationName;
+  final Future<void> Function() onConfirm;
+
+  @override
+  State<_DismissConversationDialog> createState() =>
+      _DismissConversationDialogState();
+}
+
+class _DismissConversationDialogState
+    extends State<_DismissConversationDialog> {
+  bool _submitting = false;
+  String _error = '';
+
+  Future<void> _submit() async {
+    if (_submitting) return;
+    setState(() {
+      _submitting = true;
+      _error = '';
+    });
+    try {
+      await widget.onConfirm();
+      if (mounted) Navigator.pop(context, true);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _error = '移除失败：${userFacingError(error)}');
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+        canPop: !_submitting,
+        child: AlertDialog(
+          key: const ValueKey('dismiss-conversation-dialog'),
+          title: const Text('从列表移除对话？'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('移除“${widget.conversationName}”后，该对话将暂时从列表中移除。'),
+              const SizedBox(height: 8),
+              const Text('聊天记录不会删除，也不会退出群聊；收到新消息后会重新显示。'),
+              if (_error.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(_error,
+                    key: const ValueKey('dismiss-conversation-error'),
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error)),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              key: const ValueKey('dismiss-conversation-cancel'),
+              onPressed:
+                  _submitting ? null : () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              key: const ValueKey('dismiss-conversation-confirm'),
+              onPressed: _submitting ? null : _submit,
+              child: _submitting
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text('从列表移除'),
+            ),
+          ],
+        ),
+      );
+}
+
 class _ConversationList extends StatefulWidget {
   const _ConversationList(
       {required this.repository,
@@ -1140,7 +1220,16 @@ class _ConversationListState extends State<_ConversationList> {
       await widget.repository
           .setConversationMuted(conversation.id, action == 'mute');
     } else if (action == 'dismiss') {
-      await widget.repository.dismissConversation(conversation.id);
+      final dismissed = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _DismissConversationDialog(
+          conversationName: conversation.displayTitle,
+          onConfirm: () =>
+              widget.repository.dismissConversation(conversation.id),
+        ),
+      );
+      if (dismissed != true || !context.mounted) return;
       widget.draftStore?.clear(conversation.id);
       await const LastConversationStore()
           .clearIfMatches(widget.cacheScope, conversation.id);

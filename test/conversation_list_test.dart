@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:collection';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -42,6 +43,8 @@ class _RefreshDemoRepository extends DemoRepository {
 class _PreferenceDemoRepository extends DemoRepository {
   var pinned = false;
   var muted = false;
+  final dismissedConversationIds = <String>[];
+  Completer<void>? dismissCompleter;
 
   @override
   Future<List<ChatConversation>> conversations() async => [
@@ -63,6 +66,12 @@ class _PreferenceDemoRepository extends DemoRepository {
   Future<bool> setConversationMuted(String conversationId, bool value) async {
     muted = value;
     return value;
+  }
+
+  @override
+  Future<void> dismissConversation(String conversationId) {
+    dismissedConversationIds.add(conversationId);
+    return dismissCompleter?.future ?? Future.value();
   }
 }
 
@@ -563,17 +572,18 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('从列表移除会话时同步清理草稿', (tester) async {
+  testWidgets('从列表移除会话需确认且提交成功后清理草稿', (tester) async {
     SharedPreferences.setMockInitialValues({});
     const scope = MessageCacheScope(
         serverUrl: 'https://chat.example.com', userId: 'user-1');
     final drafts = ConversationDraftStore();
+    final repository = _PreferenceDemoRepository();
     await drafts.load(scope);
     drafts.update('preference', text: '不再保留', markdownMode: false);
     await tester.pumpWidget(MaterialApp(
         home: Scaffold(
             body: MessagesPage(
-                repository: _PreferenceDemoRepository(),
+                repository: repository,
                 cacheScope: scope,
                 draftStore: drafts,
                 selectedId: null,
@@ -584,7 +594,40 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('从列表移除'));
     await tester.pumpAndSettle();
+
+    expect(repository.dismissedConversationIds, isEmpty);
+    expect(drafts.draftFor('preference'), isNotNull);
+    expect(find.text('从列表移除对话？'), findsOneWidget);
+    expect(find.textContaining('聊天记录不会删除，也不会退出群聊'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('dismiss-conversation-cancel')));
+    await tester.pumpAndSettle();
+    expect(repository.dismissedConversationIds, isEmpty);
+    expect(drafts.draftFor('preference'), isNotNull);
+
+    repository.dismissCompleter = Completer<void>();
+    await tester.longPress(find.text('偏好会话'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('从列表移除'));
+    await tester.pumpAndSettle();
+    await tester
+        .tap(find.byKey(const ValueKey('dismiss-conversation-confirm')));
+    await tester.pump();
+
+    expect(repository.dismissedConversationIds, ['preference']);
+    expect(drafts.draftFor('preference'), isNotNull);
+    expect(
+        tester
+            .widget<FilledButton>(
+                find.byKey(const ValueKey('dismiss-conversation-confirm')))
+            .onPressed,
+        isNull);
+
+    repository.dismissCompleter!.complete();
+    await tester.pumpAndSettle();
     expect(drafts.draftFor('preference'), isNull);
+    expect(find.byKey(const ValueKey('dismiss-conversation-dialog')),
+        findsNothing);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
