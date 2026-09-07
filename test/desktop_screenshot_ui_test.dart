@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as image;
 import 'package:magicchat_client/data/desktop_screenshot.dart';
+import 'package:magicchat_client/data/image_save_service.dart';
 import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
@@ -533,6 +534,50 @@ void main() {
     final resizedText =
         painter().annotations.whereType<ScreenshotTextAnnotation>().single;
     expect(resizedText.fontSize, greaterThan(originalText.fontSize));
+  });
+
+  testWidgets('保存截图会烘焙当前标注且不关闭编辑器', (tester) async {
+    final source = image.Image(width: 160, height: 90, numChannels: 4);
+    image.fill(source, color: image.ColorRgba8(255, 255, 255, 255));
+    final sourceBytes = Uint8List.fromList(image.encodePng(source));
+    Uint8List? savedBytes;
+    String? savedName;
+    int? fallbackIndex;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ScreenshotAnnotationDialog(
+          screenshot: CapturedScreenshot(
+            bytes: sourceBytes,
+            width: 160,
+            height: 90,
+            fileName: '现场截图.png',
+          ),
+          imageSaver: (bytes, name, index) async {
+            savedBytes = bytes;
+            savedName = name;
+            fallbackIndex = index;
+            return const ImageSaveResult(
+                destination: ImageSaveDestination.file, saved: true);
+          },
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    final canvas = tester
+        .getRect(find.byKey(const ValueKey('screenshot-annotation-canvas')));
+    await tester.dragFrom(
+        canvas.topLeft + const Offset(20, 20), const Offset(80, 40));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('screenshot-save')));
+    await tester.pumpAndSettle();
+
+    expect(savedBytes, isNotNull);
+    expect(savedBytes, isNot(equals(sourceBytes)));
+    expect(savedName, '现场截图.png');
+    expect(fallbackIndex, 1);
+    expect(find.text('图片已保存'), findsOneWidget);
+    expect(find.text('发送截图'), findsOneWidget);
   });
 
   testWidgets('取消截图标注不进入发送队列', (tester) async {
