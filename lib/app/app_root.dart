@@ -2298,8 +2298,14 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         _focusTaskProjectId == null &&
         _focusTaskId == null &&
         _focusDocumentId == null;
-    if (sameConversation && !recordSource && _navigationHistory.isNotEmpty) {
-      setState(_navigationHistory.clear);
+    if (sameConversation) {
+      if (recordSource) {
+        // 会话列表中再次点击当前会话也应明确回到最新消息；否则
+        // ConversationView 会复用原滚动状态，用户可能停在历史中间。
+        setState(() => _messagesReselectToken++);
+      } else if (_navigationHistory.isNotEmpty) {
+        setState(_navigationHistory.clear);
+      }
     } else if (!sameConversation) {
       setState(() {
         if (recordSource) {
