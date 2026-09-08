@@ -407,6 +407,13 @@ void main() {
     expect(tester.getSize(header).width, 500);
     expect(tester.getCenter(title).dx, 250);
 
+    await tester
+        .tap(find.byKey(const ValueKey('conversation-header-avatar-button')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ConversationDetailsPage), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
     await tester.tap(find.byTooltip('聊天详情'));
     await tester.pumpAndSettle();
     expect(find.byType(ConversationDetailsPage), findsOneWidget);
