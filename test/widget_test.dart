@@ -45,6 +45,54 @@ class _HistoryRepository extends DemoRepository {
   }
 }
 
+class _BidirectionalHistoryRepository extends DemoRepository {
+  var afterRequests = 0;
+
+  @override
+  Future<List<ChatMessage>> messages(String conversationId,
+      {int? beforeSeq, int limit = 50}) async {
+    final end = beforeSeq == null ? 30 : beforeSeq - 1;
+    final start = end - limit + 1 > 1 ? end - limit + 1 : 1;
+    return MessagePage(
+      messages: List.generate(
+          end - start + 1,
+          (index) => ChatMessage(
+              id: 'history-${start + index}',
+              conversationId: conversationId,
+              sequence: start + index,
+              author: '成员',
+              text: '历史消息 ${start + index}')),
+      hasMoreBefore: start > 1,
+      hasMoreAfter: true,
+      limit: limit,
+      newestSeq: end,
+      oldestSeq: start,
+    );
+  }
+
+  @override
+  Future<List<ChatMessage>> messagesAfter(String conversationId,
+      {required int afterSeq, int limit = 50}) async {
+    afterRequests++;
+    final end = afterSeq + limit;
+    return MessagePage(
+      messages: List.generate(
+          limit,
+          (index) => ChatMessage(
+              id: 'history-${afterSeq + index + 1}',
+              conversationId: conversationId,
+              sequence: afterSeq + index + 1,
+              author: '成员',
+              text: '历史消息 ${afterSeq + index + 1}')),
+      hasMoreBefore: true,
+      hasMoreAfter: end < 100,
+      limit: limit,
+      newestSeq: end,
+      oldestSeq: afterSeq + 1,
+    );
+  }
+}
+
 class _SendRepository extends DemoRepository {
   final completer = Completer<void>();
   var sendCount = 0;
@@ -628,5 +676,28 @@ void main() {
     expect(repository.messageRequests, [36, null]);
     expect(returnedToLatest, isTrue);
     expect(find.text('返回最新消息'), findsNothing);
+  });
+
+  testWidgets('历史消息窗口向最新方向分页加载', (tester) async {
+    final repository = _BidirectionalHistoryRepository();
+    await tester.binding.setSurfaceSize(const Size(500, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: ConversationView(
+                repository: repository,
+                conversationId: 'history',
+                focusMessageId: 'history-10',
+                focusMessageSequence: 10))));
+    await tester.pumpAndSettle();
+
+    final position =
+        tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+    position.jumpTo(position.minScrollExtent);
+    await tester.pumpAndSettle();
+
+    expect(repository.afterRequests, greaterThanOrEqualTo(1));
+    expect(find.text('历史消息 85'), findsOneWidget);
+    expect(find.byKey(const ValueKey('newer-messages-loading')), findsNothing);
   });
 }

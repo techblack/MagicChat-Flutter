@@ -9,6 +9,11 @@ import 'session_store.dart';
 import 'contact_cache_store.dart';
 import 'message_cache_store.dart';
 
+abstract interface class ConversationMessageAfterPager {
+  Future<List<ChatMessage>> messagesAfter(String conversationId,
+      {required int afterSeq, int limit = 50});
+}
+
 abstract interface class MagicChatRepository {
   bool get hasActiveTransfers;
   Future<CurrentUser> currentUser();
@@ -185,7 +190,8 @@ abstract interface class MagicChatRepository {
 }
 
 /// 开发壳数据。接入服务端时实现本接口，UI 不依赖 HTTP/WebSocket 细节。
-class DemoRepository implements MagicChatRepository {
+class DemoRepository
+    implements MagicChatRepository, ConversationMessageAfterPager {
   @override
   bool get hasActiveTransfers => false;
 
@@ -477,6 +483,14 @@ class DemoRepository implements MagicChatRepository {
   Future<List<ChatMessage>> messages(String conversationId,
           {int? beforeSeq, int limit = 50}) async =>
       List.unmodifiable(_messages);
+
+  @override
+  Future<List<ChatMessage>> messagesAfter(String conversationId,
+          {required int afterSeq, int limit = 50}) async =>
+      _messages
+          .where((message) => (message.sequence ?? 0) > afterSeq)
+          .take(limit)
+          .toList(growable: false);
 
   @override
   Future<AttachmentPage> attachments(String conversationId,
@@ -1028,7 +1042,8 @@ class MagicChatRequestException implements Exception {
 }
 
 /// 服务端 `/api/client/` 的最小 HTTP 实现。所有响应先按 unknown 解码，再做字段校验。
-class HttpMagicChatRepository implements MagicChatRepository {
+class HttpMagicChatRepository
+    implements MagicChatRepository, ConversationMessageAfterPager {
   static const requestTimeout = Duration(seconds: 30);
   HttpMagicChatRepository(
       {required String serverUrl,
@@ -1620,6 +1635,50 @@ class HttpMagicChatRepository implements MagicChatRepository {
             ? value.toInt()
             : null
         : null;
+    final limitValue = pageInt(rawPage['limit']);
+    final newestSeq = pageInt(rawPage['newest_seq']);
+    final oldestSeq = pageInt(rawPage['oldest_seq']);
+    if (rawPage['has_more_before'] is! bool ||
+        rawPage['has_more_after'] is! bool ||
+        limitValue == null ||
+        newestSeq == null ||
+        oldestSeq == null) {
+      throw const FormatException('消息分页响应格式不正确');
+    }
+    return MessagePage(
+        messages: parsed,
+        hasMoreBefore: rawPage['has_more_before'] as bool,
+        hasMoreAfter: rawPage['has_more_after'] as bool,
+        limit: limitValue,
+        newestSeq: newestSeq,
+        oldestSeq: oldestSeq);
+  }
+
+  @override
+  Future<List<ChatMessage>> messagesAfter(String conversationId,
+      {required int afterSeq, int limit = 50}) async {
+    final query = Uri(queryParameters: {
+      'after_seq': '$afterSeq',
+      'limit': '$limit',
+    }).query;
+    final data = _data(await _request('GET',
+        '/api/client/conversations/${Uri.encodeComponent(conversationId)}/messages?$query'));
+    final values = data['messages'];
+    if (values is! List) throw const FormatException('消息列表响应格式不正确');
+    final parsed = values
+        .whereType<Map<String, dynamic>>()
+        .map((item) => _messageFromJson(item, conversationId))
+        .where((item) => item.id.isNotEmpty)
+        .toList(growable: false);
+    final rawPage = data['page'];
+    if (rawPage == null) return parsed;
+    if (rawPage is! Map<String, dynamic>) {
+      throw const FormatException('消息分页响应格式不正确');
+    }
+    int? pageInt(Object? value) =>
+        value is num && value.isFinite && value.toInt() == value
+            ? value.toInt()
+            : null;
     final limitValue = pageInt(rawPage['limit']);
     final newestSeq = pageInt(rawPage['newest_seq']);
     final oldestSeq = pageInt(rawPage['oldest_seq']);

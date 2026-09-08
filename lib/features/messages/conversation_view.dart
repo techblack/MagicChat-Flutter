@@ -224,6 +224,9 @@ class _ConversationViewState extends State<ConversationView>
   bool _loadingOlder = false;
   bool _hasMoreOlder = true;
   int? _lastOlderBeforeSeq;
+  bool _loadingNewer = false;
+  bool _hasMoreNewer = false;
+  int? _lastNewerAfterSeq;
   int _lastReadSequence = 0;
   bool _readInFlight = false;
   int? _pendingReadSequence;
@@ -808,7 +811,9 @@ class _ConversationViewState extends State<ConversationView>
           .messages(id, beforeSeq: targetSequence + 26, limit: 50);
       _messagePage = history is MessagePage ? history : null;
       _hasMoreOlder = _messagePage?.hasMoreBefore ?? true;
+      _hasMoreNewer = _messagePage?.hasMoreAfter ?? false;
       _lastOlderBeforeSeq = null;
+      _lastNewerAfterSeq = null;
       await _preloadReplyTargets(id, history);
       await _preloadComplexMessages(id, history);
       unawaited(_refreshMessageSnapshots(id, history));
@@ -824,7 +829,9 @@ class _ConversationViewState extends State<ConversationView>
     final fresh = await widget.repository.messages(id);
     _messagePage = fresh is MessagePage ? fresh : null;
     _hasMoreOlder = _messagePage?.hasMoreBefore ?? true;
+    _hasMoreNewer = _messagePage?.hasMoreAfter ?? false;
     _lastOlderBeforeSeq = null;
+    _lastNewerAfterSeq = null;
     await _preloadReplyTargets(id, fresh);
     await _preloadComplexMessages(id, fresh);
     try {
@@ -982,7 +989,9 @@ class _ConversationViewState extends State<ConversationView>
     final fresh = await widget.repository.messages(id);
     _messagePage = fresh is MessagePage ? fresh : null;
     _hasMoreOlder = _messagePage?.hasMoreBefore ?? true;
+    _hasMoreNewer = _messagePage?.hasMoreAfter ?? false;
     _lastOlderBeforeSeq = null;
+    _lastNewerAfterSeq = null;
     final merged = <String, ChatMessage>{
       for (final message in await _readCachedMessages(id)) message.id: message,
       for (final message in fresh) message.id: message,
@@ -1320,6 +1329,21 @@ class _ConversationViewState extends State<ConversationView>
   Future<void> _onScroll() async {
     final id = widget.conversationId;
     if (id != null && !_historyMode) _requestLatestRead(id);
+    if (_historyMode &&
+        _hasMoreNewer &&
+        !_loadingNewer &&
+        _scrollController.hasClients &&
+        _scrollController.position.pixels -
+                _scrollController.position.minScrollExtent <=
+            24) {
+      if (id != null && mounted) {
+        final snapshot = await _messagesFuture;
+        if (snapshot != null && snapshot.isNotEmpty) {
+          await _loadNewerMessages(id, snapshot);
+        }
+      }
+      return;
+    }
     if (_loadingOlder ||
         !_hasMoreOlder ||
         !_scrollController.hasClients ||
@@ -1370,6 +1394,75 @@ class _ConversationViewState extends State<ConversationView>
       }
     } finally {
       if (mounted) setState(() => _loadingOlder = false);
+    }
+  }
+
+  Future<void> _loadNewerMessages(
+      String conversationId, List<ChatMessage> snapshot) async {
+    if (widget.repository is! ConversationMessageAfterPager) {
+      _hasMoreNewer = false;
+      return;
+    }
+    final pager = widget.repository as ConversationMessageAfterPager;
+    final newest = [..._olderMessages, ...snapshot]
+        .where((message) => message.sequence != null)
+        .fold<ChatMessage?>(
+            null,
+            (current, message) =>
+                current == null || message.sequence! > current.sequence!
+                    ? message
+                    : current);
+    final afterSeq = newest?.sequence;
+    if (afterSeq == null || _lastNewerAfterSeq == afterSeq) return;
+    _lastNewerAfterSeq = afterSeq;
+    setState(() => _loadingNewer = true);
+    try {
+      final newerPage = await pager.messagesAfter(conversationId,
+          afterSeq: afterSeq, limit: 50);
+      if (!mounted || widget.conversationId != conversationId) return;
+      final existing =
+          {..._olderMessages, ...snapshot}.map((item) => item.id).toSet();
+      final added = newerPage
+          .where((item) => !existing.contains(item.id))
+          .toList(growable: false);
+      if (newerPage is MessagePage) {
+        _messagePage = newerPage;
+        _hasMoreNewer = newerPage.hasMoreAfter && added.isNotEmpty;
+      } else {
+        _hasMoreNewer = added.isNotEmpty;
+      }
+      if (added.isEmpty) return;
+      await _preloadReplyTargets(conversationId, added);
+      await _preloadComplexMessages(conversationId, added);
+      if (!mounted || widget.conversationId != conversationId) return;
+      _invalidateTimeline();
+      unawaited(_upsertCachedMessages(conversationId, added));
+      setState(() {
+        _messagesFuture = Future.value([...snapshot, ...added]);
+      });
+      unawaited(_refreshNewerMessageSnapshots(conversationId, added));
+    } finally {
+      if (mounted) setState(() => _loadingNewer = false);
+    }
+  }
+
+  Future<void> _refreshNewerMessageSnapshots(
+      String conversationId, List<ChatMessage> messages) async {
+    final updated = await _applyMessageSnapshots(conversationId, messages);
+    if (!mounted || widget.conversationId != conversationId) return;
+    final byId = {for (final message in updated) message.id: message};
+    final snapshot = await _messagesFuture;
+    if (snapshot == null) return;
+    _invalidateTimeline();
+    setState(() {
+      _messagesFuture = Future.value(snapshot
+          .map((message) => byId[message.id] ?? message)
+          .toList(growable: false));
+    });
+    try {
+      await _upsertCachedMessages(conversationId, updated);
+    } catch (_) {
+      // 快照缓存失败不影响已经加载的更新消息。
     }
   }
 
@@ -1527,6 +1620,8 @@ class _ConversationViewState extends State<ConversationView>
     _historyMode = false;
     _highlightTimer?.cancel();
     _olderMessages.clear();
+    _hasMoreNewer = false;
+    _lastNewerAfterSeq = null;
     _messageKeys.clear();
     _focusedMessageId = null;
     _highlightedMessageId = null;
@@ -1561,6 +1656,8 @@ class _ConversationViewState extends State<ConversationView>
       _olderMessages.clear();
       _hasMoreOlder = true;
       _lastOlderBeforeSeq = null;
+      _hasMoreNewer = false;
+      _lastNewerAfterSeq = null;
       _lastReadSequence = 0;
       _pendingReadSequence = null;
       _positioningConversationId = null;
@@ -1617,6 +1714,8 @@ class _ConversationViewState extends State<ConversationView>
       _olderMessages.clear();
       _hasMoreOlder = true;
       _lastOlderBeforeSeq = null;
+      _hasMoreNewer = false;
+      _lastNewerAfterSeq = null;
       _messagePage = null;
       _preloadedImages.clear();
       _preloadedAttachmentUrls.clear();
@@ -1649,6 +1748,8 @@ class _ConversationViewState extends State<ConversationView>
         _resetScrollPosition();
         _historyMode = true;
         _olderMessages.clear();
+        _hasMoreNewer = false;
+        _lastNewerAfterSeq = null;
         _messageKeys.clear();
         _positionGeneration++;
         _initialPositionPending = true;
@@ -2373,7 +2474,7 @@ class _ConversationViewState extends State<ConversationView>
                   },
                 ),
                 Positioned(
-                  top: 8,
+                  bottom: 8,
                   left: 0,
                   right: 0,
                   child: IgnorePointer(
@@ -2401,6 +2502,38 @@ class _ConversationViewState extends State<ConversationView>
                             )
                           : const SizedBox.shrink(
                               key: ValueKey('older-messages-idle')),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 8,
+                  left: 0,
+                  right: 0,
+                  child: IgnorePointer(
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 160),
+                      child: _loadingNewer
+                          ? Semantics(
+                              key: const ValueKey('newer-messages-loading'),
+                              label: '正在加载更新消息',
+                              child: Material(
+                                elevation: 1,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerHigh,
+                                shape: const CircleBorder(),
+                                child: const Padding(
+                                  padding: EdgeInsets.all(8),
+                                  child: SizedBox.square(
+                                    dimension: 18,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2),
+                                  ),
+                                ),
+                              ),
+                            )
+                          : const SizedBox.shrink(
+                              key: ValueKey('newer-messages-idle')),
                     ),
                   ),
                 ),
