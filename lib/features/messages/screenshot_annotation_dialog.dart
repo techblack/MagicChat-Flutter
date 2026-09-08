@@ -2,7 +2,8 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'package:flutter/gestures.dart' show DragStartBehavior;
+import 'package:flutter/gestures.dart'
+    show DragStartBehavior, PointerExitEvent, PointerHoverEvent;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
     show KeyDownEvent, KeyEvent, LogicalKeyboardKey;
@@ -62,6 +63,7 @@ class _ScreenshotAnnotationDialogState
   ScreenshotAnnotation? _movePreview;
   ScreenshotAnnotationResizeHandle? _resizeHandle;
   ScreenshotAnnotationPoint? _start;
+  ScreenshotAnnotationPoint? _cursor;
   List<ScreenshotAnnotationPoint> _brushPoints = const [];
   final FocusNode _keyboardFocusNode = FocusNode();
   int _color = screenshotAnnotationColors.first;
@@ -126,6 +128,7 @@ class _ScreenshotAnnotationDialogState
   void _startDrawing(DragStartDetails details, Size displaySize) {
     if (_rendering || _tool == ScreenshotAnnotationTool.text) return;
     final point = _imagePoint(details.localPosition, displaySize);
+    setState(() => _cursor = point);
     if (_tool == ScreenshotAnnotationTool.select) {
       final current = _selected;
       final resizeHandle = current == null
@@ -159,8 +162,12 @@ class _ScreenshotAnnotationDialogState
 
   void _updateDrawing(DragUpdateDetails details, Size displaySize) {
     final start = _start;
-    if (start == null || _rendering) return;
     final point = _imagePoint(details.localPosition, displaySize);
+    if (_rendering) return;
+    if (start == null) {
+      setState(() => _cursor = point);
+      return;
+    }
     final lineWidth = screenshotAnnotationLineWidth(
         displayWidth: displaySize.width, imageWidth: _imageWidth);
     setState(() {
@@ -210,6 +217,7 @@ class _ScreenshotAnnotationDialogState
       final preview = _movePreview;
       var changed = false;
       setState(() {
+        _cursor = null;
         if (original != null &&
             preview != null &&
             !identical(original, preview)) {
@@ -228,6 +236,7 @@ class _ScreenshotAnnotationDialogState
     final draft = _draft;
     var changed = false;
     setState(() {
+      _cursor = null;
       if (draft != null && _isVisible(draft)) {
         _history = _history.commit(draft);
         changed = true;
@@ -244,6 +253,7 @@ class _ScreenshotAnnotationDialogState
   }
 
   void _cancelDrawing() => setState(() {
+        _cursor = null;
         _start = null;
         _brushPoints = const [];
         _draft = null;
@@ -312,6 +322,18 @@ class _ScreenshotAnnotationDialogState
       _resizeHandle = null;
     });
     _keyboardFocusNode.requestFocus();
+  }
+
+  void _updateCursor(PointerHoverEvent event, Size displaySize) {
+    if (_rendering) return;
+    final point = _imagePoint(event.localPosition, displaySize);
+    if (point == _cursor) return;
+    setState(() => _cursor = point);
+  }
+
+  void _clearCursor(PointerExitEvent event) {
+    if (_start != null || _cursor == null) return;
+    setState(() => _cursor = null);
   }
 
   ScreenshotAnnotation? _annotationAt(
@@ -679,6 +701,25 @@ class _ScreenshotAnnotationDialogState
         final rect = Alignment.center
             .inscribe(fitted.destination, Offset.zero & constraints.biggest);
         final displaySize = rect.size;
+        final cursor = _cursor;
+        final cursorDisplay = cursor == null
+            ? null
+            : Offset(
+                cursor.x * displaySize.width / _imageWidth,
+                cursor.y * displaySize.height / _imageHeight,
+              );
+        const magnifierSize = 116.0;
+        final cursorCanvas = cursorDisplay == null
+            ? null
+            : Offset(rect.left + cursorDisplay.dx, rect.top + cursorDisplay.dy);
+        final magnifierLeft = cursorCanvas == null
+            ? 0.0
+            : (cursorCanvas.dx + 20)
+                .clamp(8.0, constraints.maxWidth - magnifierSize - 8);
+        final magnifierTop = cursorCanvas == null
+            ? 0.0
+            : (cursorCanvas.dy + 20)
+                .clamp(8.0, constraints.maxHeight - magnifierSize - 8);
         return Stack(children: [
           Positioned.fromRect(
             rect: rect,
@@ -686,30 +727,51 @@ class _ScreenshotAnnotationDialogState
               child: Stack(fit: StackFit.expand, children: [
                 Image.memory(widget.screenshot.bytes,
                     fit: BoxFit.fill, gaplessPlayback: true),
-                GestureDetector(
-                  key: const ValueKey('screenshot-annotation-canvas'),
-                  behavior: HitTestBehavior.opaque,
-                  dragStartBehavior: DragStartBehavior.down,
-                  onPanStart: (details) => _startDrawing(details, displaySize),
-                  onPanUpdate: (details) =>
-                      _updateDrawing(details, displaySize),
-                  onPanEnd: _finishDrawing,
-                  onPanCancel: _cancelDrawing,
-                  onTapUp: (details) => _handleCanvasTap(details, displaySize),
-                  child: CustomPaint(
-                    painter: ScreenshotAnnotationPainter(
-                      annotations: _history.present,
-                      draft: _draft,
-                      selected: _selected,
-                      movePreview: _movePreview,
-                      imageSize:
-                          Size(_imageWidth.toDouble(), _imageHeight.toDouble()),
+                MouseRegion(
+                  onHover: (event) => _updateCursor(event, displaySize),
+                  onExit: _clearCursor,
+                  child: GestureDetector(
+                    key: const ValueKey('screenshot-annotation-canvas'),
+                    behavior: HitTestBehavior.opaque,
+                    dragStartBehavior: DragStartBehavior.down,
+                    onPanStart: (details) =>
+                        _startDrawing(details, displaySize),
+                    onPanUpdate: (details) =>
+                        _updateDrawing(details, displaySize),
+                    onPanEnd: _finishDrawing,
+                    onPanCancel: _cancelDrawing,
+                    onTapUp: (details) =>
+                        _handleCanvasTap(details, displaySize),
+                    child: CustomPaint(
+                      painter: ScreenshotAnnotationPainter(
+                        annotations: _history.present,
+                        draft: _draft,
+                        selected: _selected,
+                        movePreview: _movePreview,
+                        imageSize: Size(
+                            _imageWidth.toDouble(), _imageHeight.toDouble()),
+                      ),
                     ),
                   ),
                 ),
               ]),
             ),
           ),
+          if (cursorDisplay != null)
+            Positioned(
+              key: const ValueKey('screenshot-magnifier'),
+              left: magnifierLeft.toDouble(),
+              top: magnifierTop.toDouble(),
+              width: magnifierSize,
+              height: magnifierSize,
+              child: IgnorePointer(
+                child: _ScreenshotMagnifier(
+                  bytes: widget.screenshot.bytes,
+                  displaySize: displaySize,
+                  center: cursorDisplay!,
+                ),
+              ),
+            ),
         ]);
       });
 
@@ -788,6 +850,77 @@ class _ScreenshotAnnotationDialogState
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KiB';
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MiB';
   }
+}
+
+/// 在截图画布附近显示当前指针周围的放大区域，方便精确拖拽控制点和
+/// 绘制细小标注。使用显示尺寸进行缩放，不会改变最终导出图片内容。
+class _ScreenshotMagnifier extends StatelessWidget {
+  const _ScreenshotMagnifier({
+    required this.bytes,
+    required this.displaySize,
+    required this.center,
+  });
+
+  static const size = 116.0;
+  static const zoom = 3.0;
+
+  final Uint8List bytes;
+  final Size displaySize;
+  final Offset center;
+
+  @override
+  Widget build(BuildContext context) {
+    final scaled = Size(displaySize.width * zoom, displaySize.height * zoom);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+            color: Theme.of(context).colorScheme.onSurface, width: 2),
+        boxShadow: const [
+          BoxShadow(color: Colors.black54, blurRadius: 8, spreadRadius: 1),
+        ],
+      ),
+      child: ClipOval(
+        child: SizedBox(
+          width: size,
+          height: size,
+          child: Stack(children: [
+            Positioned(
+              left: size / 2 - center.dx * zoom,
+              top: size / 2 - center.dy * zoom,
+              width: scaled.width,
+              height: scaled.height,
+              child:
+                  Image.memory(bytes, fit: BoxFit.fill, gaplessPlayback: true),
+            ),
+            const Positioned.fill(
+                child: CustomPaint(painter: _MagnifierCrosshairPainter())),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+class _MagnifierCrosshairPainter extends CustomPainter {
+  const _MagnifierCrosshairPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final paint = Paint()
+      ..color = Colors.red
+      ..strokeWidth = 1
+      ..style = PaintingStyle.stroke;
+    canvas.drawLine(Offset(center.dx - 10, center.dy),
+        Offset(center.dx + 10, center.dy), paint);
+    canvas.drawLine(Offset(center.dx, center.dy - 10),
+        Offset(center.dx, center.dy + 10), paint);
+    canvas.drawCircle(center, 3, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _MagnifierCrosshairPainter oldDelegate) => false;
 }
 
 class ScreenshotAnnotationPainter extends CustomPainter {

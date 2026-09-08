@@ -148,6 +148,32 @@ void main() {
     expect(_coloredPixelCount(output), greaterThan(0));
   });
 
+  testWidgets('截图标注画布在拖拽时显示放大镜辅助定位', (tester) async {
+    final source = image.Image(width: 160, height: 90, numChannels: 4);
+    image.fill(source, color: image.ColorRgba8(255, 255, 255, 255));
+    await tester.pumpWidget(MaterialApp(
+      home: ScreenshotAnnotationDialog(
+        screenshot: CapturedScreenshot(
+          bytes: Uint8List.fromList(image.encodePng(source)),
+          width: 160,
+          height: 90,
+          fileName: 'magnifier.png',
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    final canvas = tester
+        .getRect(find.byKey(const ValueKey('screenshot-annotation-canvas')));
+    final gesture = await tester.startGesture(canvas.center);
+    await gesture.moveBy(const Offset(24, 12));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('screenshot-magnifier')), findsOneWidget);
+    await gesture.up();
+    await tester.pump();
+    expect(find.byKey(const ValueKey('screenshot-magnifier')), findsNothing);
+  });
+
   testWidgets('截图可在点击位置添加中文文字并撤销重做', (tester) async {
     final source = image.Image(width: 160, height: 90, numChannels: 4);
     image.fill(source, color: image.ColorRgba8(255, 255, 255, 255));
