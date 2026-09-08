@@ -1285,11 +1285,7 @@ class _ConversationViewState extends State<ConversationView>
         .where((message) => message.sequence != null)
         .fold<int>(0, (value, message) => max(value, message.sequence!));
     if (latest <= 0 || latest <= _lastReadSequence) return;
-    final atBottom = !_scrollController.hasClients ||
-        _scrollController.position.maxScrollExtent -
-                _scrollController.position.pixels <
-            48;
-    if (!atBottom) return;
+    if (!_isAtBottom()) return;
     _pendingReadSequence = max(_pendingReadSequence ?? 0, latest);
     if (_readInFlight) return;
     unawaited(_flushRead(conversationId));
@@ -1327,7 +1323,9 @@ class _ConversationViewState extends State<ConversationView>
     if (_loadingOlder ||
         !_hasMoreOlder ||
         !_scrollController.hasClients ||
-        _scrollController.position.pixels > 24) return;
+        _scrollController.position.maxScrollExtent -
+                _scrollController.position.pixels >
+            24) return;
     if (id == null || !mounted) return;
     final snapshot = await _messagesFuture;
     if (snapshot == null || snapshot.isEmpty) return;
@@ -1343,9 +1341,6 @@ class _ConversationViewState extends State<ConversationView>
         first!.sequence! <= 1 ||
         _lastOlderBeforeSeq == first.sequence) return;
     _lastOlderBeforeSeq = first.sequence;
-    final anchorOffset = _scrollController.position.pixels;
-    final anchorMaxExtent = _scrollController.position.maxScrollExtent;
-    final anchorScrollGeneration = _scrollInteractionGeneration;
     setState(() => _loadingOlder = true);
     try {
       final olderPage = await widget.repository
@@ -1370,24 +1365,6 @@ class _ConversationViewState extends State<ConversationView>
         // 旧页只做增量写入，避免每翻一页都重写整段历史，保证长会话加载为 O(page)。
         unawaited(_upsertCachedMessages(id, added));
         setState(() {});
-        if (added.isNotEmpty) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted ||
-                widget.conversationId != id ||
-                !_scrollController.hasClients ||
-                _listPointerActive ||
-                anchorScrollGeneration != _scrollInteractionGeneration) {
-              return;
-            }
-            final currentOffset = _scrollController.position.pixels;
-            if ((currentOffset - anchorOffset).abs() > 24) return;
-            final delta =
-                _scrollController.position.maxScrollExtent - anchorMaxExtent;
-            final target = (anchorOffset + delta)
-                .clamp(0.0, _scrollController.position.maxScrollExtent);
-            _scrollController.jumpTo(target.toDouble());
-          });
-        }
         if (added.isNotEmpty)
           unawaited(_refreshOlderMessageSnapshots(id, added));
       }
@@ -1430,8 +1407,8 @@ class _ConversationViewState extends State<ConversationView>
 
   bool _isAtBottom() =>
       !_scrollController.hasClients ||
-      _scrollController.position.maxScrollExtent -
-              _scrollController.position.pixels <
+      _scrollController.position.pixels -
+              _scrollController.position.minScrollExtent <
           48;
 
   void _correctLatestPosition(String conversationId,
@@ -1453,60 +1430,33 @@ class _ConversationViewState extends State<ConversationView>
     });
   }
 
-  /// 等待几帧让图片、富文本和折叠内容完成布局后再校正到底部。
-  ///
-  /// 单次 post-frame 的 maxScrollExtent 可能仍是首屏估算值，尤其是从
-  /// 缓存进入会话或消息包含异步图片时。每次只在滚动 generation 未变化时
-  /// 继续校正，因此用户主动上滑不会被后台布局抢回底部。
+  /// 反向时间轴的最新位置始终是 minScrollExtent，不再依赖可变高度消息
+  /// 布局过程中不断变化的 maxScrollExtent。
   void _scheduleLatestJump(String conversationId,
       {required int expectedScrollGeneration,
       required int expectedPositionGeneration,
+      bool force = false,
       int attempt = 0}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
           widget.conversationId != conversationId ||
-          expectedPositionGeneration != _positionGeneration ||
-          expectedScrollGeneration != _scrollInteractionGeneration ||
-          _listPointerActive ||
-          _messagePointerActive) return;
+          expectedPositionGeneration != _positionGeneration) return;
+      if (!force &&
+          (expectedScrollGeneration != _scrollInteractionGeneration ||
+              _listPointerActive ||
+              _messagePointerActive)) return;
       if (!_scrollController.hasClients) {
         if (attempt < 4) {
           _scheduleLatestJump(conversationId,
               expectedScrollGeneration: expectedScrollGeneration,
               expectedPositionGeneration: expectedPositionGeneration,
+              force: force,
               attempt: attempt + 1);
         }
         return;
       }
       final position = _scrollController.position;
-      final previousMax = position.maxScrollExtent;
-      position.jumpTo(previousMax);
-      if (attempt >= 4) return;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted ||
-            widget.conversationId != conversationId ||
-            expectedPositionGeneration != _positionGeneration ||
-            expectedScrollGeneration != _scrollInteractionGeneration ||
-            _listPointerActive ||
-            _messagePointerActive) return;
-        if (!_scrollController.hasClients) {
-          if (attempt < 4) {
-            _scheduleLatestJump(conversationId,
-                expectedScrollGeneration: expectedScrollGeneration,
-                expectedPositionGeneration: expectedPositionGeneration,
-                attempt: attempt + 1);
-          }
-          return;
-        }
-        final current = _scrollController.position;
-        if ((current.maxScrollExtent - previousMax).abs() > 1 ||
-            (current.pixels - current.maxScrollExtent).abs() > 1) {
-          _scheduleLatestJump(conversationId,
-              expectedScrollGeneration: expectedScrollGeneration,
-              expectedPositionGeneration: expectedPositionGeneration,
-              attempt: attempt + 1);
-        }
-      });
+      position.jumpTo(position.minScrollExtent);
     });
   }
 
@@ -1731,11 +1681,12 @@ class _ConversationViewState extends State<ConversationView>
   /// IndexedStack 会复用消息视图和 ScrollController。切换会话或账号时
   /// 先清掉旧会话 offset，避免新会话在尚未完成首屏定位时继承旧位置。
   void _resetScrollPosition() {
-    if (!_scrollController.hasClients || _scrollController.position.pixels == 0)
-      return;
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    if (position.pixels == position.minScrollExtent) return;
     _scrollController.removeListener(_onScroll);
     try {
-      _scrollController.jumpTo(0);
+      _scrollController.jumpTo(position.minScrollExtent);
     } finally {
       _scrollController.addListener(_onScroll);
     }
@@ -1834,7 +1785,8 @@ class _ConversationViewState extends State<ConversationView>
   void _scrollToLatest(String conversationId) {
     _scheduleLatestJump(conversationId,
         expectedScrollGeneration: _scrollInteractionGeneration,
-        expectedPositionGeneration: _positionGeneration);
+        expectedPositionGeneration: _positionGeneration,
+        force: true);
   }
 
   Future<void> _performOptimisticSend(
@@ -2285,13 +2237,17 @@ class _ConversationViewState extends State<ConversationView>
                         child: ListView.builder(
                           key: const ValueKey('conversation-message-list'),
                           controller: _scrollController,
-                          cacheExtent: 480,
+                          reverse: true,
+                          // 搜索历史只加载目标附近的一页，预构建整页才能让
+                          // ensureVisible 在首帧拿到目标；普通会话仍按需构建。
+                          cacheExtent: _historyMode ? 100000 : 480,
                           addAutomaticKeepAlives: false,
                           addRepaintBoundaries: true,
                           padding: const EdgeInsets.fromLTRB(8, 16, 8, 12),
                           itemCount: allMessages.length,
                           itemBuilder: (context, index) {
-                            final message = allMessages[index];
+                            final message =
+                                allMessages[allMessages.length - index - 1];
                             final optimistic =
                                 _timelineOptimisticById[message.id];
                             if (optimistic != null) {

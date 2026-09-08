@@ -174,16 +174,16 @@ void main() {
     await tester.pumpAndSettle();
     final scrollable = find.byType(Scrollable).first;
     final position = tester.state<ScrollableState>(scrollable).position;
-    position.jumpTo(position.maxScrollExtent);
+    position.jumpTo(position.minScrollExtent);
     await tester.pump();
 
     await tester.drag(find.byType(ListView).first, const Offset(0, 360));
     await tester.pump();
-    final distanceFromBottom = position.maxScrollExtent - position.pixels;
+    final distanceFromBottom = position.pixels - position.minScrollExtent;
     expect(distanceFromBottom, greaterThan(100));
 
     await tester.pump(const Duration(seconds: 1));
-    expect(position.maxScrollExtent - position.pixels, greaterThan(80));
+    expect(position.pixels - position.minScrollExtent, greaterThan(80));
   });
 }
 
