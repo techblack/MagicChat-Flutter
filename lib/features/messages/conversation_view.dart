@@ -972,10 +972,13 @@ class _ConversationViewState extends State<ConversationView>
 
   Future<void> _refreshMessages(String id) async {
     final expectedScrollGeneration = _scrollInteractionGeneration;
-    final keepBottom =
-        !_listPointerActive && _positionedConversationId == id && _isAtBottom();
-    final offset =
-        _scrollController.hasClients ? _scrollController.position.pixels : 0.0;
+    // 缓存首屏和远程刷新是并行的。刷新开始时可能还没有完成首屏定位，
+    // 此时也必须在远程数据布局后重新落到底部；否则会停在缓存窗口的
+    // 中间位置。用户一旦在期间滚动，generation 检查会取消这次自动定位。
+    final shouldCorrectLatest = !_historyMode &&
+        !_listPointerActive &&
+        !_userScrolledDuringInitialPosition &&
+        (_positionedConversationId != id || _isAtBottom());
     final fresh = await widget.repository.messages(id);
     _messagePage = fresh is MessagePage ? fresh : null;
     _hasMoreOlder = _messagePage?.hasMoreBefore ?? true;
@@ -1000,10 +1003,8 @@ class _ConversationViewState extends State<ConversationView>
       _removeConfirmedOptimisticMessages(merged);
       _messagesFuture = Future.value(merged);
     });
-    if (keepBottom) {
+    if (shouldCorrectLatest) {
       _correctLatestPosition(id,
-          force: true,
-          expectedOffset: offset,
           expectedScrollGeneration: expectedScrollGeneration);
     }
     unawaited(_refreshMessageSnapshots(id, merged));
@@ -1089,11 +1090,10 @@ class _ConversationViewState extends State<ConversationView>
   Future<void> _refreshMessageSnapshots(
       String conversationId, List<ChatMessage> messages) async {
     final expectedScrollGeneration = _scrollInteractionGeneration;
-    final keepBottom = !_listPointerActive &&
-        _positionedConversationId == conversationId &&
-        _isAtBottom();
-    final offset =
-        _scrollController.hasClients ? _scrollController.position.pixels : 0.0;
+    final shouldCorrectLatest = !_historyMode &&
+        !_listPointerActive &&
+        !_userScrolledDuringInitialPosition &&
+        (_positionedConversationId != conversationId || _isAtBottom());
     final updated = await _applyMessageSnapshots(conversationId, messages);
     if (!mounted || widget.conversationId != conversationId) return;
     try {
@@ -1107,10 +1107,8 @@ class _ConversationViewState extends State<ConversationView>
     setState(() {
       _messagesFuture = Future.value(updated);
     });
-    if (keepBottom) {
+    if (shouldCorrectLatest) {
       _correctLatestPosition(conversationId,
-          force: true,
-          expectedOffset: offset,
           expectedScrollGeneration: expectedScrollGeneration);
     }
   }
@@ -1436,9 +1434,7 @@ class _ConversationViewState extends State<ConversationView>
           48;
 
   void _correctLatestPosition(String conversationId,
-      {bool force = false,
-      double? expectedOffset,
-      required int expectedScrollGeneration}) {
+      {required int expectedScrollGeneration}) {
     final generation = _positionGeneration;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
@@ -1447,12 +1443,10 @@ class _ConversationViewState extends State<ConversationView>
           expectedScrollGeneration != _scrollInteractionGeneration ||
           _listPointerActive ||
           _messagePointerActive) return;
-      final unchanged = expectedOffset == null ||
-          (_scrollController.hasClients &&
-              (_scrollController.position.pixels - expectedOffset).abs() < 4);
-      if (_scrollController.hasClients &&
-          unchanged &&
-          (force || _isAtBottom())) {
+      // 只要用户没有产生新的滚动交互，就以最新布局的 maxScrollExtent
+      // 为准。图片/富文本高度变化会合法地改变 pixels，不能再用旧 offset
+      // 拦截校正，否则缓存首屏刷新后会停在中间位置。
+      if (_scrollController.hasClients) {
         _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
       }
     });
@@ -2218,7 +2212,7 @@ class _ConversationViewState extends State<ConversationView>
                         onNotification: _onListScrollNotification,
                         child: ListView.builder(
                           controller: _scrollController,
-                          cacheExtent: 480,
+                          scrollCacheExtent: ScrollCacheExtent.pixels(480),
                           addAutomaticKeepAlives: false,
                           addRepaintBoundaries: true,
                           padding: const EdgeInsets.fromLTRB(8, 16, 8, 12),

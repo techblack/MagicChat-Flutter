@@ -768,7 +768,7 @@ class _ScreenshotAnnotationDialogState
                 child: _ScreenshotMagnifier(
                   bytes: widget.screenshot.bytes,
                   displaySize: displaySize,
-                  center: cursorDisplay!,
+                  center: cursorDisplay,
                 ),
               ),
             ),
