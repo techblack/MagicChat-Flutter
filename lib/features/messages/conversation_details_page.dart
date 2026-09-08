@@ -10,6 +10,7 @@ import '../../data/message_cache_store.dart';
 import '../../data/realtime_store.dart';
 import '../../data/repository.dart';
 import '../../domain/models.dart';
+import '../../domain/user_safety.dart';
 import '../contacts/entity_details_page.dart';
 import '../shared/cached_avatar.dart';
 import '../shared/conversation_avatar.dart';
@@ -93,6 +94,7 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
               _hydrateConversation(data.conversation, contacts),
           currentUser: data.currentUser,
           contacts: contacts,
+          blockStatus: data.blockStatus,
           unavailableMemberIds: _unavailableMemberIds(contacts),
           availableProjects: data.availableProjects,
           topicDetail: data.topicDetail);
@@ -142,6 +144,20 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
     if (conversation.type == 'topic') {
       topicDetail = await widget.repository.topicDetail(conversation.id);
       conversation = topicDetail.conversation;
+    }
+    UserBlockStatus? blockStatus;
+    if (conversation.type == 'direct') {
+      final peer = conversation.members
+          .where((member) =>
+              member.type == 'user' && !_sameId(member.id, currentUser.id))
+          .firstOrNull;
+      if (peer != null) {
+        try {
+          blockStatus = await widget.repository.userBlockStatus(peer.id);
+        } catch (_) {
+          // 旧服务端没有安全接口时不阻断聊天详情，其余设置仍可使用。
+        }
+      }
     }
     final contactsById = <String, Contact>{};
     for (final member in conversation.members) {
@@ -198,6 +214,7 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
         conversation: hydrated,
         currentUser: currentUser,
         contacts: contacts,
+        blockStatus: blockStatus,
         unavailableMemberIds: _unavailableMemberIds(contacts),
         availableProjects: availableProjects,
         topicDetail: topicDetail);
@@ -298,6 +315,13 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
         conversation.type == 'group' && currentMember != null;
     final canAddMembers = conversation.type == 'group' && currentMember != null;
     final visibleMembers = _visibleMembers(conversation, data.currentUser.id);
+    final directPeer = conversation.type == 'direct'
+        ? conversation.members
+            .where((member) =>
+                member.type == 'user' &&
+                !_sameId(member.id, data.currentUser.id))
+            .firstOrNull
+        : null;
     final unavailableMemberCount = visibleMembers
         .where((member) =>
             data.unavailableMemberIds.contains(member.id.toLowerCase()))
@@ -478,6 +502,40 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
                     ),
                   ]),
                 ),
+                if (directPeer != null) ...[
+                  const SizedBox(height: 14),
+                  Card(
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(children: [
+                      SwitchListTile(
+                        secondary: const Icon(Icons.block_outlined),
+                        title: const Text('黑名单'),
+                        subtitle: Text(data.blockStatus == null
+                            ? '黑名单状态暂不可用'
+                            : data.blockStatus!.blocked
+                                ? '对方无法向你发送私聊消息'
+                                : '对方可以向你发送私聊消息'),
+                        value: data.blockStatus?.blocked ?? false,
+                        onChanged: _busy || data.blockStatus == null
+                            ? null
+                            : (value) => value
+                                ? _confirmBlockUser(directPeer)
+                                : _setUserBlocked(directPeer.id, false),
+                      ),
+                      const Divider(height: 1, indent: 16),
+                      ListTile(
+                        leading: const Icon(Icons.flag_outlined),
+                        title: const Text('举报'),
+                        subtitle: const Text('举报私聊中的不当内容'),
+                        enabled: !_busy,
+                        onTap: _busy
+                            ? null
+                            : () =>
+                                _showReportDialog(conversation.id, directPeer),
+                      ),
+                    ]),
+                  ),
+                ],
                 const SizedBox(height: 14),
                 Card(
                   clipBehavior: Clip.antiAlias,
@@ -524,6 +582,115 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
   String get _appearanceSummary {
     final appearance = _effectiveAppearance;
     return '${appearance.background.label}背景 · ${appearance.bubble.label}气泡';
+  }
+
+  Future<void> _confirmBlockUser(Contact peer) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('加入黑名单？'),
+        content: Text('加入后，${peer.displayName}将无法再向你发送私聊消息，但你仍可向对方发送消息。'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('加入黑名单')),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await _setUserBlocked(peer.id, true);
+    }
+  }
+
+  Future<void> _setUserBlocked(String userId, bool blocked) async {
+    await _run(() async {
+      await widget.repository.setUserBlocked(userId, blocked);
+    }, successMessage: blocked ? '已加入黑名单' : '已解除黑名单');
+  }
+
+  Future<void> _showReportDialog(String conversationId, Contact peer) async {
+    UserReportReason? reason;
+    var description = '';
+    final result =
+        await showDialog<({UserReportReason reason, String description})>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: Text('举报 ${peer.displayName}'),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 460),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              InputDecorator(
+                decoration: const InputDecoration(labelText: '举报原因'),
+                child: InkWell(
+                  key: const ValueKey('user-report-reason-selector'),
+                  borderRadius: BorderRadius.circular(4),
+                  onTap: () async {
+                    final selected =
+                        await showModalBottomSheet<UserReportReason>(
+                      context: dialogContext,
+                      builder: (sheetContext) => SafeArea(
+                        child: ListView(
+                          shrinkWrap: true,
+                          children: UserReportReason.values
+                              .map((value) => ListTile(
+                                    key: ValueKey(
+                                        'user-report-reason-${value.name}'),
+                                    title: Text(userReportReasonLabel(value)),
+                                    onTap: () =>
+                                        Navigator.pop(sheetContext, value),
+                                  ))
+                              .toList(),
+                        ),
+                      ),
+                    );
+                    if (selected != null) {
+                      setDialogState(() => reason = selected);
+                    }
+                  },
+                  child: Row(children: [
+                    Expanded(
+                      child: Text(reason == null
+                          ? '请选择举报原因'
+                          : userReportReasonLabel(reason!)),
+                    ),
+                    const Icon(Icons.expand_more),
+                  ]),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const ValueKey('user-report-description'),
+                maxLines: 4,
+                maxLength: 500,
+                decoration: const InputDecoration(
+                    labelText: '举报描述', hintText: '请描述具体情况'),
+                onChanged: (value) => setDialogState(() => description = value),
+              ),
+            ]),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('取消')),
+            FilledButton(
+                onPressed: reason == null || description.trim().isEmpty
+                    ? null
+                    : () => Navigator.pop(dialogContext,
+                        (reason: reason!, description: description.trim())),
+                child: const Text('提交举报')),
+          ],
+        ),
+      ),
+    );
+    if (result == null || !mounted) return;
+    await _run(
+        () => widget.repository.reportUser(conversationId,
+            reason: result.reason, description: result.description),
+        successMessage: '举报已提交，我们将尽快处理');
   }
 
   ChatConversationAppearance get _effectiveAppearance =>
@@ -1200,6 +1367,7 @@ class _ConversationDetailsData {
     required this.conversation,
     required this.currentUser,
     required this.contacts,
+    this.blockStatus,
     required this.unavailableMemberIds,
     this.availableProjects = const [],
     this.topicDetail,
@@ -1208,6 +1376,7 @@ class _ConversationDetailsData {
   final ChatConversation conversation;
   final CurrentUser currentUser;
   final List<Contact> contacts;
+  final UserBlockStatus? blockStatus;
   final Set<String> unavailableMemberIds;
   final List<Project> availableProjects;
   final TopicDetail? topicDetail;
