@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import '../domain/models.dart';
 import '../domain/message_content.dart';
+import '../domain/user_safety.dart';
 import 'http_client.dart';
 import 'session_store.dart';
 import 'contact_cache_store.dart';
@@ -109,6 +110,10 @@ abstract interface class MagicChatRepository {
   Future<void> acceptFriendRequest(String requestId);
   Future<void> rejectFriendRequest(String requestId);
   Future<void> cancelFriendRequest(String requestId);
+  Future<UserBlockStatus> userBlockStatus(String userId);
+  Future<UserBlockStatus> setUserBlocked(String userId, bool blocked);
+  Future<void> reportUser(String conversationId,
+      {required UserReportReason reason, required String description});
   Future<List<OwnedApp>> apps();
   Future<AppCredentials> createApp(String name,
       {String description = '',
@@ -657,6 +662,18 @@ class DemoRepository implements MagicChatRepository {
   Future<void> rejectFriendRequest(String requestId) async {}
   @override
   Future<void> cancelFriendRequest(String requestId) async {}
+
+  @override
+  Future<UserBlockStatus> userBlockStatus(String userId) async =>
+      UserBlockStatus(userId: userId, blocked: false);
+
+  @override
+  Future<UserBlockStatus> setUserBlocked(String userId, bool blocked) async =>
+      UserBlockStatus(userId: userId, blocked: blocked);
+
+  @override
+  Future<void> reportUser(String conversationId,
+      {required UserReportReason reason, required String description}) async {}
 
   final _apps = <OwnedApp>[
     const OwnedApp(
@@ -2311,6 +2328,63 @@ class HttpMagicChatRepository implements MagicChatRepository {
   @override
   Future<void> cancelFriendRequest(String requestId) async => _request('DELETE',
       '/api/client/friend-requests/${Uri.encodeComponent(requestId)}');
+
+  @override
+  Future<UserBlockStatus> userBlockStatus(String userId) async {
+    final normalized = userId.trim();
+    if (normalized.isEmpty) throw const FormatException('用户 ID 不能为空');
+    final data = _data(await _request(
+        'GET', '/api/client/blocked-users/${Uri.encodeComponent(normalized)}'));
+    return _userBlockStatusFromJson(data, normalized);
+  }
+
+  @override
+  Future<UserBlockStatus> setUserBlocked(String userId, bool blocked) async {
+    final normalized = userId.trim();
+    if (normalized.isEmpty) throw const FormatException('用户 ID 不能为空');
+    final method = blocked ? 'PUT' : 'DELETE';
+    final data = _data(await _request(method,
+        '/api/client/blocked-users/${Uri.encodeComponent(normalized)}'));
+    return _userBlockStatusFromJson(data, normalized);
+  }
+
+  UserBlockStatus _userBlockStatusFromJson(
+      Map<String, dynamic> value, String expectedUserId) {
+    final userId = value['user_id'];
+    final blocked = value['blocked'];
+    if (userId is! String ||
+        userId.trim().isEmpty ||
+        userId.trim().toLowerCase() != expectedUserId.toLowerCase() ||
+        blocked is! bool ||
+        (blocked &&
+            (value['blocked_at'] is! String ||
+                (value['blocked_at'] as String).trim().isEmpty))) {
+      throw const FormatException('黑名单状态响应格式不正确');
+    }
+    return UserBlockStatus(
+        userId: userId,
+        blocked: blocked,
+        blockedAt: value['blocked_at'] is String
+            ? value['blocked_at'] as String
+            : null);
+  }
+
+  @override
+  Future<void> reportUser(String conversationId,
+      {required UserReportReason reason, required String description}) async {
+    final normalizedDescription = description.trim();
+    if (normalizedDescription.isEmpty) {
+      throw const FormatException('举报描述不能为空');
+    }
+    await _request(
+      'POST',
+      '/api/client/conversations/${Uri.encodeComponent(conversationId)}/reports',
+      body: {
+        'reason': userReportReasonValue(reason),
+        'description': normalizedDescription,
+      },
+    );
+  }
 
   @override
   Future<List<OwnedApp>> apps() async {

@@ -586,46 +586,44 @@ class _ConversationViewState extends State<ConversationView>
   Future<List<Contact>> _fetchConversationContacts(
       {bool fetchDirectory = true,
       Iterable<String> extraUserIds = const []}) async {
-    final results = await Future.wait([
-      fetchDirectory
-          ? widget.repository.contacts()
-          : Future.value(const <Contact>[]),
-      widget.repository.conversations(),
-    ]);
+    // 进入聊天时通常已经有实时会话快照；不要为了读取当前会话成员
+    // 再拉取整份会话列表。大型组织中这会产生额外的大响应和解析。
+    final directory =
+        fetchDirectory ? await widget.repository.contacts() : const <Contact>[];
     final contacts = <String, Contact>{
-      for (final contact in results[0] as List<Contact>) contact.id: contact,
+      for (final contact in directory) contact.id: contact,
     };
     final id = widget.conversationId;
     final memberUserIds = <String>{};
     memberUserIds.addAll(extraUserIds.where((id) => id.trim().isNotEmpty));
     if (id != null) {
-      ChatConversation? selected;
-      for (final conversation in results[1] as List<ChatConversation>) {
-        if (conversation.id == id) {
-          selected = conversation;
-          for (final member in conversation.members) {
-            if (member.type == 'user' && member.id.trim().isNotEmpty) {
-              memberUserIds.add(member.id.trim());
-            }
-            final previous = contacts[member.id];
-            contacts[member.id] = previous == null
-                ? member
-                : previous.copyWith(
-                    name: member.name.trim().isNotEmpty ? member.name : null,
-                    nickname: member.nickname.trim().isNotEmpty
-                        ? member.nickname
-                        : null,
-                    avatar:
-                        member.avatar.trim().isNotEmpty ? member.avatar : null,
-                    email: member.email.trim().isNotEmpty ? member.email : null,
-                    phone: member.phone.trim().isNotEmpty ? member.phone : null,
-                    role: member.role,
-                    type: member.type);
-          }
-          break;
-        }
+      ChatConversation? selected =
+          _conversation ?? widget.realtimeStore?.conversations[id];
+      if (selected == null) {
+        // 没有本地/实时快照时才回退到远程会话列表。
+        final conversations = await widget.repository.conversations();
+        selected = conversations.where((item) => item.id == id).firstOrNull;
       }
       if (selected != null) {
+        for (final member in selected.members) {
+          if (member.type == 'user' && member.id.trim().isNotEmpty) {
+            memberUserIds.add(member.id.trim());
+          }
+          final previous = contacts[member.id];
+          contacts[member.id] = previous == null
+              ? member
+              : previous.copyWith(
+                  name: member.name.trim().isNotEmpty ? member.name : null,
+                  nickname: member.nickname.trim().isNotEmpty
+                      ? member.nickname
+                      : null,
+                  avatar:
+                      member.avatar.trim().isNotEmpty ? member.avatar : null,
+                  email: member.email.trim().isNotEmpty ? member.email : null,
+                  phone: member.phone.trim().isNotEmpty ? member.phone : null,
+                  role: member.role,
+                  type: member.type);
+        }
         _applyConversation(selected);
       }
       if (selected == null || selected.type == 'topic') {
@@ -1485,8 +1483,15 @@ class _ConversationViewState extends State<ConversationView>
     }
   }
 
-  GlobalKey _messageKey(String id) =>
-      _messageKeys.putIfAbsent(id, GlobalKey.new);
+  Key _messageKey(String id) {
+    // 历史消息可能达到百万级。只为需要定位的消息保留 GlobalKey，
+    // 其余行使用轻量 ValueKey，避免持续上翻导致 key map 无界增长。
+    final focusId = widget.focusMessageId;
+    if (focusId == id && focusId?.isNotEmpty == true) {
+      return _messageKeys.putIfAbsent(id, GlobalKey.new);
+    }
+    return ValueKey('message-$id');
+  }
 
   void _scheduleFocusMessage(
       String conversationId, List<ChatMessage> messages) {

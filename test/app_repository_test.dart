@@ -6,8 +6,64 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
+import 'package:magicchat_client/domain/user_safety.dart';
 
 void main() {
+  test('HTTP 仓库支持黑名单状态切换和私聊举报', () async {
+    final requests = <http.BaseRequest>[];
+    final repository = HttpMagicChatRepository(
+      serverUrl: 'https://chat.example.com',
+      sessionToken: 'token',
+      client: MockClient((request) async {
+        requests.add(request);
+        if (request.method == 'GET') {
+          return _jsonResponse({
+            'data': {
+              'user_id': 'user-2',
+              'blocked': false,
+            }
+          });
+        }
+        if (request.method == 'PUT') {
+          return _jsonResponse({
+            'data': {
+              'user_id': 'user-2',
+              'blocked': true,
+              'blocked_at': '2026-09-08T01:00:00Z',
+            }
+          });
+        }
+        return _jsonResponse({
+          'data': {
+            'report': {
+              'id': 'report-1',
+              'conversation_id': 'conversation-1',
+              'reported_user_id': 'user-2',
+              'reason': 'spam',
+              'created_at': '2026-09-08T01:01:00Z',
+            }
+          }
+        }, statusCode: 201);
+      }),
+    );
+
+    expect((await repository.userBlockStatus('user-2')).blocked, isFalse);
+    expect((await repository.setUserBlocked('user-2', true)).blocked, isTrue);
+    await repository.reportUser('conversation-1',
+        reason: UserReportReason.spam, description: '持续发送广告');
+
+    expect(requests.map((request) => '${request.method} ${request.url.path}'), [
+      'GET /api/client/blocked-users/user-2',
+      'PUT /api/client/blocked-users/user-2',
+      'POST /api/client/conversations/conversation-1/reports',
+    ]);
+    final report = requests.last as http.Request;
+    expect(jsonDecode(report.body), {
+      'reason': 'spam',
+      'description': '持续发送广告',
+    });
+  });
+
   test('HTTP 仓库按 Markdown 类型发送消息并保留回复和客户端 ID', () async {
     late http.Request request;
     final repository = HttpMagicChatRepository(

@@ -9,6 +9,7 @@ import 'package:magicchat_client/data/message_cache_store.dart';
 import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
+import 'package:magicchat_client/domain/user_safety.dart';
 import 'package:magicchat_client/features/messages/conversation_details_page.dart';
 import 'package:magicchat_client/features/shared/cached_avatar.dart';
 import 'package:magicchat_client/features/shared/conversation_avatar.dart';
@@ -429,6 +430,56 @@ void main() {
     expect(opened, 'created-group');
   });
 
+  testWidgets('私聊详情支持确认加入黑名单和提交举报', (tester) async {
+    final repository = _DetailsRepository.direct();
+    await _pumpDetails(tester, repository);
+
+    expect(find.text('黑名单'), findsOneWidget);
+    await tester.tap(find.widgetWithText(SwitchListTile, '黑名单'));
+    await tester.pumpAndSettle();
+    expect(find.text('加入黑名单？'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, '取消'));
+    await tester.pumpAndSettle();
+    expect(repository.blocked, isFalse);
+
+    await tester.tap(find.widgetWithText(SwitchListTile, '黑名单'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '加入黑名单'));
+    await tester.pumpAndSettle();
+    expect(repository.blocked, isTrue);
+    expect(find.text('对方无法向你发送私聊消息'), findsOneWidget);
+
+    await tester.tap(find.text('举报'));
+    await tester.pumpAndSettle();
+    expect(find.text('举报 Alice'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('user-report-reason-selector')));
+    await tester.pumpAndSettle();
+    await tester
+        .tap(find.byKey(const ValueKey('user-report-reason-sexualContent')));
+    await tester.pumpAndSettle();
+    expect(find.text('色情低俗'), findsOneWidget);
+    await tester.enterText(
+        find.byKey(const ValueKey('user-report-description')), '持续发送广告');
+    await tester.pump();
+    expect(
+        tester
+            .widget<EditableText>(find.descendant(
+                of: find.byKey(const ValueKey('user-report-description')),
+                matching: find.byType(EditableText)))
+            .controller
+            .text,
+        '持续发送广告');
+    expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '提交举报'))
+            .onPressed,
+        isNotNull);
+    await tester.tap(find.widgetWithText(FilledButton, '提交举报'));
+    await tester.pumpAndSettle();
+    expect(repository.reportReason, UserReportReason.sexualContent);
+    expect(repository.reportDescription, '持续发送广告');
+  });
+
   testWidgets('话题详情可按服务端权限关闭话题', (tester) async {
     final repository = _DetailsRepository.topic();
     await _pumpDetails(tester, repository);
@@ -598,6 +649,9 @@ class _DetailsRepository extends DemoRepository {
 
   ChatConversation conversation;
   bool left = false;
+  bool blocked = false;
+  UserReportReason? reportReason;
+  String? reportDescription;
   String? createdName;
   List<String> createdMemberIds = const [];
   List<String> addedMemberIds = const [];
@@ -704,6 +758,23 @@ class _DetailsRepository extends DemoRepository {
     visibilityChanges.add(isPublic);
     await visibilityCompleter?.future;
     conversation = _copy(isPublic: isPublic);
+  }
+
+  @override
+  Future<UserBlockStatus> userBlockStatus(String userId) async =>
+      UserBlockStatus(userId: userId, blocked: blocked);
+
+  @override
+  Future<UserBlockStatus> setUserBlocked(String userId, bool value) async {
+    blocked = value;
+    return UserBlockStatus(userId: userId, blocked: value);
+  }
+
+  @override
+  Future<void> reportUser(String conversationId,
+      {required UserReportReason reason, required String description}) async {
+    reportReason = reason;
+    reportDescription = description;
   }
 
   @override
