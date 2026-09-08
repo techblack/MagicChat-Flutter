@@ -972,10 +972,13 @@ class _ConversationViewState extends State<ConversationView>
 
   Future<void> _refreshMessages(String id) async {
     final expectedScrollGeneration = _scrollInteractionGeneration;
-    final keepBottom =
-        !_listPointerActive && _positionedConversationId == id && _isAtBottom();
-    final offset =
-        _scrollController.hasClients ? _scrollController.position.pixels : 0.0;
+    // 缓存首屏和远程刷新是并行的。刷新开始时可能还没有完成首屏定位，
+    // 此时也必须在远程数据布局后重新落到底部；否则会停在缓存窗口的
+    // 中间位置。用户一旦在期间滚动，generation 检查会取消这次自动定位。
+    final shouldCorrectLatest = !_historyMode &&
+        !_listPointerActive &&
+        !_userScrolledDuringInitialPosition &&
+        (_positionedConversationId != id || _isAtBottom());
     final fresh = await widget.repository.messages(id);
     _messagePage = fresh is MessagePage ? fresh : null;
     _hasMoreOlder = _messagePage?.hasMoreBefore ?? true;
@@ -1000,10 +1003,8 @@ class _ConversationViewState extends State<ConversationView>
       _removeConfirmedOptimisticMessages(merged);
       _messagesFuture = Future.value(merged);
     });
-    if (keepBottom) {
+    if (shouldCorrectLatest) {
       _correctLatestPosition(id,
-          force: true,
-          expectedOffset: offset,
           expectedScrollGeneration: expectedScrollGeneration);
     }
     unawaited(_refreshMessageSnapshots(id, merged));
@@ -1089,11 +1090,10 @@ class _ConversationViewState extends State<ConversationView>
   Future<void> _refreshMessageSnapshots(
       String conversationId, List<ChatMessage> messages) async {
     final expectedScrollGeneration = _scrollInteractionGeneration;
-    final keepBottom = !_listPointerActive &&
-        _positionedConversationId == conversationId &&
-        _isAtBottom();
-    final offset =
-        _scrollController.hasClients ? _scrollController.position.pixels : 0.0;
+    final shouldCorrectLatest = !_historyMode &&
+        !_listPointerActive &&
+        !_userScrolledDuringInitialPosition &&
+        (_positionedConversationId != conversationId || _isAtBottom());
     final updated = await _applyMessageSnapshots(conversationId, messages);
     if (!mounted || widget.conversationId != conversationId) return;
     try {
@@ -1107,10 +1107,8 @@ class _ConversationViewState extends State<ConversationView>
     setState(() {
       _messagesFuture = Future.value(updated);
     });
-    if (keepBottom) {
+    if (shouldCorrectLatest) {
       _correctLatestPosition(conversationId,
-          force: true,
-          expectedOffset: offset,
           expectedScrollGeneration: expectedScrollGeneration);
     }
   }
@@ -1423,7 +1421,9 @@ class _ConversationViewState extends State<ConversationView>
           !_listPointerActive &&
           !_messagePointerActive &&
           _scrollController.hasClients) {
-        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+        _scheduleLatestJump(conversationId,
+            expectedScrollGeneration: expectedScrollGeneration,
+            expectedPositionGeneration: generation);
       }
       _requestLatestRead(conversationId, messages);
     });
@@ -1436,9 +1436,7 @@ class _ConversationViewState extends State<ConversationView>
           48;
 
   void _correctLatestPosition(String conversationId,
-      {bool force = false,
-      double? expectedOffset,
-      required int expectedScrollGeneration}) {
+      {required int expectedScrollGeneration}) {
     final generation = _positionGeneration;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
@@ -1447,14 +1445,53 @@ class _ConversationViewState extends State<ConversationView>
           expectedScrollGeneration != _scrollInteractionGeneration ||
           _listPointerActive ||
           _messagePointerActive) return;
-      final unchanged = expectedOffset == null ||
-          (_scrollController.hasClients &&
-              (_scrollController.position.pixels - expectedOffset).abs() < 4);
-      if (_scrollController.hasClients &&
-          unchanged &&
-          (force || _isAtBottom())) {
-        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
-      }
+      // 只要用户没有产生新的滚动交互，就以最新布局的 maxScrollExtent
+      // 为准。图片/富文本高度变化会合法地改变 pixels，不能再用旧 offset
+      // 拦截校正，否则缓存首屏刷新后会停在中间位置。
+      _scheduleLatestJump(conversationId,
+          expectedScrollGeneration: expectedScrollGeneration,
+          expectedPositionGeneration: generation);
+    });
+  }
+
+  /// 等待几帧让图片、富文本和折叠内容完成布局后再校正到底部。
+  ///
+  /// 单次 post-frame 的 maxScrollExtent 可能仍是首屏估算值，尤其是从
+  /// 缓存进入会话或消息包含异步图片时。每次只在滚动 generation 未变化时
+  /// 继续校正，因此用户主动上滑不会被后台布局抢回底部。
+  void _scheduleLatestJump(String conversationId,
+      {required int expectedScrollGeneration,
+      required int expectedPositionGeneration,
+      int attempt = 0}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          widget.conversationId != conversationId ||
+          expectedPositionGeneration != _positionGeneration ||
+          expectedScrollGeneration != _scrollInteractionGeneration ||
+          _listPointerActive ||
+          _messagePointerActive ||
+          !_scrollController.hasClients) return;
+      final position = _scrollController.position;
+      final previousMax = position.maxScrollExtent;
+      position.jumpTo(previousMax);
+      if (attempt >= 4) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted ||
+            widget.conversationId != conversationId ||
+            expectedPositionGeneration != _positionGeneration ||
+            expectedScrollGeneration != _scrollInteractionGeneration ||
+            _listPointerActive ||
+            _messagePointerActive ||
+            !_scrollController.hasClients) return;
+        final current = _scrollController.position;
+        if ((current.maxScrollExtent - previousMax).abs() > 1 ||
+            (current.pixels - current.maxScrollExtent).abs() > 1) {
+          _scheduleLatestJump(conversationId,
+              expectedScrollGeneration: expectedScrollGeneration,
+              expectedPositionGeneration: expectedPositionGeneration,
+              attempt: attempt + 1);
+        }
+      });
     });
   }
 
@@ -1763,12 +1800,9 @@ class _ConversationViewState extends State<ConversationView>
   /// 发送中的乐观消息和服务端回执都必须落在会话底部，避免用户发送后
   /// 仍停留在历史位置。定位放到下一帧，确保新消息已经完成列表布局。
   void _scrollToLatest(String conversationId) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted ||
-          widget.conversationId != conversationId ||
-          !_scrollController.hasClients) return;
-      _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
-    });
+    _scheduleLatestJump(conversationId,
+        expectedScrollGeneration: _scrollInteractionGeneration,
+        expectedPositionGeneration: _positionGeneration);
   }
 
   Future<void> _performOptimisticSend(
