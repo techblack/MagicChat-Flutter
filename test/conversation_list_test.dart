@@ -30,6 +30,13 @@ class _MentionDemoRepository extends DemoRepository {
       ];
 }
 
+class _LargeUnreadRepository extends DemoRepository {
+  @override
+  Future<List<ChatConversation>> conversations() async => const [
+        ChatConversation(id: 'large-unread', title: '大型未读会话', unread: 120),
+      ];
+}
+
 class _RefreshDemoRepository extends DemoRepository {
   var requests = 0;
 
@@ -530,6 +537,21 @@ void main() {
     await tester.enterText(find.byType(TextField).first, '不存在');
     await tester.pumpAndSettle();
     expect(find.text('没有匹配的会话'), findsOneWidget);
+  });
+
+  testWidgets('大量未读数显示紧凑徽标避免挤压会话行', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: MessagesPage(
+                repository: _LargeUnreadRepository(),
+                selectedId: null,
+                onSelect: (_) {}))));
+    await tester.pumpAndSettle();
+
+    expect(find.text('99+'), findsOneWidget);
+    expect(find.text('120'), findsNothing);
   });
 
   testWidgets('会话列表以层级展示父会话和话题', (tester) async {
