@@ -679,6 +679,9 @@ class _DismissConversationDialogState
       );
 }
 
+String formatConversationUnreadCount(int count) =>
+    count > 99 ? '99+' : '$count';
+
 class _ConversationList extends StatefulWidget {
   const _ConversationList(
       {required this.repository,
@@ -1006,7 +1009,10 @@ class _ConversationListState extends State<_ConversationList> {
                       if (choiceUnread)
                         const Icon(Icons.checklist,
                             size: 17, semanticLabel: '有待响应的选择题'),
-                      if (c.unread > 0) Badge(label: Text('${c.unread}')),
+                      if (c.unread > 0)
+                        Badge(
+                            label:
+                                Text(formatConversationUnreadCount(c.unread))),
                     ]),
                     onTap: () async {
                       widget.onSelect(c.id);
