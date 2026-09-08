@@ -333,6 +333,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('第一页任务'), findsOneWidget);
+    expect(find.text('第二页任务'), findsNothing);
+    await tester.tap(find.text('加载更多任务'));
+    await tester.pumpAndSettle();
     expect(find.text('第二页任务'), findsOneWidget);
     expect(repository.cursors, [null, 'next-page']);
     await expectLater(find.byType(MaterialApp),

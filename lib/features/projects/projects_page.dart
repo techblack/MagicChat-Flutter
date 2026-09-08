@@ -734,31 +734,6 @@ class _ProjectsPageState extends State<ProjectsPage> {
     }
   }
 
-  Future<List<ProjectTask>> _loadProjectTasks(String projectId,
-      {String keyword = '',
-      String label = '',
-      String status = '',
-      int priority = 0}) async {
-    final tasks = <ProjectTask>[];
-    String? cursor;
-    do {
-      final page = await repository.projectTaskPage(projectId,
-          cursor: cursor,
-          limit: 100,
-          keyword: keyword,
-          label: label,
-          statuses: status.isEmpty ? const [] : [status],
-          priorities: priority == 0 ? const [] : [priority]);
-      tasks.addAll(page.tasks);
-      final nextCursor = page.nextCursor;
-      if (nextCursor == null || nextCursor.isEmpty || nextCursor == cursor) {
-        break;
-      }
-      cursor = nextCursor;
-    } while (true);
-    return tasks;
-  }
-
   Future<void> _showTasks(Project project) async {
     try {
       project = await repository.project(project.id);
@@ -774,6 +749,51 @@ class _ProjectsPageState extends State<ProjectsPage> {
     var status = '';
     var priority = 0;
     var initialTab = 0;
+    final taskItems = <ProjectTask>[];
+    String? nextTaskCursor;
+    var loadingMoreTasks = false;
+    var taskRequestVersion = 0;
+    Future<ProjectTaskPage>? taskFuture;
+    Timer? filterDebounce;
+    StateSetter? updateWorkspace;
+
+    Future<ProjectTaskPage> loadTaskPage({bool reset = true}) async {
+      final version = ++taskRequestVersion;
+      if (reset) {
+        taskItems.clear();
+        nextTaskCursor = null;
+      } else {
+        loadingMoreTasks = true;
+      }
+      try {
+        final page = await repository.projectTaskPage(project.id,
+            cursor: reset ? null : nextTaskCursor,
+            limit: 50,
+            keyword: keyword,
+            label: label,
+            statuses: status.isEmpty ? const [] : [status],
+            priorities: priority == 0 ? const [] : [priority]);
+        if (version != taskRequestVersion) return page;
+        final existing = taskItems.map((task) => task.id).toSet();
+        taskItems.addAll(page.tasks.where((task) => existing.add(task.id)));
+        final cursor = page.nextCursor?.trim();
+        nextTaskCursor = cursor == null || cursor.isEmpty ? null : cursor;
+        return page;
+      } finally {
+        if (version == taskRequestVersion) loadingMoreTasks = false;
+      }
+    }
+
+    void loadTasks({bool reset = true}) {
+      taskFuture = Future<ProjectTaskPage>(() => loadTaskPage(reset: reset));
+      updateWorkspace?.call(() {});
+    }
+
+    void scheduleTaskReload() {
+      filterDebounce?.cancel();
+      filterDebounce = Timer(const Duration(milliseconds: 280), loadTasks);
+    }
+
     final preferenceKey = _projectTaskViewPreferenceKey(project.id);
     try {
       final preferences = await SharedPreferences.getInstance();
@@ -789,196 +809,227 @@ class _ProjectsPageState extends State<ProjectsPage> {
       context,
       MaterialPageRoute(
         builder: (context) => StatefulBuilder(
-          builder: (context, setFilterState) => ProjectWorkspacePage(
-            project: project,
-            repository: repository,
-            serverUrl: widget.serverUrl,
-            cacheScope: widget.cacheScope,
-            onEditProject: project.canManage
-                ? () async {
-                    final updated = await _editProject(context, project);
-                    if (updated != null && context.mounted) {
-                      project = updated;
-                      setFilterState(() {});
-                      _reloadProjects();
+          builder: (context, setFilterState) {
+            updateWorkspace = setFilterState;
+            taskFuture ??= Future<ProjectTaskPage>(() => loadTaskPage());
+            return ProjectWorkspacePage(
+              project: project,
+              repository: repository,
+              serverUrl: widget.serverUrl,
+              cacheScope: widget.cacheScope,
+              onEditProject: project.canManage
+                  ? () async {
+                      final updated = await _editProject(context, project);
+                      if (updated != null && context.mounted) {
+                        project = updated;
+                        setFilterState(() {});
+                        _reloadProjects();
+                      }
                     }
+                  : null,
+              onCreateTask: () =>
+                  _createTask(context, project, onChanged: () => loadTasks()),
+              child: FutureBuilder<ProjectTaskPage>(
+                future: taskFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.hasError && taskItems.isEmpty) {
+                    return Center(
+                        child:
+                            Column(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.cloud_off_outlined, size: 40),
+                      const SizedBox(height: 12),
+                      const Text('任务加载失败'),
+                      TextButton.icon(
+                          onPressed: () => loadTasks(),
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('重试'))
+                    ]));
                   }
-                : null,
-            onCreateTask: () => _createTask(context, project,
-                onChanged: () => setFilterState(() {})),
-            child: FutureBuilder<List<ProjectTask>>(
-              future: _loadProjectTasks(project.id,
-                  keyword: keyword,
-                  label: label,
-                  status: status,
-                  priority: priority),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Center(
-                      child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    const Icon(Icons.cloud_off_outlined, size: 40),
-                    const SizedBox(height: 12),
-                    const Text('任务加载失败'),
-                    TextButton.icon(
-                        onPressed: () => setFilterState(() {}),
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('重试'))
-                  ]));
-                }
-                if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                return DefaultTabController(
-                  initialIndex: initialTab,
-                  length: 7,
-                  child: Column(children: [
-                    Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                        child: LayoutBuilder(builder: (context, constraints) {
-                          final search = TextField(
-                              decoration: const InputDecoration(
-                                  prefixIcon: Icon(Icons.search),
-                                  hintText: '搜索任务',
-                                  isDense: true),
-                              onChanged: (value) =>
-                                  setFilterState(() => keyword = value.trim()));
-                          final labelFilter = TextField(
-                              decoration: const InputDecoration(
-                                  prefixIcon: Icon(Icons.label_outline),
-                                  hintText: '按标签筛选',
-                                  isDense: true),
-                              onChanged: (value) =>
-                                  setFilterState(() => label = value.trim()));
-                          final statusFilter = SizedBox(
-                              width: 120,
-                              child: DropdownButtonFormField<String>(
-                                  initialValue: status,
-                                  isExpanded: true,
-                                  isDense: true,
-                                  decoration: const InputDecoration(
-                                      labelText: '状态', isDense: true),
-                                  items: const [
-                                    DropdownMenuItem(
-                                        value: '', child: Text('全部状态')),
-                                    DropdownMenuItem(
-                                        value: 'todo', child: Text('待处理')),
-                                    DropdownMenuItem(
-                                        value: 'in_progress',
-                                        child: Text('进行中')),
-                                    DropdownMenuItem(
-                                        value: 'done', child: Text('已完成')),
-                                    DropdownMenuItem(
-                                        value: 'canceled', child: Text('已取消')),
-                                  ],
-                                  onChanged: (value) => setFilterState(
-                                      () => status = value ?? '')));
-                          final priorityFilter = SizedBox(
-                              width: 100,
-                              child: DropdownButtonFormField<int>(
-                                  initialValue: priority,
-                                  isExpanded: true,
-                                  isDense: true,
-                                  decoration: const InputDecoration(
-                                      labelText: '优先级', isDense: true),
-                                  items: const [
-                                    DropdownMenuItem(
-                                        value: 0, child: Text('全部')),
-                                    DropdownMenuItem(
-                                        value: 1, child: Text('高')),
-                                    DropdownMenuItem(
-                                        value: 2, child: Text('中')),
-                                    DropdownMenuItem(
-                                        value: 3, child: Text('低')),
-                                  ],
-                                  onChanged: (value) => setFilterState(
-                                      () => priority = value ?? 0)));
-                          if (constraints.maxWidth >= 720) {
-                            return Row(children: [
-                              Expanded(child: search),
-                              const SizedBox(width: 8),
-                              Expanded(child: labelFilter),
-                              const SizedBox(width: 8),
-                              statusFilter,
-                              const SizedBox(width: 8),
-                              priorityFilter,
+                  if (!snapshot.hasData && taskItems.isEmpty) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  return DefaultTabController(
+                    initialIndex: initialTab,
+                    length: 7,
+                    child: Column(children: [
+                      Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                          child: LayoutBuilder(builder: (context, constraints) {
+                            final search = TextField(
+                                decoration: const InputDecoration(
+                                    prefixIcon: Icon(Icons.search),
+                                    hintText: '搜索任务',
+                                    isDense: true),
+                                onChanged: (value) => setFilterState(() {
+                                      keyword = value.trim();
+                                      scheduleTaskReload();
+                                    }));
+                            final labelFilter = TextField(
+                                decoration: const InputDecoration(
+                                    prefixIcon: Icon(Icons.label_outline),
+                                    hintText: '按标签筛选',
+                                    isDense: true),
+                                onChanged: (value) => setFilterState(() {
+                                      label = value.trim();
+                                      scheduleTaskReload();
+                                    }));
+                            final statusFilter = SizedBox(
+                                width: 120,
+                                child: DropdownButtonFormField<String>(
+                                    initialValue: status,
+                                    isExpanded: true,
+                                    isDense: true,
+                                    decoration: const InputDecoration(
+                                        labelText: '状态', isDense: true),
+                                    items: const [
+                                      DropdownMenuItem(
+                                          value: '', child: Text('全部状态')),
+                                      DropdownMenuItem(
+                                          value: 'todo', child: Text('待处理')),
+                                      DropdownMenuItem(
+                                          value: 'in_progress',
+                                          child: Text('进行中')),
+                                      DropdownMenuItem(
+                                          value: 'done', child: Text('已完成')),
+                                      DropdownMenuItem(
+                                          value: 'canceled',
+                                          child: Text('已取消')),
+                                    ],
+                                    onChanged: (value) => setFilterState(() {
+                                          status = value ?? '';
+                                          scheduleTaskReload();
+                                        })));
+                            final priorityFilter = SizedBox(
+                                width: 100,
+                                child: DropdownButtonFormField<int>(
+                                    initialValue: priority,
+                                    isExpanded: true,
+                                    isDense: true,
+                                    decoration: const InputDecoration(
+                                        labelText: '优先级', isDense: true),
+                                    items: const [
+                                      DropdownMenuItem(
+                                          value: 0, child: Text('全部')),
+                                      DropdownMenuItem(
+                                          value: 1, child: Text('高')),
+                                      DropdownMenuItem(
+                                          value: 2, child: Text('中')),
+                                      DropdownMenuItem(
+                                          value: 3, child: Text('低')),
+                                    ],
+                                    onChanged: (value) => setFilterState(() {
+                                          priority = value ?? 0;
+                                          scheduleTaskReload();
+                                        })));
+                            if (constraints.maxWidth >= 720) {
+                              return Row(children: [
+                                Expanded(child: search),
+                                const SizedBox(width: 8),
+                                Expanded(child: labelFilter),
+                                const SizedBox(width: 8),
+                                statusFilter,
+                                const SizedBox(width: 8),
+                                priorityFilter,
+                              ]);
+                            }
+                            return Column(children: [
+                              search,
+                              const SizedBox(height: 8),
+                              Row(children: [
+                                Expanded(child: labelFilter),
+                                const SizedBox(width: 8),
+                                statusFilter,
+                                const SizedBox(width: 8),
+                                priorityFilter,
+                              ])
                             ]);
-                          }
-                          return Column(children: [
-                            search,
-                            const SizedBox(height: 8),
-                            Row(children: [
-                              Expanded(child: labelFilter),
-                              const SizedBox(width: 8),
-                              statusFilter,
-                              const SizedBox(width: 8),
-                              priorityFilter,
-                            ])
-                          ]);
-                        })),
-                    TabBar(
-                        isScrollable: true,
-                        onTap: (index) async {
-                          initialTab = index;
-                          try {
-                            final preferences =
-                                await SharedPreferences.getInstance();
-                            await preferences.setInt(preferenceKey, index);
-                          } catch (_) {
-                            // 视图记忆失败不影响当前切换。
-                          }
-                        },
-                        tabs: const [
-                          Tab(text: '列表'),
-                          Tab(text: '看板'),
-                          Tab(text: '日历'),
-                          Tab(text: '甘特'),
-                          Tab(text: '文档'),
-                          Tab(text: '目标'),
-                          Tab(text: '成员')
-                        ]),
-                    Expanded(
-                        child: TabBarView(children: [
-                      ListView.builder(
-                          padding: const EdgeInsets.all(16),
-                          itemCount: snapshot.data!.isEmpty
-                              ? 1
-                              : snapshot.data!.length,
-                          itemBuilder: (context, index) =>
-                              snapshot.data!.isEmpty
-                                  ? const SizedBox(
-                                      height: 220,
-                                      child: Center(child: Text('暂无匹配任务')))
-                                  : _taskTile(
-                                      context, project, snapshot.data![index],
-                                      onChanged: () => setFilterState(() {}))),
-                      _taskBoard(context, project, snapshot.data!,
-                          onChanged: () => setFilterState(() {})),
-                      ProjectTaskCalendarView(
-                          tasks: snapshot.data!,
-                          onOpenTask: (task) async {
-                            await Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                    builder: (_) => ProjectTaskDetailsPage(
-                                        repository: repository,
-                                        project: project,
-                                        task: task)));
-                            if (context.mounted) setFilterState(() {});
-                          }),
-                      _taskGantt(context, project, snapshot.data!,
-                          onChanged: () => setFilterState(() {})),
-                      _documentsView(context, project),
-                      _goalsView(context, project, snapshot.data!),
-                      _membersView(context, project),
-                    ])),
-                  ]),
-                );
-              },
-            ),
-          ),
+                          })),
+                      if (snapshot.hasError && taskItems.isNotEmpty)
+                        Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton.icon(
+                                onPressed: loadingMoreTasks
+                                    ? null
+                                    : () => loadTasks(reset: false),
+                                icon: const Icon(Icons.refresh),
+                                label: const Text('加载更多失败，重试'))),
+                      if (nextTaskCursor != null)
+                        Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton.icon(
+                                onPressed: loadingMoreTasks
+                                    ? null
+                                    : () => loadTasks(reset: false),
+                                icon: loadingMoreTasks
+                                    ? const SizedBox.square(
+                                        dimension: 16,
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2))
+                                    : const Icon(Icons.expand_more),
+                                label: Text(
+                                    loadingMoreTasks ? '正在加载' : '加载更多任务'))),
+                      TabBar(
+                          isScrollable: true,
+                          onTap: (index) async {
+                            initialTab = index;
+                            try {
+                              final preferences =
+                                  await SharedPreferences.getInstance();
+                              await preferences.setInt(preferenceKey, index);
+                            } catch (_) {
+                              // 视图记忆失败不影响当前切换。
+                            }
+                          },
+                          tabs: const [
+                            Tab(text: '列表'),
+                            Tab(text: '看板'),
+                            Tab(text: '日历'),
+                            Tab(text: '甘特'),
+                            Tab(text: '文档'),
+                            Tab(text: '目标'),
+                            Tab(text: '成员')
+                          ]),
+                      Expanded(
+                          child: TabBarView(children: [
+                        ListView.builder(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: taskItems.isEmpty ? 1 : taskItems.length,
+                            itemBuilder: (context, index) => taskItems.isEmpty
+                                ? const SizedBox(
+                                    height: 220,
+                                    child: Center(child: Text('暂无匹配任务')))
+                                : _taskTile(context, project, taskItems[index],
+                                    onChanged: () => loadTasks())),
+                        _taskBoard(context, project, taskItems,
+                            onChanged: () => loadTasks()),
+                        ProjectTaskCalendarView(
+                            tasks: taskItems,
+                            onOpenTask: (task) async {
+                              await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (_) => ProjectTaskDetailsPage(
+                                          repository: repository,
+                                          project: project,
+                                          task: task)));
+                              if (context.mounted) loadTasks();
+                            }),
+                        _taskGantt(context, project, taskItems,
+                            onChanged: () => loadTasks()),
+                        _documentsView(context, project),
+                        _goalsView(context, project, taskItems),
+                        _membersView(context, project),
+                      ])),
+                    ]),
+                  );
+                },
+              ),
+            );
+          },
         ),
       ),
     );
+    filterDebounce?.cancel();
   }
 
   Widget _taskTile(BuildContext context, Project project, ProjectTask task,
