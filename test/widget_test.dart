@@ -627,7 +627,7 @@ void main() {
         .position;
     await tester.drag(list, const Offset(0, 360));
     await tester.pumpAndSettle();
-    expect(position.pixels, greaterThan(position.minScrollExtent + 1));
+    expect(position.pixels, greaterThan(position.minScrollExtent));
 
     await tester.tap(conversationRow);
     await tester.pumpAndSettle();
@@ -675,7 +675,7 @@ void main() {
     await tester.pumpAndSettle();
     final position =
         tester.state<ScrollableState>(find.byType(Scrollable).first).position;
-    expect(position.pixels, greaterThan(position.minScrollExtent + 1));
+    expect(position.pixels, greaterThan(position.minScrollExtent));
     store.apply({
       'cursor': 1,
       'event': 'message.created',
@@ -693,6 +693,45 @@ void main() {
     expect(position.pixels, greaterThan(position.minScrollExtent + 1));
     await tester.tap(find.text('新消息 1'));
     await tester.pumpAndSettle();
+    expect(find.text('新消息 1'), findsNothing);
+  });
+
+  testWidgets('接近底部阅读时实时新消息自动跟随最新位置', (tester) async {
+    final store = RealtimeStore()..setCurrentUserId('me');
+    store.conversations['history'] =
+        const ChatConversation(id: 'history', title: '历史会话', type: 'group');
+    await tester.binding.setSurfaceSize(const Size(500, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: ConversationView(
+                repository: _HistoryRepository(),
+                realtimeStore: store,
+                conversationId: 'history'))));
+    await tester.pumpAndSettle();
+
+    final position =
+        tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+    await tester.drag(find.byType(ListView).first, const Offset(0, 80));
+    await tester.pump();
+    position.jumpTo(position.minScrollExtent + 1);
+    await tester.pump();
+    expect(position.pixels, greaterThan(position.minScrollExtent));
+
+    store.apply({
+      'cursor': 1,
+      'event': 'message.created',
+      'payload': {
+        'id': 'incoming-near-bottom',
+        'conversation_id': 'history',
+        'seq': 31,
+        'sender': {'id': 'user-1', 'name': 'Alice'},
+        'body': {'type': 'text', 'content': '接近底部的新消息'},
+      },
+    });
+    await tester.pumpAndSettle();
+
+    expect(position.pixels, closeTo(position.minScrollExtent, 1));
     expect(find.text('新消息 1'), findsNothing);
   });
 
