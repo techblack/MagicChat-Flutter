@@ -207,7 +207,9 @@ class _ConversationViewState extends State<ConversationView>
 
   final _controller = TextEditingController();
   final _composerFocusNode = FocusNode();
-  final _scrollController = ScrollController();
+  // 会话切换时由页面状态显式决定位置。不要让 Flutter 的 PageStorage
+  // 恢复旧会话 offset，否则新会话首帧可能落在历史中间位置。
+  final _scrollController = ScrollController(keepScrollOffset: false);
   Future<List<ChatMessage>>? _messagesFuture;
   MessagePage? _messagePage;
   late final MessageCacheStore _messageCacheStore =
@@ -1481,9 +1483,10 @@ class _ConversationViewState extends State<ConversationView>
           widget.conversationId != conversationId ||
           generation != _positionGeneration) return;
       _positioningConversationId = null;
-      _initialPositionPending = false;
-      _positionedConversationId = conversationId;
       if (expectedScrollGeneration != _scrollInteractionGeneration) {
+        // 用户已经在首屏定位前主动滚动，保留用户选择，不再抢回最新位置。
+        _initialPositionPending = false;
+        _positionedConversationId = conversationId;
         _requestLatestRead(conversationId, messages);
         return;
       }
@@ -1493,8 +1496,13 @@ class _ConversationViewState extends State<ConversationView>
         _scheduleLatestJump(conversationId,
             expectedScrollGeneration: expectedScrollGeneration,
             expectedPositionGeneration: generation);
+      } else {
+        _initialPositionPending = false;
+        _positionedConversationId = conversationId;
       }
       _requestLatestRead(conversationId, messages);
+      // _scheduleLatestJump 在下一帧完成真正的定位；状态不会在这里提前
+      // 标记为完成，避免列表尚未挂载或尚无尺寸时丢掉定位请求。
     });
   }
 
@@ -1539,7 +1547,7 @@ class _ConversationViewState extends State<ConversationView>
               _listPointerActive ||
               _messagePointerActive)) return;
       if (!_scrollController.hasClients) {
-        if (attempt < 4) {
+        if (attempt < 8) {
           _scheduleLatestJump(conversationId,
               expectedScrollGeneration: expectedScrollGeneration,
               expectedPositionGeneration: expectedPositionGeneration,
@@ -1549,7 +1557,23 @@ class _ConversationViewState extends State<ConversationView>
         return;
       }
       final position = _scrollController.position;
+      if (!position.hasContentDimensions) {
+        if (attempt < 8) {
+          _scheduleLatestJump(conversationId,
+              expectedScrollGeneration: expectedScrollGeneration,
+              expectedPositionGeneration: expectedPositionGeneration,
+              force: force,
+              attempt: attempt + 1);
+        }
+        return;
+      }
       position.jumpTo(position.minScrollExtent);
+      if (!force &&
+          expectedPositionGeneration == _positionGeneration &&
+          widget.conversationId == conversationId) {
+        _initialPositionPending = false;
+        _positionedConversationId = conversationId;
+      }
     });
   }
 
@@ -1634,7 +1658,19 @@ class _ConversationViewState extends State<ConversationView>
       _pendingNewMessageCount = 0;
       _messagesFuture = _loadMessages();
     });
-    widget.onMessageFocused?.call();
+    // didUpdateWidget 可能在父级 build 阶段触发（例如再次点击当前会话），
+    // 不能同步回调父级 setState，否则会产生“build 中调用 setState”异常。
+    final onMessageFocused = widget.onMessageFocused;
+    if (onMessageFocused != null) {
+      final generation = _positionGeneration;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted &&
+            widget.conversationId == conversationId &&
+            generation == _positionGeneration) {
+          onMessageFocused();
+        }
+      });
+    }
   }
 
   @override

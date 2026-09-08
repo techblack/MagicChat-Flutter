@@ -165,6 +165,25 @@ class _SwitchingConversationRepository extends DemoRepository {
   }
 }
 
+class _ReselectConversationRepository extends DemoRepository {
+  @override
+  Future<List<ChatConversation>> conversations() async => const [
+        ChatConversation(id: 'reselect', title: '可重新进入会话'),
+      ];
+
+  @override
+  Future<List<ChatMessage>> messages(String conversationId,
+          {int? beforeSeq, int limit = 50}) async =>
+      List.generate(
+          30,
+          (index) => ChatMessage(
+              id: 'reselect-$index',
+              conversationId: conversationId,
+              sequence: index + 1,
+              author: '成员',
+              text: '可重新进入消息 ${index + 1}'));
+}
+
 void main() {
   test('界面字号与系统字体缩放叠加', () {
     expect(
@@ -585,6 +604,34 @@ void main() {
         .position;
     expect(afterSwitch.pixels, closeTo(afterSwitch.minScrollExtent, 1));
     expect(find.text('conversation-two 最新消息 30'), findsOneWidget);
+  });
+
+  testWidgets('再次点击当前会话时回到最新消息', (tester) async {
+    final repository = _ReselectConversationRepository();
+    tester.view.physicalSize = const Size(1000, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester
+        .pumpWidget(MaterialApp(home: AppShell(repository: repository)));
+    await tester.pumpAndSettle();
+
+    final conversationRow =
+        find.byKey(const ValueKey('conversation-row-reselect'));
+    await tester.tap(conversationRow);
+    await tester.pumpAndSettle();
+    final list = find.byKey(const ValueKey('conversation-message-list'));
+    final position = tester
+        .state<ScrollableState>(
+            find.descendant(of: list, matching: find.byType(Scrollable)))
+        .position;
+    await tester.drag(list, const Offset(0, 360));
+    await tester.pumpAndSettle();
+    expect(position.pixels, greaterThan(position.minScrollExtent + 1));
+
+    await tester.tap(conversationRow);
+    await tester.pumpAndSettle();
+    expect(position.pixels, closeTo(position.minScrollExtent, 1));
   });
 
   testWidgets('未选会话时显示明确的选择引导', (tester) async {
