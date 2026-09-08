@@ -695,15 +695,22 @@ class _SettingsPageState extends State<SettingsPage> {
                                     }
                                   },
                                   onLongPress: () async {
+                                    final currentToken =
+                                        await const SessionStore().readToken();
+                                    if (!dialogContext.mounted) return;
+                                    if (account.serverUrl == widget.serverUrl &&
+                                        account.token == currentToken) {
+                                      Navigator.pop(dialogContext);
+                                      await _confirmLogout();
+                                      return;
+                                    }
                                     final remove = await showDialog<bool>(
                                         context: dialogContext,
                                         builder: (confirmContext) =>
                                             AlertDialog(
-                                              title: const Text('删除已保存账户？'),
+                                              title: const Text('退出此账户？'),
                                               content: Text(
-                                                  account.email.isEmpty
-                                                      ? account.serverUrl
-                                                      : account.email),
+                                                  '将通知服务器撤销该账号在此设备上的会话，成功后才会删除本机记录。\n\n${account.email.isEmpty ? account.serverUrl : account.email}'),
                                               actions: [
                                                 TextButton(
                                                     onPressed: () =>
@@ -716,14 +723,32 @@ class _SettingsPageState extends State<SettingsPage> {
                                                         Navigator.pop(
                                                             confirmContext,
                                                             true),
-                                                    child: const Text('删除'))
+                                                    child: const Text('退出账户'))
                                               ],
                                             ));
                                     if (remove == true) {
-                                      await const SessionStore()
-                                          .removeAccount(account.id);
-                                      if (dialogContext.mounted)
-                                        Navigator.pop(dialogContext);
+                                      try {
+                                        await AuthService().logout(
+                                            serverUrl: account.serverUrl,
+                                            sessionToken: account.token);
+                                        await const SessionStore()
+                                            .removeAccount(account.id);
+                                        if (dialogContext.mounted) {
+                                          Navigator.pop(dialogContext);
+                                        }
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(const SnackBar(
+                                                  content: Text('账户已退出')));
+                                        }
+                                      } catch (error) {
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(SnackBar(
+                                                  content: Text(
+                                                      '退出账户失败，本机记录已保留：${userFacingError(error)}')));
+                                        }
+                                      }
                                     }
                                   }))
                               .toList())),

@@ -185,6 +185,24 @@ void main() {
     expect(sessions.token, isNull);
   });
 
+  test('退出非当前账户使用指定 token 且不清理当前会话', () async {
+    final sessions = _MemorySessionStore()..token = 'current-token';
+    late http.Request request;
+    final service = AuthService(
+      sessions: sessions,
+      client: MockClient((value) async {
+        request = value;
+        return _jsonResponse({}, statusCode: 204);
+      }),
+    );
+
+    await service.logout(
+        serverUrl: 'https://chat.example.com', sessionToken: 'other-token');
+
+    expect(request.headers['Authorization'], 'Bearer other-token');
+    expect(sessions.token, 'current-token');
+  });
+
   test('注销验证码只针对当前认证账号发送并解析重试时间', () async {
     final sessions = _MemorySessionStore()..token = 'session-token';
     late http.Request captured;

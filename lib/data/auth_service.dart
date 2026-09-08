@@ -280,9 +280,9 @@ class AuthService {
     await _sessions.writeToken(token);
   }
 
-  Future<void> logout({required String serverUrl}) async {
+  Future<void> logout({required String serverUrl, String? sessionToken}) async {
     try {
-      final token = await _sessions.readToken();
+      final token = sessionToken ?? await _sessions.readToken();
       if (token != null) {
         final base = _baseUri(serverUrl);
         final headers = token == SessionStore.cookieSessionToken
@@ -297,7 +297,7 @@ class AuthService {
         }
       }
     } finally {
-      await _sessions.clear();
+      if (sessionToken == null) await _sessions.clear();
     }
   }
 
