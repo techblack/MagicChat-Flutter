@@ -908,12 +908,10 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                               body: widget.collaboration!.body,
                               selectedText: _selectedRichText,
                               selectedTextSelection: _selectedRichTextSelection,
-                              onSelectText: widget.collaboration!.status ==
-                                      DocumentCollaborationStatus.synced
+                              onSelectText: widget.collaboration!.status == DocumentCollaborationStatus.synced
                                   ? _selectRichText
                                   : null,
-                              onTextChanged: widget.collaboration!.status ==
-                                      DocumentCollaborationStatus.synced
+                              onTextChanged: widget.collaboration!.status == DocumentCollaborationStatus.synced
                                   ? _updateRichText
                                   : null,
                               onTextSelectionChanged:
@@ -933,7 +931,11 @@ class _DocumentEditorPageState extends State<DocumentEditorPage> {
                               onEditImage: widget.collaboration!.status == DocumentCollaborationStatus.synced
                                   ? (image) => unawaited(_editRichImage(image))
                                   : null,
-                              onEditText: _editTextNode)),
+                              onEditText: _editTextNode,
+                              onReorder: widget.collaboration!.status == DocumentCollaborationStatus.synced
+                                  ? (node, newIndex) =>
+                                      widget.collaboration!.moveTopLevelBlock(node, newIndex)
+                                  : null)),
                     ])
                   : Column(children: [
                       MarkdownEditorToolbar(
