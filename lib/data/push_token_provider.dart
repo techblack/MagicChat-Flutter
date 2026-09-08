@@ -1,12 +1,46 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+
+import 'push_preferences.dart';
 
 /// 原生 APNs/JPush 插件的最小桥接契约。
 /// 插件返回 null 表示当前平台/环境暂不可用，调用方应继续正常运行。
 class PushTokenProvider {
   const PushTokenProvider(
-      {MethodChannel channel = const MethodChannel('magicchat/push')})
-      : _channel = channel;
+      {MethodChannel channel = const MethodChannel('magicchat/push'),
+      PushPreferences preferences = const PushPreferences()})
+      : _channel = channel,
+        _preferences = preferences;
   final MethodChannel _channel;
+  final PushPreferences _preferences;
+
+  Future<bool> isJPushConfigured() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return false;
+    try {
+      final value = await _channel.invokeMethod<Object?>('getJPushConfigured');
+      return value == true;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  Future<bool> isRegistrationAllowed() async {
+    if (!await isJPushConfigured()) return true;
+    return _preferences.readJPushConsent();
+  }
+
+  Future<void> setJPushRunning(bool running) async {
+    if (!await isJPushConfigured()) return;
+    try {
+      await _channel.invokeMethod<void>(running ? 'resumeJPush' : 'stopJPush');
+    } on MissingPluginException {
+      // 未配置原生桥接时安全降级。
+    } on PlatformException {
+      // JPush 生命周期控制失败不阻断账号或通知设置。
+    }
+  }
 
   Future<PushTokenGrant?> readGrant() async {
     try {
@@ -38,6 +72,7 @@ class PushTokenProvider {
   /// 读取平台原生设备令牌。令牌只用于推送网关注册，不包含账号或消息内容。
   /// 原生适配器缺失、权限/系统服务不可用或响应格式不正确时返回 null。
   Future<PushDeviceToken?> readDeviceToken() async {
+    if (!await isRegistrationAllowed()) return null;
     try {
       final value = await _channel.invokeMethod<Object?>('getDeviceToken');
       if (value is! Map) return null;

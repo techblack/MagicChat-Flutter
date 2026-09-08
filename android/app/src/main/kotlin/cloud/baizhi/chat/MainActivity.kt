@@ -48,6 +48,17 @@ class MainActivity : FlutterActivity() {
         pushChannel!!
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "getJPushConfigured" -> {
+                        result.success(BuildConfig.JPUSH_CONFIGURED)
+                    }
+                    "stopJPush" -> {
+                        setJPushRunning(false)
+                        result.success(true)
+                    }
+                    "resumeJPush" -> {
+                        setJPushRunning(true)
+                        result.success(true)
+                    }
                     "getDeviceToken" -> {
                         result.success(readJPushDeviceToken())
                     }
@@ -205,6 +216,18 @@ class MainActivity : FlutterActivity() {
             )
         } catch (_: Throwable) {
             null
+        }
+    }
+
+    private fun setJPushRunning(running: Boolean) {
+        if (!BuildConfig.JPUSH_CONFIGURED) return
+        try {
+            val jpush = Class.forName("cn.jpush.android.api.JPushInterface")
+            val method = if (running) "resumePush" else "stopPush"
+            jpush.getMethod(method, Context::class.java)
+                .invoke(null, applicationContext)
+        } catch (_: Throwable) {
+            // 未配置或 SDK 版本不支持生命周期控制时保持应用可用。
         }
     }
 
