@@ -204,6 +204,17 @@ void main() {
         .single['attributes'];
     expect(attributes, containsPair('bold', true));
 
+    final localBlocks =
+        session.body.toArray().whereType<yjs.YXmlElement>().toList();
+    expect(session.moveTopLevelBlock(localBlocks.last, 0), isTrue);
+    final moveUpdate = yjs.createDecoder(channel.sent.last as Uint8List);
+    expect(yjs.readVarString(moveUpdate), 'doc-rich-append');
+    expect(yjs.readVarUint(moveUpdate), HocuspocusMessageType.sync);
+    yjs.readSyncMessage(
+        moveUpdate, yjs.createEncoder(), serverDocument, 'server');
+    expect(serverBody.toArray().whereType<yjs.YXmlElement>().first.name,
+        'heading');
+
     expect(
         session.appendTextBlock('引用内容', type: RichDocumentBlockType.blockquote),
         isTrue);

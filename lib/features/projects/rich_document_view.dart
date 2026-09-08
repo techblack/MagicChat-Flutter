@@ -25,6 +25,7 @@ class RichDocumentView extends StatelessWidget {
     this.onEditImage,
     this.onEditHorizontalRule,
     this.onTaskChecked,
+    this.onReorder,
     super.key,
   });
 
@@ -41,16 +42,48 @@ class RichDocumentView extends StatelessWidget {
   final ValueChanged<yjs.YXmlElement>? onEditImage;
   final ValueChanged<yjs.YXmlElement>? onEditHorizontalRule;
   final void Function(yjs.YXmlElement item, bool checked)? onTaskChecked;
+  final void Function(Object node, int newIndex)? onReorder;
 
   @override
   Widget build(BuildContext context) {
-    final children = _renderChildren(context, body);
-    if (children.isEmpty) {
+    final nodes = body.toArray();
+    if (nodes.isEmpty) {
       return const Center(child: Text('暂无内容'));
     }
-    return ListView(
+    if (onReorder == null) {
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(4, 8, 4, 24),
+        children: nodes
+            .map((node) => _renderNode(context, node))
+            .whereType<Widget>()
+            .toList(growable: false),
+      );
+    }
+    return ReorderableListView.builder(
       padding: const EdgeInsets.fromLTRB(4, 8, 4, 24),
-      children: children,
+      buildDefaultDragHandles: false,
+      itemCount: nodes.length,
+      onReorderItem: (oldIndex, newIndex) =>
+          onReorder!(nodes[oldIndex]!, newIndex),
+      itemBuilder: (context, index) {
+        final node = nodes[index]!;
+        final child = _renderNode(context, node) ?? const SizedBox.shrink();
+        return Row(
+          key: ObjectKey(node),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: child),
+            ReorderableDelayedDragStartListener(
+              index: index,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Icon(Icons.drag_indicator,
+                    size: 20, color: Theme.of(context).colorScheme.outline),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 

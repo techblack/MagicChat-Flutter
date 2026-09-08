@@ -547,6 +547,30 @@ class DocumentCollaborationSession extends ChangeNotifier {
     return paragraph.text;
   }
 
+  /// 移动 body 直属 block；拖拽列表传入移除当前节点后的目标索引，操作可被
+  /// Yjs UndoManager 撤销并同步给其他协作者。
+  bool moveTopLevelBlock(Object node, int newIndex) {
+    if (documentType != 'document' ||
+        status != DocumentCollaborationStatus.synced ||
+        node is! yjs.AbstractType<dynamic> ||
+        !identical(node.parent, _body)) {
+      return false;
+    }
+    final blocks = _body.toArray();
+    final oldIndex = blocks.indexOf(node);
+    if (oldIndex < 0) return false;
+    final target = newIndex.clamp(0, blocks.length - 1).toInt();
+    if (target == oldIndex) return false;
+    _undoManager?.stopCapturing();
+    _document.transact((_) {
+      _body.delete(oldIndex);
+      _body.insert(target, [node]);
+    });
+    _undoManager?.stopCapturing();
+    notifyListeners();
+    return true;
+  }
+
   /// 删除当前结构块；删除父节点最后一块时保留空段落供继续编辑。
   yjs.YXmlText? deleteXmlTextBlock(yjs.YXmlText node) {
     if (documentType != 'document' ||
