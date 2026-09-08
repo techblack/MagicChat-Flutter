@@ -87,6 +87,7 @@ flutter build apk --release
 ```
 
 未设置 `JPUSH_APP_KEY` 时不会打包 JPush SDK，其他 Android 构建和测试不受影响。
+打包 JPush 的安装包不会在首次启动时自动初始化 SDK；用户需在设置中阅读说明并明确同意“手机通知”，关闭时会停止 JPush 并撤销当前账号的远程授权。
 
 更新检查默认读取 release 源：Android/iOS 使用
 `https://jiying.chat/releases/version.json`，Windows/macOS/Linux 使用本项目的

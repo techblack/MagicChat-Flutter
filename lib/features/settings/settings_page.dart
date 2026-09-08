@@ -23,6 +23,8 @@ import '../../data/storage_service.dart';
 import '../../data/update_service.dart';
 import '../../data/update_installer.dart';
 import '../../data/message_cache_store.dart';
+import '../../data/push_preferences.dart';
+import '../../data/push_token_provider.dart';
 import '../../domain/models.dart';
 import '../shared/user_facing_error.dart';
 import '../qr_scanner_page.dart';
@@ -72,6 +74,7 @@ class SettingsPage extends StatefulWidget {
       this.onMessageSoundChanged,
       this.notificationService = const LocalNotificationService(),
       this.onNotificationPreferenceChanged,
+      this.onJPushConsentChanged,
       this.notificationPrivacy = MessageNotificationPrivacy.preview,
       this.onNotificationPrivacyChanged,
       this.interfaceFontScale = InterfaceFontScale.normal,
@@ -110,6 +113,7 @@ class SettingsPage extends StatefulWidget {
   final ValueChanged<bool>? onMessageSoundChanged;
   final LocalNotificationService notificationService;
   final Future<void> Function(bool enabled)? onNotificationPreferenceChanged;
+  final Future<void> Function(bool enabled)? onJPushConsentChanged;
   final MessageNotificationPrivacy notificationPrivacy;
   final ValueChanged<MessageNotificationPrivacy>? onNotificationPrivacyChanged;
   final InterfaceFontScale interfaceFontScale;
@@ -129,6 +133,10 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _notificationPreferenceEnabled = true;
   bool _notificationSettingsLoading = true;
   bool _notificationSettingsUpdating = false;
+  bool _jpushConfigured = false;
+  bool _jpushConsent = false;
+  bool _jpushSettingsLoading = true;
+  bool _jpushSettingsUpdating = false;
   NotificationPermissionStatus _notificationPermission =
       NotificationPermissionStatus.unknown;
   late bool _messageSoundEnabled;
@@ -156,6 +164,7 @@ class _SettingsPageState extends State<SettingsPage> {
     widget.realtimeStore?.addListener(_onRealtimeChanged);
     _userFuture = widget.repository.currentUser();
     _loadNotificationSettings();
+    _loadJPushSettings();
     _loadAutoLaunch();
   }
 
@@ -168,6 +177,23 @@ class _SettingsPageState extends State<SettingsPage> {
           prefs.getBool('magicchat.notifications.enabled') ?? true;
       _notificationPermission = permission;
       _notificationSettingsLoading = false;
+    });
+  }
+
+  Future<void> _loadJPushSettings() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      if (mounted) setState(() => _jpushSettingsLoading = false);
+      return;
+    }
+    final provider = const PushTokenProvider();
+    final configured = await provider.isJPushConfigured();
+    final consent =
+        configured ? await const PushPreferences().readJPushConsent() : false;
+    if (!mounted) return;
+    setState(() {
+      _jpushConfigured = configured;
+      _jpushConsent = consent;
+      _jpushSettingsLoading = false;
     });
   }
 
@@ -242,6 +268,64 @@ class _SettingsPageState extends State<SettingsPage> {
       await widget.onNotificationPreferenceChanged?.call(value);
     } finally {
       if (mounted) setState(() => _notificationSettingsUpdating = false);
+    }
+  }
+
+  Future<void> _setJPushConsent(bool value) async {
+    if (_jpushSettingsUpdating || !_jpushConfigured) return;
+    if (value) {
+      final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('启用手机通知'),
+          content: const Text(
+              'Android 手机通知由极光推送提供。启用后，极光 SDK 会处理完成通知投递所需的设备、系统、网络和应用标识信息；不会收到聊天账号、服务器地址或消息内容。'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('暂不启用')),
+            FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('同意并启用')),
+          ],
+        ),
+      );
+      if (accepted != true) return;
+    } else {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('关闭手机通知？'),
+          content: const Text('将停止本机 JPush，并撤销当前账号在本机的远程通知授权。'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('取消')),
+            FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('关闭通知')),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
+    setState(() => _jpushSettingsUpdating = true);
+    try {
+      await const PushPreferences().writeJPushConsent(value);
+      await const PushTokenProvider().setJPushRunning(value);
+      await widget.onJPushConsentChanged?.call(value);
+      if (mounted) {
+        setState(() => _jpushConsent = value);
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(value ? '手机通知已启用' : '手机通知已关闭')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('更新手机通知失败：${userFacingError(error)}')));
+      }
+    } finally {
+      if (mounted) setState(() => _jpushSettingsUpdating = false);
     }
   }
 
@@ -953,6 +1037,16 @@ class _SettingsPageState extends State<SettingsPage> {
                           NotificationPermissionStatus.unsupported
                   ? null
                   : _setNotifications),
+          if (_jpushConfigured)
+            SwitchListTile(
+                secondary: const Icon(Icons.phone_android_outlined),
+                title: const Text('手机通知'),
+                subtitle: Text(
+                    _jpushSettingsLoading ? '正在读取 JPush 授权状态' : '使用极光推送接收后台消息'),
+                value: _jpushConsent,
+                onChanged: _jpushSettingsLoading || _jpushSettingsUpdating
+                    ? null
+                    : _setJPushConsent),
           SwitchListTile(
               secondary: const Icon(Icons.volume_up_outlined),
               title: const Text('新消息提示音'),

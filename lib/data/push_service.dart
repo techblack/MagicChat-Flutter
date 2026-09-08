@@ -228,6 +228,7 @@ class PushService {
     String appVersion = pushClientVersion,
     PushTokenProvider provider = const PushTokenProvider(),
   }) async {
+    if (!await provider.isRegistrationAllowed()) return false;
     final device = await provider.readDeviceToken();
     if (device != null) {
       final grant =
@@ -401,6 +402,7 @@ class PushService {
     required String sessionToken,
     PushTokenProvider provider = const PushTokenProvider(),
   }) async {
+    await provider.setJPushRunning(false);
     final storedGrant = await _registrationStore.readGrant();
     final installation = await _registrationStore.readInstallation();
     final grant = storedGrant == null ? await provider.readGrant() : null;
