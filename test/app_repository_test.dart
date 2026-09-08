@@ -9,6 +9,48 @@ import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/domain/user_safety.dart';
 
 void main() {
+  test('HTTP 消息历史窗口支持 after_seq 分页', () async {
+    late Uri requestUri;
+    final repository = HttpMagicChatRepository(
+      serverUrl: 'https://chat.example.com',
+      sessionToken: 'token',
+      client: MockClient((request) async {
+        requestUri = request.url;
+        return _jsonResponse({
+          'data': {
+            'messages': [
+              {
+                'id': 'message-8',
+                'conversation_id': 'conversation-1',
+                'seq': 8,
+                'created_at': '2026-09-09T01:00:00Z',
+                'sender': {'id': 'user-1', 'name': '成员'},
+                'body': {'type': 'text', 'content': '更新消息'},
+              }
+            ],
+            'page': {
+              'has_more_before': true,
+              'has_more_after': false,
+              'limit': 50,
+              'newest_seq': 8,
+              'oldest_seq': 8,
+            },
+          }
+        });
+      }),
+    );
+
+    final page = await repository.messagesAfter('conversation-1',
+        afterSeq: 7, limit: 50);
+
+    expect(
+        requestUri.path, '/api/client/conversations/conversation-1/messages');
+    expect(requestUri.queryParameters, {'after_seq': '7', 'limit': '50'});
+    expect(page, isA<MessagePage>());
+    expect(page.single.text, '更新消息');
+    expect((page as MessagePage).hasMoreAfter, isFalse);
+  });
+
   test('HTTP 仓库支持黑名单状态切换和私聊举报', () async {
     final requests = <http.BaseRequest>[];
     final repository = HttpMagicChatRepository(
