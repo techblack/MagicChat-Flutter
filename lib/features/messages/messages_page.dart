@@ -91,6 +91,9 @@ class MessagesPage extends StatelessWidget {
         final conversationView = selectedId == null
             ? const _ConversationSelectionState()
             : ConversationView(
+                // IndexedStack 会保留页面本身，但不同会话不能共享消息
+                // 滚动位置、历史分页和异步刷新状态。
+                key: ValueKey('conversation-view-$selectedId'),
                 repository: repository,
                 realtimeSession: realtimeSession,
                 realtimeStore: realtimeStore,

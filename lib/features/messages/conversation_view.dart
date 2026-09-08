@@ -2283,6 +2283,7 @@ class _ConversationViewState extends State<ConversationView>
                       child: NotificationListener<ScrollNotification>(
                         onNotification: _onListScrollNotification,
                         child: ListView.builder(
+                          key: const ValueKey('conversation-message-list'),
                           controller: _scrollController,
                           cacheExtent: 480,
                           addAutomaticKeepAlives: false,

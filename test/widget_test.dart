@@ -93,6 +93,30 @@ class _RetrySendRepository extends DemoRepository {
   }
 }
 
+class _SwitchingConversationRepository extends DemoRepository {
+  @override
+  Future<List<ChatConversation>> conversations() async => const [
+        ChatConversation(
+            id: 'conversation-one', title: 'conversation-one', type: 'group'),
+        ChatConversation(
+            id: 'conversation-two', title: 'conversation-two', type: 'group'),
+      ];
+
+  @override
+  Future<List<ChatMessage>> messages(String conversationId,
+      {int? beforeSeq, int limit = 50}) async {
+    if (beforeSeq != null) return const [];
+    return List.generate(
+        30,
+        (index) => ChatMessage(
+            id: '$conversationId-$index',
+            conversationId: conversationId,
+            sequence: index + 1,
+            author: '成员',
+            text: '$conversationId 最新消息 ${index + 1}'));
+  }
+}
+
 void main() {
   test('界面字号与系统字体缩放叠加', () {
     expect(
@@ -474,6 +498,45 @@ void main() {
     final header = find.byKey(const ValueKey('conversation-header-background'));
     expect(header, findsOneWidget);
     expect(tester.getSize(header).width, 1000);
+  });
+
+  testWidgets('切换会话时不会继承上一会话的消息滚动位置', (tester) async {
+    final repository = _SwitchingConversationRepository();
+    var selected = 'conversation-one';
+    await tester.binding.setSurfaceSize(const Size(500, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    Widget buildPage() => MaterialApp(
+          home: Scaffold(
+            body: MessagesPage(
+              repository: repository,
+              selectedId: selected,
+              onSelect: (id) => selected = id,
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(buildPage());
+    await tester.pumpAndSettle();
+    final messageList = find.byKey(const ValueKey('conversation-message-list'));
+    final beforeSwitch = tester
+        .state<ScrollableState>(
+            find.descendant(of: messageList, matching: find.byType(Scrollable)))
+        .position;
+    await tester.drag(messageList, const Offset(0, 360));
+    await tester.pumpAndSettle();
+    expect(beforeSwitch.pixels, lessThan(beforeSwitch.maxScrollExtent - 1));
+
+    selected = 'conversation-two';
+    await tester.pumpWidget(buildPage());
+    await tester.pumpAndSettle();
+    final afterSwitch = tester
+        .state<ScrollableState>(find.descendant(
+            of: find.byKey(const ValueKey('conversation-message-list')),
+            matching: find.byType(Scrollable)))
+        .position;
+    expect(afterSwitch.pixels, closeTo(afterSwitch.maxScrollExtent, 1));
+    expect(find.text('conversation-two 最新消息 30'), findsOneWidget);
   });
 
   testWidgets('未选会话时显示明确的选择引导', (tester) async {
