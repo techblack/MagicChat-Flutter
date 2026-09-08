@@ -23,6 +23,8 @@ class MainActivity : FlutterActivity() {
     private val badgeNotificationId = 4102
     private val requestCode = 4101
     private val notificationPermissionRequestedKey = "notification_permission_requested"
+    private val jpushPendingPreferences = "magicchat.push"
+    private val jpushPendingRouteKey = "pending_route_token"
     private var pendingRouteToken: String? = null
     private var pendingConversationId: String? = null
     private var pendingMessageId: String? = null
@@ -237,7 +239,15 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun rememberRoute(intent: Intent?) {
-        pendingRouteToken = routeTokenFromIntent(intent)
+        pendingRouteToken = routeTokenFromIntent(intent) ?: getSharedPreferences(
+            jpushPendingPreferences,
+            Context.MODE_PRIVATE,
+        ).getString(jpushPendingRouteKey, null)?.also {
+            getSharedPreferences(jpushPendingPreferences, Context.MODE_PRIVATE)
+                .edit()
+                .remove(jpushPendingRouteKey)
+                .apply()
+        }
         pendingConversationId = intent?.getStringExtra("conversation_id")
             ?.trim()?.takeIf { it.isNotEmpty() }
         pendingMessageId = intent?.getStringExtra("message_id")

@@ -42,6 +42,7 @@ android {
         versionName = flutter.versionName
         manifestPlaceholders["JPUSH_APPKEY"] = jpushAppKey
         manifestPlaceholders["JPUSH_CHANNEL"] = jpushChannel
+        manifestPlaceholders["JPUSH_CONFIGURED"] = jpushAppKey.isNotEmpty().toString()
         buildConfigField("boolean", "JPUSH_CONFIGURED", jpushAppKey.isNotEmpty().toString())
     }
 
@@ -64,6 +65,11 @@ android {
             )
         }
     }
+}
+
+if (jpushAppKey.isEmpty()) {
+    android.sourceSets["main"].java.exclude("**/JPushNotificationReceiver.kt")
+    kotlin.sourceSets["main"].kotlin.exclude("**/JPushNotificationReceiver.kt")
 }
 
 dependencies {
