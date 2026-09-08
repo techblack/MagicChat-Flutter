@@ -1419,8 +1419,7 @@ class _ConversationViewState extends State<ConversationView>
       }
       if (!_userScrolledDuringInitialPosition &&
           !_listPointerActive &&
-          !_messagePointerActive &&
-          _scrollController.hasClients) {
+          !_messagePointerActive) {
         _scheduleLatestJump(conversationId,
             expectedScrollGeneration: expectedScrollGeneration,
             expectedPositionGeneration: generation);
@@ -1469,8 +1468,16 @@ class _ConversationViewState extends State<ConversationView>
           expectedPositionGeneration != _positionGeneration ||
           expectedScrollGeneration != _scrollInteractionGeneration ||
           _listPointerActive ||
-          _messagePointerActive ||
-          !_scrollController.hasClients) return;
+          _messagePointerActive) return;
+      if (!_scrollController.hasClients) {
+        if (attempt < 4) {
+          _scheduleLatestJump(conversationId,
+              expectedScrollGeneration: expectedScrollGeneration,
+              expectedPositionGeneration: expectedPositionGeneration,
+              attempt: attempt + 1);
+        }
+        return;
+      }
       final position = _scrollController.position;
       final previousMax = position.maxScrollExtent;
       position.jumpTo(previousMax);
@@ -1481,8 +1488,16 @@ class _ConversationViewState extends State<ConversationView>
             expectedPositionGeneration != _positionGeneration ||
             expectedScrollGeneration != _scrollInteractionGeneration ||
             _listPointerActive ||
-            _messagePointerActive ||
-            !_scrollController.hasClients) return;
+            _messagePointerActive) return;
+        if (!_scrollController.hasClients) {
+          if (attempt < 4) {
+            _scheduleLatestJump(conversationId,
+                expectedScrollGeneration: expectedScrollGeneration,
+                expectedPositionGeneration: expectedPositionGeneration,
+                attempt: attempt + 1);
+          }
+          return;
+        }
         final current = _scrollController.position;
         if ((current.maxScrollExtent - previousMax).abs() > 1 ||
             (current.pixels - current.maxScrollExtent).abs() > 1) {
@@ -1558,6 +1573,7 @@ class _ConversationViewState extends State<ConversationView>
 
   Future<void> _jumpToLatest(String conversationId) async {
     if (conversationId.isEmpty) return;
+    _resetScrollPosition();
     _historyMode = false;
     _highlightTimer?.cancel();
     _olderMessages.clear();
@@ -1586,6 +1602,7 @@ class _ConversationViewState extends State<ConversationView>
           widget.realtimeStore?.userProfileRevision ?? 0;
     }
     if (oldWidget.conversationId != widget.conversationId) {
+      _resetScrollPosition();
       _persistDraftFor(oldWidget.conversationId);
       widget.draftStore?.flushNotifications();
       _stopTypingHeartbeat();
@@ -1646,6 +1663,7 @@ class _ConversationViewState extends State<ConversationView>
       _draggingFile = false;
     }
     if (oldWidget.cacheScope != widget.cacheScope) {
+      _resetScrollPosition();
       _olderMessages.clear();
       _hasMoreOlder = true;
       _lastOlderBeforeSeq = null;
@@ -1678,6 +1696,7 @@ class _ConversationViewState extends State<ConversationView>
       _focusedMessageId = null;
       _highlightedMessageId = null;
       if (widget.focusMessageId != null) {
+        _resetScrollPosition();
         _historyMode = true;
         _olderMessages.clear();
         _messageKeys.clear();
@@ -1707,6 +1726,19 @@ class _ConversationViewState extends State<ConversationView>
     _scrollController.dispose();
     if (_ownsMessageCacheStore) unawaited(_messageCacheStore.close());
     super.dispose();
+  }
+
+  /// IndexedStack 会复用消息视图和 ScrollController。切换会话或账号时
+  /// 先清掉旧会话 offset，避免新会话在尚未完成首屏定位时继承旧位置。
+  void _resetScrollPosition() {
+    if (!_scrollController.hasClients || _scrollController.position.pixels == 0)
+      return;
+    _scrollController.removeListener(_onScroll);
+    try {
+      _scrollController.jumpTo(0);
+    } finally {
+      _scrollController.addListener(_onScroll);
+    }
   }
 
   Future<void> _pollFallbackMessages() async {

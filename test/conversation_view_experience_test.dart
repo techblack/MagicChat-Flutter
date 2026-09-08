@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as image;
 import 'package:image_picker/image_picker.dart';
 import 'package:magicchat_client/data/asset_cache_store.dart';
+import 'package:magicchat_client/data/message_cache_store.dart';
 import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/domain/models.dart';
@@ -452,6 +453,51 @@ void main() {
     expect(position.pixels, closeTo(position.maxScrollExtent, 1));
     expect(find.text('回到底部'), findsOneWidget);
   });
+
+  testWidgets('缓存首屏刷新和异步布局完成后仍定位到最新底部', (tester) async {
+    final cached = List.generate(
+        30,
+        (index) => ChatMessage(
+            id: 'cached-$index',
+            conversationId: 'conversation-1',
+            sequence: index + 1,
+            author: 'Alice',
+            text: '缓存消息 ${index + 1}'));
+    final cache = _MemoryMessageCacheStore(
+        cached.map(messageCacheRecord).toList(growable: false));
+    final repository = _CachedRefreshRepository();
+    const scope =
+        MessageCacheScope(serverUrl: 'https://chat.example.com', userId: 'me');
+    await tester.binding.setSurfaceSize(const Size(600, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: ConversationView(
+                repository: repository,
+                cacheScope: scope,
+                messageCacheStore: cache,
+                conversationId: 'conversation-1'))));
+    for (var index = 0;
+        index < 10 && find.text('缓存消息 30').evaluate().isEmpty;
+        index++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    final position =
+        tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+    expect(position.pixels, closeTo(position.maxScrollExtent, 1));
+
+    repository.refresh.complete(List.generate(
+        60,
+        (index) => ChatMessage(
+            id: 'fresh-$index',
+            conversationId: 'conversation-1',
+            sequence: index + 1,
+            author: 'Alice',
+            text: '最新消息 ${index + 1}')));
+    await tester.pumpAndSettle();
+    expect(position.pixels, closeTo(position.maxScrollExtent, 1));
+    expect(find.text('最新消息 60'), findsOneWidget);
+  });
 }
 
 Future<void> _pumpConversation(
@@ -740,4 +786,49 @@ class _ScrollSendRepository extends _ExperienceRepository {
   @override
   Future<void> sendMessage(String conversationId, String text,
       {String? replyToMessageId, String? clientMessageId}) async {}
+}
+
+class _CachedRefreshRepository extends _ExperienceRepository {
+  final refresh = Completer<List<ChatMessage>>();
+
+  @override
+  Future<List<ChatMessage>> messages(String conversationId,
+      {int? beforeSeq, int limit = 50}) {
+    if (beforeSeq != null) return Future.value(const []);
+    return refresh.future;
+  }
+}
+
+class _MemoryMessageCacheStore extends MessageCacheStore {
+  _MemoryMessageCacheStore(this.records);
+
+  final List<Map<String, dynamic>> records;
+
+  @override
+  Future<List<Map<String, dynamic>>> read(
+      MessageCacheScope scope, String conversationId,
+      {String conversationType = 'direct',
+      int? beforeSequence,
+      int? limit}) async {
+    final values = beforeSequence == null
+        ? records
+        : records.where((record) {
+            final sequence = record['sequence'];
+            return sequence is num && sequence.toInt() < beforeSequence;
+          }).toList(growable: false);
+    return limit == null ? values : values.take(limit).toList(growable: false);
+  }
+
+  @override
+  Future<void> write(MessageCacheScope scope, String conversationId,
+      List<Map<String, dynamic>> messages,
+      {String conversationType = 'direct'}) async {}
+
+  @override
+  Future<void> upsertAll(MessageCacheScope scope, String conversationId,
+      Iterable<Map<String, dynamic>> messages,
+      {String conversationType = 'direct'}) async {}
+
+  @override
+  Future<void> close() async {}
 }
