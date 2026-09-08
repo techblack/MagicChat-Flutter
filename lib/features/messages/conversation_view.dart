@@ -2368,11 +2368,11 @@ class _ConversationViewState extends State<ConversationView>
                                       child: const Icon(Icons.reply),
                                     ),
                                     child: Container(
-                                        padding: _highlightedMessageId == message.id
-                                            ? const EdgeInsets.all(2)
-                                            : EdgeInsets.zero,
-                                        decoration: _highlightedMessageId ==
-                                                message.id
+                                        padding:
+                                            _highlightedMessageId == message.id
+                                                ? const EdgeInsets.all(2)
+                                                : EdgeInsets.zero,
+                                        decoration: _highlightedMessageId == message.id
                                             ? BoxDecoration(
                                                 color: Theme.of(context)
                                                     .colorScheme
@@ -2391,6 +2391,7 @@ class _ConversationViewState extends State<ConversationView>
                                             conversationId: conversationId,
                                             galleryMessages:
                                                 _confirmedTimelineMessages,
+                                            realtimeStore: widget.realtimeStore,
                                             galleryHasOlder: _hasMoreOlder,
                                             canReact: _topicIsOpen(conversationId),
                                             canRespond: canSend,
@@ -4122,6 +4123,7 @@ class _MessageBubble extends StatelessWidget {
       this.replyTarget,
       required this.repository,
       required this.conversationId,
+      this.realtimeStore,
       this.galleryMessages = const [],
       this.galleryHasOlder = false,
       this.canReact = true,
@@ -4141,6 +4143,7 @@ class _MessageBubble extends StatelessWidget {
   final ChatMessage? replyTarget;
   final MagicChatRepository repository;
   final String conversationId;
+  final RealtimeStore? realtimeStore;
   final List<ChatMessage> galleryMessages;
   final bool galleryHasOlder;
   final bool canReact;
@@ -4808,6 +4811,8 @@ class _MessageBubble extends StatelessWidget {
               ? (repository as HttpMagicChatRepository).baseUri.toString()
               : null,
           cacheScope: cacheScope,
+          onConversationCreated: (conversation) =>
+              realtimeStore?.replaceConversation(conversation),
           onOpenConversation: (id, _) => onOpenTopic?.call(id),
         ),
       ),

@@ -951,6 +951,8 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
             contact: member,
             serverUrl: widget.serverUrl,
             cacheScope: widget.cacheScope,
+            onConversationCreated: (conversation) =>
+                widget.realtimeStore?.replaceConversation(conversation),
             onOpenConversation: (conversationId, _) {
               final openConversation = widget.onOpenConversation;
               if (openConversation == null) return;
@@ -1025,6 +1027,7 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
       final created = await widget.repository.createGroupConversation('新建群聊',
           memberIds: members.map((member) => member.id).toList());
       if (mounted) {
+        widget.realtimeStore?.replaceConversation(created);
         widget.onOpenConversation?.call(created.id);
         Navigator.pop(context);
       }

@@ -188,6 +188,8 @@ class _FriendManagementDialogState extends State<FriendManagementDialog> {
           contact: user,
           serverUrl: widget.serverUrl,
           cacheScope: widget.cacheScope,
+          onConversationCreated: (conversation) =>
+              widget.realtimeStore?.replaceConversation(conversation),
           friendMode: true,
           onOpenConversation: (conversationId, source) {
             Navigator.pop(context);

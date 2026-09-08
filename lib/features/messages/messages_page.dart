@@ -243,7 +243,10 @@ class MessagesPage extends StatelessWidget {
       if (members == null || !context.mounted) return;
       final conversation =
           await repository.createGroupConversation(name, memberIds: members);
-      if (context.mounted) onSelect(conversation.id);
+      if (context.mounted) {
+        realtimeStore?.replaceConversation(conversation);
+        onSelect(conversation.id);
+      }
     } catch (error) {
       if (context.mounted)
         ScaffoldMessenger.of(context).showSnackBar(

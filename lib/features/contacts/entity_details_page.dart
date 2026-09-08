@@ -25,6 +25,7 @@ class EntityDetailsPage extends StatefulWidget {
     this.cacheScope,
     this.sourceCategory,
     this.onOpenConversation,
+    this.onConversationCreated,
     this.friendMode = false,
     super.key,
   });
@@ -35,6 +36,7 @@ class EntityDetailsPage extends StatefulWidget {
   final MessageCacheScope? cacheScope;
   final ContactDirectoryCategory? sourceCategory;
   final ContactConversationCallback? onOpenConversation;
+  final ValueChanged<ChatConversation>? onConversationCreated;
   final bool friendMode;
 
   @override
@@ -166,6 +168,7 @@ class _EntityDetailsPageState extends State<EntityDetailsPage> {
                   : await widget.repository.joinGroupConversation(contact.id)
               : await widget.repository.createDirectConversation(contact.id);
       if (!mounted) return;
+      widget.onConversationCreated?.call(conversation);
       Navigator.pop(context);
       widget.onOpenConversation?.call(
           conversation.id, (contact: contact, category: widget.sourceCategory));
