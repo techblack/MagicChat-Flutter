@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../data/message_cache_store.dart';
+import '../../data/realtime_store.dart';
 import '../../data/repository.dart';
 import '../../domain/models.dart';
 import 'applications_page.dart';
@@ -20,6 +21,7 @@ class ContactCategoryPage extends StatefulWidget {
     this.initialContactId,
     this.onInitialContactOpened,
     this.onOpenConversation,
+    this.realtimeStore,
     super.key,
   });
 
@@ -32,6 +34,7 @@ class ContactCategoryPage extends StatefulWidget {
   final String? initialContactId;
   final VoidCallback? onInitialContactOpened;
   final ContactConversationCallback? onOpenConversation;
+  final RealtimeStore? realtimeStore;
 
   @override
   State<ContactCategoryPage> createState() => _ContactCategoryPageState();
@@ -106,6 +109,8 @@ class _ContactCategoryPageState extends State<ContactCategoryPage> {
             contact: contact,
             serverUrl: widget.serverUrl,
             cacheScope: widget.cacheScope,
+            onConversationCreated: (conversation) =>
+                widget.realtimeStore?.replaceConversation(conversation),
             sourceCategory: widget.category,
             onOpenConversation: (id, sourceContact) {
               Navigator.pop(context);

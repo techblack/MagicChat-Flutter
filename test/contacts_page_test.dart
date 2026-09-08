@@ -223,10 +223,12 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     String? opened;
     final repository = _UserDetailsRepository();
+    final realtimeStore = RealtimeStore();
     await tester.pumpWidget(MaterialApp(
         home: Scaffold(
             body: ContactsPage(
                 repository: repository,
+                realtimeStore: realtimeStore,
                 onOpenConversation: (id, _) => opened = id))));
     await tester.pumpAndSettle();
 
@@ -245,6 +247,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(repository.directUserId, 'user-alice');
     expect(opened, 'direct-alice');
+    expect(realtimeStore.conversations['direct-alice']?.displayTitle, 'Alice');
   });
 
   testWidgets('好友模式的好友资料可直接发消息', (tester) async {
