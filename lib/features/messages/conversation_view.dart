@@ -1202,6 +1202,12 @@ class _ConversationViewState extends State<ConversationView>
       // 引用原文，避免先短暂显示消息 ID/占位文本。
       unawaited(_preloadReplyTargets(id ?? '', realtimeMessages));
     }
+    final shouldFollowIncoming = incomingIds.isNotEmpty &&
+        !_historyMode &&
+        _positionedConversationId == id &&
+        !_listPointerActive &&
+        !_messagePointerActive &&
+        _isAtBottom();
     final shouldShowNewMessages = incomingIds.isNotEmpty &&
         (_historyMode || (_positionedConversationId == id && !_isAtBottom()));
     if (current == null &&
@@ -1225,6 +1231,11 @@ class _ConversationViewState extends State<ConversationView>
     });
     if (!canSend) _persistDraft();
     if (!canSend) _stopTypingHeartbeat();
+    if (shouldFollowIncoming) {
+      // 官方客户端在“接近底部”阅读时继续跟随新消息；明确上翻历史时
+      // 保留阅读位置并显示新消息按钮。反向列表的最新位置是 minExtent。
+      _scrollToLatest(id!);
+    }
   }
 
   void _onComposerFocusChanged() {
