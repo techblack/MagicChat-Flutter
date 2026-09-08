@@ -118,6 +118,8 @@ class MessagesPage extends StatelessWidget {
             : _ConversationHeader(
                 repository: repository,
                 realtimeStore: realtimeStore,
+                serverUrl: serverUrl,
+                cacheScope: cacheScope,
                 conversationId: selectedId!,
                 compact: !split,
                 onBack: onBack ?? () => onSelect(''),
@@ -369,6 +371,8 @@ class _ConversationHeader extends StatefulWidget {
   const _ConversationHeader({
     required this.repository,
     required this.realtimeStore,
+    required this.serverUrl,
+    required this.cacheScope,
     required this.conversationId,
     required this.compact,
     required this.onBack,
@@ -378,6 +382,8 @@ class _ConversationHeader extends StatefulWidget {
 
   final MagicChatRepository repository;
   final RealtimeStore? realtimeStore;
+  final String? serverUrl;
+  final MessageCacheScope? cacheScope;
   final String conversationId;
   final bool compact;
   final VoidCallback onBack;
@@ -470,6 +476,18 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
                     icon: const Icon(Icons.arrow_back),
                   ),
                 ),
+              Positioned(
+                left: widget.compact ? 48 : 16,
+                child: ConversationAvatar(
+                  key: const ValueKey('conversation-header-avatar'),
+                  repository: widget.repository,
+                  conversation: conversation ??
+                      ChatConversation(id: widget.conversationId, title: title),
+                  serverUrl: widget.serverUrl,
+                  cacheScope: widget.cacheScope,
+                  radius: 18,
+                ),
+              ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 104),
                 child: Column(
