@@ -843,7 +843,16 @@ void main() {
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pump();
     expect(find.text('Ctrl+Shift+S'), findsOneWidget);
-    await tester.tap(find.text('保存'));
+    final save = find.widgetWithText(FilledButton, '保存');
+    for (var step = 0;
+        step < 4 &&
+            tester.widget<FilledButton>(save).focusNode?.hasFocus != true;
+        step++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+    }
+    expect(tester.widget<FilledButton>(save).focusNode?.hasFocus, isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
 
     expect(result?.keyCode, PhysicalKeyboardKey.keyS.usbHidUsage);

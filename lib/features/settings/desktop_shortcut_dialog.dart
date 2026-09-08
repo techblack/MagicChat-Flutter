@@ -38,7 +38,9 @@ class DesktopShortcutDialog<T extends DesktopGlobalShortcut>
 class _DesktopShortcutDialogState<T extends DesktopGlobalShortcut>
     extends State<DesktopShortcutDialog<T>> {
   final _focusNode = FocusNode();
+  final _saveFocusNode = FocusNode();
   late T _shortcut = widget.initial;
+  bool _recording = true;
   String? _error;
 
   @override
@@ -51,10 +53,14 @@ class _DesktopShortcutDialogState<T extends DesktopGlobalShortcut>
   @override
   void dispose() {
     _focusNode.dispose();
+    _saveFocusNode.dispose();
     super.dispose();
   }
 
   KeyEventResult _record(FocusNode node, KeyEvent event) {
+    if (!_recording || event.logicalKey == LogicalKeyboardKey.tab) {
+      return KeyEventResult.ignored;
+    }
     if (event is! KeyDownEvent ||
         desktopShortcutModifierKeys.contains(event.physicalKey)) {
       return KeyEventResult.handled;
@@ -77,6 +83,7 @@ class _DesktopShortcutDialogState<T extends DesktopGlobalShortcut>
     setState(() {
       _shortcut = next;
       _error = next.isValid ? null : '快捷键需要包含 Ctrl、Command/Win 或 Alt';
+      _recording = !next.isValid;
     });
     return KeyEventResult.handled;
   }
@@ -89,6 +96,11 @@ class _DesktopShortcutDialogState<T extends DesktopGlobalShortcut>
           child: Focus(
             focusNode: _focusNode,
             onKeyEvent: _record,
+            onFocusChange: (focused) {
+              if (focused && !_recording) {
+                setState(() => _recording = true);
+              }
+            },
             child: Container(
               key: widget.recorderKey,
               padding: const EdgeInsets.all(20),
@@ -110,9 +122,12 @@ class _DesktopShortcutDialogState<T extends DesktopGlobalShortcut>
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 8),
-                  Text(_error!,
-                      style: TextStyle(
-                          color: Theme.of(context).colorScheme.error)),
+                  Semantics(
+                    liveRegion: true,
+                    child: Text(_error!,
+                        style: TextStyle(
+                            color: Theme.of(context).colorScheme.error)),
+                  ),
                 ],
               ]),
             ),
@@ -123,13 +138,14 @@ class _DesktopShortcutDialogState<T extends DesktopGlobalShortcut>
             onPressed: () => setState(() {
               _shortcut = widget.defaultShortcut;
               _error = null;
-              _focusNode.requestFocus();
+              _recording = false;
             }),
             child: const Text('恢复默认'),
           ),
           TextButton(
               onPressed: () => Navigator.pop(context), child: const Text('取消')),
           FilledButton(
+            focusNode: _saveFocusNode,
             onPressed: _shortcut.isValid
                 ? () => Navigator.pop(context, _shortcut)
                 : null,
