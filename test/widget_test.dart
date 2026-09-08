@@ -393,7 +393,8 @@ void main() {
     expect(find.byTooltip('返回会话列表'), findsOneWidget);
     expect(find.byTooltip('检索当前会话'), findsOneWidget);
     expect(find.byTooltip('聊天详情'), findsOneWidget);
-    expect(find.byKey(const ValueKey('conversation-header-avatar')), findsOneWidget);
+    expect(find.byKey(const ValueKey('conversation-header-avatar')),
+        findsOneWidget);
     final title = find.byKey(const ValueKey('conversation-header-title'));
     final header = find.byKey(const ValueKey('conversation-header-background'));
     final headerSafeArea =
