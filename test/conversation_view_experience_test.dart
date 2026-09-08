@@ -441,16 +441,24 @@ void main() {
     await _pumpConversation(tester, repository);
     final scrollable = find.byType(Scrollable).first;
     final position = tester.state<ScrollableState>(scrollable).position;
+    expect(
+        tester
+            .widget<ListView>(
+                find.byKey(const ValueKey('conversation-message-list')))
+            .reverse,
+        isTrue);
+    expect(position.pixels, closeTo(position.minScrollExtent, 1));
+    expect(find.text('可滚动的历史消息 30'), findsOneWidget);
 
     await tester.drag(find.byType(ListView).first, const Offset(0, 360));
     await tester.pumpAndSettle();
-    expect(position.pixels, lessThan(position.maxScrollExtent - 1));
+    expect(position.pixels, greaterThan(position.minScrollExtent + 1));
 
     await tester.enterText(find.byType(TextField), '回到底部');
     await tester.tap(find.byTooltip('发送'));
     await tester.pumpAndSettle();
 
-    expect(position.pixels, closeTo(position.maxScrollExtent, 1));
+    expect(position.pixels, closeTo(position.minScrollExtent, 1));
     expect(find.text('回到底部'), findsOneWidget);
   });
 
@@ -484,7 +492,7 @@ void main() {
     }
     final position =
         tester.state<ScrollableState>(find.byType(Scrollable).first).position;
-    expect(position.pixels, closeTo(position.maxScrollExtent, 1));
+    expect(position.pixels, closeTo(position.minScrollExtent, 1));
 
     repository.refresh.complete(List.generate(
         60,
@@ -495,7 +503,7 @@ void main() {
             author: 'Alice',
             text: '最新消息 ${index + 1}')));
     await tester.pumpAndSettle();
-    expect(position.pixels, closeTo(position.maxScrollExtent, 1));
+    expect(position.pixels, closeTo(position.minScrollExtent, 1));
     expect(find.text('最新消息 60'), findsOneWidget);
   });
 }

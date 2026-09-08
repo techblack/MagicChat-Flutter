@@ -525,7 +525,7 @@ void main() {
         .position;
     await tester.drag(messageList, const Offset(0, 360));
     await tester.pumpAndSettle();
-    expect(beforeSwitch.pixels, lessThan(beforeSwitch.maxScrollExtent - 1));
+    expect(beforeSwitch.pixels, greaterThan(beforeSwitch.minScrollExtent + 1));
 
     selected = 'conversation-two';
     await tester.pumpWidget(buildPage());
@@ -535,7 +535,7 @@ void main() {
             of: find.byKey(const ValueKey('conversation-message-list')),
             matching: find.byType(Scrollable)))
         .position;
-    expect(afterSwitch.pixels, closeTo(afterSwitch.maxScrollExtent, 1));
+    expect(afterSwitch.pixels, closeTo(afterSwitch.minScrollExtent, 1));
     expect(find.text('conversation-two 最新消息 30'), findsOneWidget);
   });
 
@@ -578,6 +578,9 @@ void main() {
 
     await tester.drag(find.byType(ListView), const Offset(0, 420));
     await tester.pumpAndSettle();
+    final position =
+        tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+    expect(position.pixels, greaterThan(position.minScrollExtent + 1));
     store.apply({
       'cursor': 1,
       'event': 'message.created',
@@ -592,6 +595,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('新消息 1'), findsOneWidget);
+    expect(position.pixels, greaterThan(position.minScrollExtent + 1));
     await tester.tap(find.text('新消息 1'));
     await tester.pumpAndSettle();
     expect(find.text('新消息 1'), findsNothing);
