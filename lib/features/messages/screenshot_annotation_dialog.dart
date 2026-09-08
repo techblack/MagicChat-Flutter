@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -9,6 +10,7 @@ import 'package:image/image.dart' as image;
 
 import '../../data/desktop_screenshot.dart';
 import '../../data/image_save_service.dart';
+import '../../data/screenshot_clipboard_service.dart';
 import '../../domain/screenshot_annotations.dart';
 
 const screenshotAnnotationColors = <int>[
@@ -19,6 +21,9 @@ const screenshotAnnotationColors = <int>[
   0xffffffff,
 ];
 
+typedef ScreenshotPngRenderer = FutureOr<Uint8List> Function(
+    Uint8List sourceBytes, List<ScreenshotAnnotation> annotations);
+
 Future<CapturedScreenshot?> showScreenshotAnnotationDialog(
         BuildContext context, CapturedScreenshot screenshot) =>
     showDialog<CapturedScreenshot>(
@@ -28,12 +33,19 @@ Future<CapturedScreenshot?> showScreenshotAnnotationDialog(
     );
 
 class ScreenshotAnnotationDialog extends StatefulWidget {
-  const ScreenshotAnnotationDialog(
-      {required this.screenshot, this.imageSaver, super.key});
+  const ScreenshotAnnotationDialog({
+    required this.screenshot,
+    this.imageSaver,
+    this.clipboardService,
+    this.pngRenderer,
+    super.key,
+  });
 
   final CapturedScreenshot screenshot;
   final Future<ImageSaveResult> Function(
       Uint8List bytes, String suggestedName, int fallbackIndex)? imageSaver;
+  final ScreenshotClipboardService? clipboardService;
+  final ScreenshotPngRenderer? pngRenderer;
 
   @override
   State<ScreenshotAnnotationDialog> createState() =>
@@ -55,9 +67,16 @@ class _ScreenshotAnnotationDialogState
   int _color = screenshotAnnotationColors.first;
   bool _rendering = false;
   bool _saving = false;
+  bool _copying = false;
+  bool _preparingPng = false;
   String _error = '';
   late final int _imageWidth;
   late final int _imageHeight;
+  late Uint8List? _cachedPngBytes;
+  int _annotationVersion = 0;
+  int _cachedPngVersion = 0;
+  Future<void>? _preparingPngFuture;
+  DesktopScreenshotException? _preparingPngError;
 
   @override
   void initState() {
@@ -71,6 +90,7 @@ class _ScreenshotAnnotationDialogState
     _imageHeight = widget.screenshot.height > 0
         ? widget.screenshot.height
         : decoded?.height ?? 1;
+    _cachedPngBytes = widget.screenshot.bytes;
   }
 
   @override
@@ -79,23 +99,29 @@ class _ScreenshotAnnotationDialogState
     super.dispose();
   }
 
-  void _undo() => setState(() {
-        _history = _history.undo();
-        _draft = null;
-        _selected = null;
-        _movingOriginal = null;
-        _movePreview = null;
-        _resizeHandle = null;
-      });
+  void _undo() {
+    setState(() {
+      _history = _history.undo();
+      _draft = null;
+      _selected = null;
+      _movingOriginal = null;
+      _movePreview = null;
+      _resizeHandle = null;
+    });
+    _prepareCurrentPng();
+  }
 
-  void _redo() => setState(() {
-        _history = _history.redo();
-        _draft = null;
-        _selected = null;
-        _movingOriginal = null;
-        _movePreview = null;
-        _resizeHandle = null;
-      });
+  void _redo() {
+    setState(() {
+      _history = _history.redo();
+      _draft = null;
+      _selected = null;
+      _movingOriginal = null;
+      _movePreview = null;
+      _resizeHandle = null;
+    });
+    _prepareCurrentPng();
+  }
 
   void _startDrawing(DragStartDetails details, Size displaySize) {
     if (_rendering || _tool == ScreenshotAnnotationTool.text) return;
@@ -182,24 +208,29 @@ class _ScreenshotAnnotationDialogState
     if (_tool == ScreenshotAnnotationTool.select) {
       final original = _movingOriginal;
       final preview = _movePreview;
+      var changed = false;
       setState(() {
         if (original != null &&
             preview != null &&
             !identical(original, preview)) {
           _history = _history.replace(original, preview);
           _selected = preview;
+          changed = true;
         }
         _movingOriginal = null;
         _movePreview = null;
         _resizeHandle = null;
         _start = null;
       });
+      if (changed) _prepareCurrentPng();
       return;
     }
     final draft = _draft;
+    var changed = false;
     setState(() {
       if (draft != null && _isVisible(draft)) {
         _history = _history.commit(draft);
+        changed = true;
       }
       _selected = null;
       _start = null;
@@ -209,6 +240,7 @@ class _ScreenshotAnnotationDialogState
       _movePreview = null;
       _resizeHandle = null;
     });
+    if (changed) _prepareCurrentPng();
   }
 
   void _cancelDrawing() => setState(() {
@@ -262,6 +294,7 @@ class _ScreenshotAnnotationDialogState
       _selected = null;
       _error = '';
     });
+    _prepareCurrentPng();
   }
 
   void _handleCanvasTap(TapUpDetails details, Size displaySize) {
@@ -303,6 +336,7 @@ class _ScreenshotAnnotationDialogState
       _movePreview = null;
       _resizeHandle = null;
     });
+    _prepareCurrentPng();
   }
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
@@ -356,7 +390,7 @@ class _ScreenshotAnnotationDialogState
     });
     await Future<void>.delayed(Duration.zero);
     try {
-      final bytes = await _renderBytes();
+      final bytes = await _currentPngBytes();
       if (!mounted) return;
       Navigator.pop(
           context,
@@ -382,9 +416,12 @@ class _ScreenshotAnnotationDialogState
     }
   }
 
-  Future<Uint8List> _renderBytes() async {
-    final rendered = const ScreenshotAnnotationRenderer()
-        .render(widget.screenshot.bytes, _history.present);
+  Future<Uint8List> _renderBytes(List<ScreenshotAnnotation> annotations) async {
+    final renderer = widget.pngRenderer;
+    final rendered = renderer == null
+        ? const ScreenshotAnnotationRenderer()
+            .render(widget.screenshot.bytes, annotations)
+        : renderer(widget.screenshot.bytes, annotations);
     final bytes = rendered is Future<Uint8List> ? await rendered : rendered;
     if (bytes.length > desktopScreenshotMaxImageBytes) {
       throw const DesktopScreenshotException(
@@ -395,6 +432,78 @@ class _ScreenshotAnnotationDialogState
     return bytes;
   }
 
+  void _prepareCurrentPng() {
+    final version = ++_annotationVersion;
+    final annotations = List<ScreenshotAnnotation>.of(_history.present);
+    _preparingPngError = null;
+    if (annotations.isEmpty) {
+      _preparingPngFuture = null;
+      setState(() {
+        _cachedPngBytes = widget.screenshot.bytes;
+        _cachedPngVersion = version;
+        _preparingPng = false;
+        _error = '';
+      });
+      return;
+    }
+    setState(() {
+      _cachedPngBytes = null;
+      _preparingPng = true;
+      _error = '';
+    });
+    final completion = Completer<void>();
+    _preparingPngFuture = completion.future;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_preparePng(version, annotations).whenComplete(() {
+        if (!completion.isCompleted) completion.complete();
+      }));
+    });
+  }
+
+  Future<void> _preparePng(
+      int version, List<ScreenshotAnnotation> annotations) async {
+    if (!mounted || version != _annotationVersion) return;
+    try {
+      final bytes = await _renderBytes(annotations);
+      if (!mounted || version != _annotationVersion) return;
+      setState(() {
+        _cachedPngBytes = bytes;
+        _cachedPngVersion = version;
+        _preparingPng = false;
+      });
+    } on DesktopScreenshotException catch (error) {
+      _completePngPreparationError(version, error);
+    } catch (_) {
+      _completePngPreparationError(
+          version,
+          const DesktopScreenshotException(
+              DesktopScreenshotErrorCode.failed, '截图标注生成失败，请重试'));
+    }
+  }
+
+  void _completePngPreparationError(
+      int version, DesktopScreenshotException error) {
+    if (!mounted || version != _annotationVersion) return;
+    setState(() {
+      _preparingPng = false;
+      _preparingPngError = error;
+      _error = error.message;
+    });
+  }
+
+  Future<Uint8List> _currentPngBytes() async {
+    final version = _annotationVersion;
+    final cached = _cachedPngBytes;
+    if (_cachedPngVersion == version && cached != null) return cached;
+    final preparing = _preparingPngFuture;
+    if (preparing != null) await preparing;
+    final prepared = _cachedPngBytes;
+    if (_cachedPngVersion == version && prepared != null) return prepared;
+    throw _preparingPngError ??
+        const DesktopScreenshotException(
+            DesktopScreenshotErrorCode.failed, '截图标注生成失败，请重试');
+  }
+
   Future<void> _save() async {
     if (_rendering) return;
     setState(() {
@@ -403,7 +512,7 @@ class _ScreenshotAnnotationDialogState
       _error = '';
     });
     try {
-      final bytes = await _renderBytes();
+      final bytes = await _currentPngBytes();
       final result = await (widget.imageSaver ?? _saveImage)(
           bytes, widget.screenshot.fileName, 1);
       if (mounted && result.saved) {
@@ -430,6 +539,42 @@ class _ScreenshotAnnotationDialogState
           Uint8List bytes, String suggestedName, int fallbackIndex) =>
       const ImageSaveService().save(bytes,
           suggestedName: suggestedName, fallbackIndex: fallbackIndex);
+
+  Future<void> _copy() async {
+    final bytes = _cachedPngBytes;
+    if (_rendering ||
+        _preparingPng ||
+        bytes == null ||
+        _cachedPngVersion != _annotationVersion) {
+      return;
+    }
+    setState(() {
+      _rendering = true;
+      _copying = true;
+      _error = '';
+    });
+    try {
+      final write =
+          (widget.clipboardService ?? const ScreenshotClipboardService())
+              .copyPng(bytes, suggestedName: widget.screenshot.fileName);
+      await write;
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('截图已复制到剪贴板')));
+      }
+    } on ScreenshotClipboardException catch (error) {
+      if (mounted) setState(() => _error = '复制截图失败：${error.message}');
+    } catch (_) {
+      if (mounted) setState(() => _error = '复制截图失败，请重试');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _rendering = false;
+          _copying = false;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -486,6 +631,21 @@ class _ScreenshotAnnotationDialogState
                             child: CircularProgressIndicator(strokeWidth: 2))
                         : const Icon(Icons.download_outlined),
                   ),
+                  IconButton(
+                    key: const ValueKey('screenshot-copy'),
+                    tooltip: '复制截图',
+                    onPressed: _rendering ||
+                            _preparingPng ||
+                            _cachedPngBytes == null ||
+                            _cachedPngVersion != _annotationVersion
+                        ? null
+                        : _copy,
+                    icon: _copying
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.copy_outlined),
+                  ),
                   const Spacer(),
                   TextButton(
                       onPressed:
@@ -494,7 +654,7 @@ class _ScreenshotAnnotationDialogState
                   const SizedBox(width: 8),
                   FilledButton.icon(
                     onPressed: _rendering ? null : _finish,
-                    icon: _rendering && !_saving
+                    icon: _rendering && !_saving && !_copying
                         ? const SizedBox.square(
                             dimension: 18,
                             child: CircularProgressIndicator(strokeWidth: 2))

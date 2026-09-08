@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -10,6 +11,7 @@ import 'package:magicchat_client/data/desktop_screenshot.dart';
 import 'package:magicchat_client/data/image_save_service.dart';
 import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/data/repository.dart';
+import 'package:magicchat_client/data/screenshot_clipboard_service.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/domain/screenshot_annotations.dart';
 import 'package:magicchat_client/features/messages/screenshot_annotation_dialog.dart';
@@ -17,6 +19,7 @@ import 'package:magicchat_client/features/settings/desktop_screenshot_shortcut_d
 import 'package:magicchat_client/features/settings/settings_page.dart';
 import 'package:magicchat_client/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:super_clipboard/super_clipboard.dart';
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -580,6 +583,109 @@ void main() {
     expect(find.text('发送截图'), findsOneWidget);
   });
 
+  testWidgets('复制截图会区分原始与当前标注缓存且生成期间禁用', (tester) async {
+    final source = image.Image(width: 160, height: 90, numChannels: 4);
+    image.fill(source, color: image.ColorRgba8(255, 255, 255, 255));
+    final sourceBytes = Uint8List.fromList(image.encodePng(source));
+    final copied = <Uint8List>[];
+    final renderRequests =
+        <(List<ScreenshotAnnotation>, Completer<Uint8List>)>[];
+    final clipboard = ScreenshotClipboardService(writer: (items) async {
+      copied.add(_clipboardPngBytes(items.single));
+    });
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ScreenshotAnnotationDialog(
+          screenshot: CapturedScreenshot(
+            bytes: sourceBytes,
+            width: 160,
+            height: 90,
+            fileName: '现场截图.png',
+          ),
+          clipboardService: clipboard,
+          pngRenderer: (bytes, annotations) {
+            final completion = Completer<Uint8List>();
+            renderRequests.add((annotations, completion));
+            return completion.future;
+          },
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('screenshot-copy')));
+    await tester.pumpAndSettle();
+    expect(copied.single, same(sourceBytes));
+
+    final canvas = tester
+        .getRect(find.byKey(const ValueKey('screenshot-annotation-canvas')));
+    await tester.dragFrom(
+        canvas.topLeft + const Offset(20, 20), const Offset(80, 40));
+    await tester.pump();
+    await tester.dragFrom(
+        canvas.topLeft + const Offset(110, 60), const Offset(40, 20));
+    await tester.pump();
+    expect(
+        tester
+            .widget<IconButton>(find.byKey(const ValueKey('screenshot-copy')))
+            .onPressed,
+        isNull);
+    expect(renderRequests, hasLength(2));
+    const renderer = ScreenshotAnnotationRenderer();
+    renderRequests.first.$2.complete(
+        renderer.render(sourceBytes, renderRequests.first.$1) as Uint8List);
+    await tester.pump();
+    expect(
+        tester
+            .widget<IconButton>(find.byKey(const ValueKey('screenshot-copy')))
+            .onPressed,
+        isNull);
+    renderRequests.last.$2.complete(
+        renderer.render(sourceBytes, renderRequests.last.$1) as Uint8List);
+    await tester.pumpAndSettle();
+    expect(
+        tester
+            .widget<IconButton>(find.byKey(const ValueKey('screenshot-copy')))
+            .onPressed,
+        isNotNull);
+
+    await tester.tap(find.byKey(const ValueKey('screenshot-copy')));
+    await tester.pumpAndSettle();
+    expect(copied, hasLength(2));
+    expect(copied.last, isNot(equals(sourceBytes)));
+    final output = image.decodePng(copied.last)!;
+    expect(output.width, 160);
+    expect(output.height, 90);
+    expect(_coloredPixelCount(output), greaterThan(0));
+    expect(find.text('发送截图'), findsOneWidget);
+  });
+
+  testWidgets('剪贴板写入失败显示错误且不关闭编辑器', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ScreenshotAnnotationDialog(
+          screenshot: CapturedScreenshot(
+            bytes: _pngBytes,
+            width: 1,
+            height: 1,
+            fileName: 'MagicChat-test.png',
+          ),
+          clipboardService: ScreenshotClipboardService(
+              writer: (_) async => throw StateError('write failed')),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('screenshot-copy')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('发送截图'), findsOneWidget);
+    expect(find.byKey(const ValueKey('screenshot-annotation-error')),
+        findsOneWidget);
+    expect(find.textContaining('无法写入系统剪贴板'), findsOneWidget);
+  });
+
   testWidgets('取消截图标注不进入发送队列', (tester) async {
     final directory = Directory.systemTemp.createTempSync('shot-ui-');
     addTearDown(() => directory.deleteSync(recursive: true));
@@ -815,6 +921,13 @@ class _HotKeyBackend implements DesktopScreenshotHotKeyBackend {
 
 final _pngBytes = base64Decode(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=');
+
+Uint8List _clipboardPngBytes(DataWriterItem item) {
+  final encoded = item.data.single as EncodedData;
+  final representation = encoded.representations.single;
+  expect(representation.format, Formats.png.providerFormat);
+  return (representation as dynamic).data as Uint8List;
+}
 
 int _coloredPixelCount(image.Image value) {
   var count = 0;
