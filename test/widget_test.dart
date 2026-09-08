@@ -520,8 +520,8 @@ void main() {
     await tester.pumpAndSettle();
     final messageList = find.byKey(const ValueKey('conversation-message-list'));
     final beforeSwitch = tester
-        .state<ScrollableState>(find.descendant(
-            of: messageList, matching: find.byType(Scrollable)))
+        .state<ScrollableState>(
+            find.descendant(of: messageList, matching: find.byType(Scrollable)))
         .position;
     await tester.drag(messageList, const Offset(0, 360));
     await tester.pumpAndSettle();
