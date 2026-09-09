@@ -2396,6 +2396,8 @@ class _ConversationViewState extends State<ConversationView>
   }
 
   void _onListPointerDown(PointerDownEvent event) {
+    // 点击或开始拖动消息列表时收起输入法，避免移动端键盘遮挡历史内容。
+    _composerFocusNode.unfocus();
     _listPointerActive = true;
     _scrollInteractionGeneration++;
     if (_initialPositionPending) _userScrolledDuringInitialPosition = true;
