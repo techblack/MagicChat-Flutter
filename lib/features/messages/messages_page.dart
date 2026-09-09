@@ -478,14 +478,27 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
                 ),
               Positioned(
                 left: widget.compact ? 48 : 16,
-                child: ConversationAvatar(
-                  key: const ValueKey('conversation-header-avatar'),
-                  repository: widget.repository,
-                  conversation: conversation ??
-                      ChatConversation(id: widget.conversationId, title: title),
-                  serverUrl: widget.serverUrl,
-                  cacheScope: widget.cacheScope,
-                  radius: 18,
+                child: Semantics(
+                  button: true,
+                  label: '会话资料',
+                  child: InkWell(
+                    key: const ValueKey('conversation-header-avatar-button'),
+                    borderRadius: BorderRadius.circular(20),
+                    onTap: () => unawaited(widget.onDetails()),
+                    child: Padding(
+                      padding: const EdgeInsets.all(1),
+                      child: ConversationAvatar(
+                        key: const ValueKey('conversation-header-avatar'),
+                        repository: widget.repository,
+                        conversation: conversation ??
+                            ChatConversation(
+                                id: widget.conversationId, title: title),
+                        serverUrl: widget.serverUrl,
+                        cacheScope: widget.cacheScope,
+                        radius: 18,
+                      ),
+                    ),
+                  ),
                 ),
               ),
               Padding(
