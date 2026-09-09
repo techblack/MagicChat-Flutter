@@ -136,9 +136,16 @@ jobs:
           # desktop_tray loads Ayatana AppIndicator at runtime. Keep the
           # release runner honest so a missing transitive runtime dependency
           # cannot be discovered only after a user downloads the archive.
-          ldconfig -p | grep -q 'libayatana-ido3-0.4.so.0'
+          ido_runtime="$(ldconfig -p | awk '/libayatana-ido3-0.4.so.0/{print $NF; exit}')"
+          test -n "$ido_runtime" && test -f "$ido_runtime"
+          bundle="build/linux/${{ matrix.arch }}/release/bundle"
+          cp -L "$ido_runtime" "$bundle/lib/libayatana-ido3-0.4.so.0"
+          tray_plugin="$bundle/lib/libdesktop_tray_plugin.so"
+          test -f "$tray_plugin"
+          readelf -d "$tray_plugin" | grep -Eq 'RUNPATH.*\$ORIGIN'
+          ldd "$tray_plugin" | grep -Fq "libayatana-ido3-0.4.so.0 => $bundle/lib/libayatana-ido3-0.4.so.0"
           mkdir -p dist
-          tar -C build/linux/${{ matrix.arch }}/release/bundle \
+          tar -C "$bundle" \
             -czf dist/MagicChat-Linux-${{ matrix.arch }}.tar.gz .
       - uses: actions/upload-artifact@v4
         with:

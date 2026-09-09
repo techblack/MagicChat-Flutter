@@ -74,6 +74,16 @@ set_target_properties(${BINARY_NAME}
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# The Linux tray plugin is installed beside the executable. Its default
+# Flutter-generated RUNPATH points at the build machine's ephemeral directory,
+# which is invalid after publishing a portable bundle. Keep tray dependencies
+# relative to the plugin so the release bundle can carry its runtime library.
+if(TARGET desktop_tray_plugin)
+  set_target_properties(desktop_tray_plugin PROPERTIES
+    BUILD_RPATH "$ORIGIN"
+    INSTALL_RPATH "$ORIGIN")
+endif()
+
 
 # === Installation ===
 # By default, "installing" just makes a relocatable bundle in the build
