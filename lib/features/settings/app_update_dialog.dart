@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/update_installer.dart';
 import '../../data/update_service.dart';
+import '../shared/user_facing_error.dart';
 
 typedef UpdateDownloadPageLauncher = Future<bool> Function(Uri uri);
 
@@ -52,7 +53,7 @@ class _AppUpdateDialogState extends State<AppUpdateDialog> {
       if (mounted) {
         setState(() {
           _downloading = false;
-          _error = error.toString().replaceFirst('Exception: ', '');
+          _error = userFacingError(error);
         });
       }
     }
@@ -72,8 +73,7 @@ class _AppUpdateDialogState extends State<AppUpdateDialog> {
       if (mounted) Navigator.pop(context);
     } catch (error) {
       if (mounted) {
-        setState(
-            () => _error = error.toString().replaceFirst('Exception: ', ''));
+        setState(() => _error = userFacingError(error));
       }
     }
   }

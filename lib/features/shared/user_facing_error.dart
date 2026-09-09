@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../../data/auth_service.dart';
 import '../../data/repository.dart';
+import '../../data/update_installer_types.dart';
 
 /// 将网络、协议和本地异常转换为可以直接展示给用户的短提示。
 ///
@@ -14,6 +15,9 @@ String userFacingError(Object error, {String fallback = '操作失败，请稍�
   }
   if (error is MagicChatRequestException) {
     return _statusMessage(error.statusCode, fallback);
+  }
+  if (error is UpdateInstallBlockedByActiveTransfers) {
+    return error.toString();
   }
   if (error is FormatException && error.message.trim().isNotEmpty) {
     return error.message.trim();

@@ -89,6 +89,18 @@ void main() {
     expect(find.byType(AppUpdateDialog), findsOneWidget);
     expect(find.text('下载安装'), findsOneWidget);
   });
+
+  testWidgets('更新失败不展示原始异常细节', (tester) async {
+    await tester.pumpWidget(_DialogHost(installer: _FailingInstaller()));
+
+    await tester.tap(find.text('显示更新'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('下载安装'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('操作失败，请稍后重试'), findsOneWidget);
+    expect(find.textContaining('internal-file-id'), findsNothing);
+  });
 }
 
 const _release = AppRelease(
@@ -180,6 +192,25 @@ class _BlockedInstaller implements UpdateInstaller {
   Future<void> downloadAndInstall(AppRelease release,
           {required UpdateDownloadProgress onProgress}) =>
       throw const UpdateInstallBlockedByActiveTransfers();
+
+  @override
+  Future<void> cancel() async {}
+}
+
+class _FailingInstaller implements UpdateInstaller {
+  @override
+  bool get supported => true;
+
+  @override
+  String get progressLabel => '正在下载并校验完整安装包';
+
+  @override
+  String get completionHint => '校验完成后将自动替换当前版本并重启。';
+
+  @override
+  Future<void> downloadAndInstall(AppRelease release,
+          {required UpdateDownloadProgress onProgress}) async =>
+      throw Exception('internal-file-id=/private/cache/secret.apk');
 
   @override
   Future<void> cancel() async {}
