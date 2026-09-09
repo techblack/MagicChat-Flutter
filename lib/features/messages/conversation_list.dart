@@ -56,6 +56,12 @@ int totalConversationUnread(Iterable<ChatConversation> conversations) =>
     conversations.fold(
         0, (total, item) => total + conversationUnreadCount(item));
 
+int otherConversationUnreadCount(
+        Iterable<ChatConversation> conversations, String conversationId) =>
+    conversations
+        .where((item) => item.id != conversationId && !item.muted)
+        .fold(0, (total, item) => total + conversationUnreadCount(item));
+
 /// 只为预览中实际出现的提及解析联系人名称，避免每个可见会话都复制
 /// 整个组织通讯录。会话成员继续优先于实时缓存，保持原有展示语义。
 Iterable<({String id, String name})> conversationPreviewMentionLabels(

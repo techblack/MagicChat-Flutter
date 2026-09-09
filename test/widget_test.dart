@@ -184,6 +184,18 @@ class _ReselectConversationRepository extends DemoRepository {
               text: '可重新进入消息 ${index + 1}'));
 }
 
+class _DelayedConversationRepository extends DemoRepository {
+  final completer = Completer<List<ChatConversation>>();
+
+  @override
+  Future<List<ChatConversation>> conversations() => completer.future;
+
+  @override
+  Future<List<ChatMessage>> messages(String conversationId,
+          {int? beforeSeq, int limit = 50}) async =>
+      const [];
+}
+
 void main() {
   test('界面字号与系统字体缩放叠加', () {
     expect(
@@ -575,6 +587,87 @@ void main() {
     final header = find.byKey(const ValueKey('conversation-header-background'));
     expect(header, findsOneWidget);
     expect(tester.getSize(header).width, 1000);
+    expect(find.byKey(const ValueKey('conversation-other-unread-badge')),
+        findsNothing);
+  });
+
+  testWidgets('移动端聊天顶栏显示其他未静默会话的未读数', (tester) async {
+    tester.view.physicalSize = const Size(500, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final store = RealtimeStore()
+      ..replaceConversation(
+          const ChatConversation(id: 'welcome', title: 'MagicChat 小助手'))
+      ..replaceConversation(const ChatConversation(
+          id: 'team', title: '团队群聊', unread: 2, type: 'group'))
+      ..replaceConversation(const ChatConversation(
+          id: 'muted', title: '静默群聊', unread: 9, muted: true));
+    addTearDown(store.dispose);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: MessagesPage(
+          repository: DemoRepository(),
+          realtimeStore: store,
+          selectedId: 'welcome',
+          onSelect: (_) {},
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    final badge = find.byKey(const ValueKey('conversation-other-unread-badge'));
+    expect(badge, findsOneWidget);
+    expect(
+        find.descendant(of: badge, matching: find.text('2')), findsOneWidget);
+
+    store.replaceConversation(const ChatConversation(
+        id: 'team', title: '团队群聊', unread: 5, type: 'group'));
+    await tester.pumpAndSettle();
+
+    expect(
+        find.descendant(of: badge, matching: find.text('5')), findsOneWidget);
+  });
+
+  testWidgets('会话列表加载后顶栏未读徽标与他会话同步', (tester) async {
+    tester.view.physicalSize = const Size(500, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final store = RealtimeStore();
+    addTearDown(store.dispose);
+    final repository = _DelayedConversationRepository();
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: MessagesPage(
+          repository: repository,
+          realtimeStore: store,
+          selectedId: 'welcome',
+          onSelect: (_) {},
+        ),
+      ),
+    ));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('conversation-other-unread-badge')),
+        findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('conversation-other-unread-badge')),
+            matching: find.text('3')),
+        findsNothing);
+
+    repository.completer.complete(const [
+      ChatConversation(id: 'welcome', title: '欢迎'),
+      ChatConversation(id: 'team', title: '团队群聊', unread: 3, type: 'group'),
+    ]);
+    await tester.pumpAndSettle();
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('conversation-other-unread-badge')),
+            matching: find.text('3')),
+        findsOneWidget);
   });
 
   testWidgets('切换会话时不会继承上一会话的消息滚动位置', (tester) async {

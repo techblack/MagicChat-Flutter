@@ -415,6 +415,18 @@ void main() {
     expect(totalConversationUnread(conversations), 7);
   });
 
+  test('会话内未读数排除当前会话和已静默会话', () {
+    const conversations = [
+      ChatConversation(id: 'current', title: '当前', unread: 8),
+      ChatConversation(id: 'visible', title: '其他', unread: 3),
+      ChatConversation(
+          id: 'mention', title: '提及', lastReadSeq: 4, lastMentionedSeq: 6),
+      ChatConversation(id: 'muted', title: '静默', unread: 20, muted: true),
+    ];
+
+    expect(otherConversationUnreadCount(conversations, 'current'), 4);
+  });
+
   test('未读和类型筛选按话题父会话类型匹配', () {
     const topic = ChatConversation(
         id: 'topic',
