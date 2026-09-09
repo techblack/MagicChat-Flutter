@@ -1378,6 +1378,9 @@ class _ConversationViewState extends State<ConversationView>
         first!.sequence! <= 1 ||
         _lastOlderBeforeSeq == first.sequence) return;
     _lastOlderBeforeSeq = first.sequence;
+    final anchorOffset = _scrollController.position.pixels;
+    final anchorMaxExtent = _scrollController.position.maxScrollExtent;
+    final anchorScrollGeneration = _scrollInteractionGeneration;
     setState(() => _loadingOlder = true);
     try {
       final olderPage = await widget.repository
@@ -1402,6 +1405,33 @@ class _ConversationViewState extends State<ConversationView>
         // 旧页只做增量写入，避免每翻一页都重写整段历史，保证长会话加载为 O(page)。
         unawaited(_upsertCachedMessages(id, added));
         setState(() {});
+        if (added.isNotEmpty) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted ||
+                widget.conversationId != id ||
+                !_scrollController.hasClients ||
+                _listPointerActive ||
+                anchorScrollGeneration != _scrollInteractionGeneration) {
+              return;
+            }
+            final position = _scrollController.position;
+            final extentDelta = position.maxScrollExtent - anchorMaxExtent;
+            if (extentDelta <= 0) return;
+            final currentOffset = position.pixels;
+            // 如果布局已经自行保持了新顶部，直接保留；只有仍停在旧
+            // maxExtent 时才补偿新增历史高度，避免把用户拖动抢回去。
+            if ((currentOffset - anchorOffset).abs() > 24 &&
+                (currentOffset - (anchorOffset + extentDelta)).abs() > 24) {
+              return;
+            }
+            final target = (anchorOffset + extentDelta)
+                .clamp(position.minScrollExtent, position.maxScrollExtent)
+                .toDouble();
+            if ((currentOffset - target).abs() > 1) {
+              position.jumpTo(target);
+            }
+          });
+        }
         if (added.isNotEmpty)
           unawaited(_refreshOlderMessageSnapshots(id, added));
       }
