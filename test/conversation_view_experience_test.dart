@@ -402,6 +402,9 @@ void main() {
 
     expect(find.byKey(const ValueKey('older-messages-loading')), findsNothing);
     expect(find.text('更早的消息'), findsOneWidget);
+    final position =
+        tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+    expect(position.pixels, closeTo(position.maxScrollExtent, 1));
   });
 
   testWidgets('浏览历史时自己的实时消息不计入新消息提示', (tester) async {
