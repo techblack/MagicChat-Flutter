@@ -480,6 +480,28 @@ void main() {
     expect(repository.reportDescription, '持续发送广告');
   });
 
+  testWidgets('黑名单状态遇到短暂错误时重试一次', (tester) async {
+    final repository = _RetryBlockRepository();
+    await _pumpDetails(tester, repository);
+
+    expect(repository.blockStatusAttempts, 2);
+    expect(find.text('对方可以向你发送私聊消息'), findsOneWidget);
+    expect(
+        tester
+            .widget<SwitchListTile>(find.widgetWithText(SwitchListTile, '黑名单'))
+            .onChanged,
+        isNotNull);
+  });
+
+  testWidgets('黑名单接口返回 404 时不重复请求并保留其他详情', (tester) async {
+    final repository = _NotFoundBlockRepository();
+    await _pumpDetails(tester, repository);
+
+    expect(repository.blockStatusAttempts, 1);
+    expect(find.text('黑名单状态暂不可用'), findsOneWidget);
+    expect(find.text('举报'), findsOneWidget);
+  });
+
   testWidgets('话题详情可按服务端权限关闭话题', (tester) async {
     final repository = _DetailsRepository.topic();
     await _pumpDetails(tester, repository);
@@ -901,4 +923,53 @@ class _DetailsRepository extends DemoRepository {
         canSend: conversation.canSend,
         topic: conversation.topic,
       );
+}
+
+class _RetryBlockRepository extends _DetailsRepository {
+  _RetryBlockRepository()
+      : super._(
+          const ChatConversation(
+            id: 'direct-retry',
+            title: 'Alice',
+            type: 'direct',
+            members: [
+              Contact(id: 'me', name: '当前用户'),
+              Contact(id: 'user-alice', name: 'Alice'),
+            ],
+          ),
+        );
+
+  var blockStatusAttempts = 0;
+
+  @override
+  Future<UserBlockStatus> userBlockStatus(String userId) async {
+    blockStatusAttempts++;
+    if (blockStatusAttempts == 1) {
+      throw StateError('临时网络错误');
+    }
+    return UserBlockStatus(userId: userId, blocked: false);
+  }
+}
+
+class _NotFoundBlockRepository extends _DetailsRepository {
+  _NotFoundBlockRepository()
+      : super._(
+          const ChatConversation(
+            id: 'direct-not-found',
+            title: 'Alice',
+            type: 'direct',
+            members: [
+              Contact(id: 'me', name: '当前用户'),
+              Contact(id: 'user-alice', name: 'Alice'),
+            ],
+          ),
+        );
+
+  var blockStatusAttempts = 0;
+
+  @override
+  Future<UserBlockStatus> userBlockStatus(String userId) async {
+    blockStatusAttempts++;
+    throw const MagicChatRequestException(statusCode: 404, message: '黑名单接口不存在');
+  }
 }
