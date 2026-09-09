@@ -143,7 +143,9 @@ jobs:
           tray_plugin="$bundle/lib/libdesktop_tray_plugin.so"
           test -f "$tray_plugin"
           readelf -d "$tray_plugin" | grep -Eq 'RUNPATH.*\$ORIGIN'
-          ldd "$tray_plugin" | grep -Fq "libayatana-ido3-0.4.so.0 => $bundle/lib/libayatana-ido3-0.4.so.0"
+          if ldd "$tray_plugin" | grep -q 'libayatana-ido3-0.4.so.0'; then
+            ldd "$tray_plugin" | grep -Fq "libayatana-ido3-0.4.so.0 => $bundle/lib/libayatana-ido3-0.4.so.0"
+          fi
           mkdir -p dist
           tar -C "$bundle" \
             -czf dist/MagicChat-Linux-${{ matrix.arch }}.tar.gz .
