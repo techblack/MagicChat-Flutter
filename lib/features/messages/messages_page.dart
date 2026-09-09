@@ -395,7 +395,8 @@ class _ConversationHeader extends StatefulWidget {
 }
 
 class _ConversationHeaderState extends State<_ConversationHeader> {
-  late Future<ChatConversation?> _conversationFuture;
+  late Future<({ChatConversation? conversation, int otherUnread})>
+      _conversationFuture;
 
   @override
   void initState() {
@@ -434,14 +435,37 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
     }
   }
 
-  Future<ChatConversation?> _loadConversation() async {
+  Future<({ChatConversation? conversation, int otherUnread})>
+      _loadConversation() async {
     final live = widget.realtimeStore?.conversations[widget.conversationId];
-    if (live != null) return live;
-    final conversations = await widget.repository.conversations();
-    for (final conversation in conversations) {
-      if (conversation.id == widget.conversationId) return conversation;
+    if (live != null) {
+      return (
+        conversation: live,
+        otherUnread: otherConversationUnreadCount(
+            widget.realtimeStore!.conversations.values, widget.conversationId),
+      );
     }
-    return null;
+    final conversations = await widget.repository.conversations();
+    ChatConversation? selected;
+    for (final conversation in conversations) {
+      if (conversation.id == widget.conversationId) selected = conversation;
+    }
+    return (
+      conversation: selected,
+      otherUnread:
+          otherConversationUnreadCount(conversations, widget.conversationId),
+    );
+  }
+
+  ({ChatConversation? conversation, int otherUnread})? get _initialData {
+    final store = widget.realtimeStore;
+    final conversation = store?.conversations[widget.conversationId];
+    if (store == null || conversation == null) return null;
+    return (
+      conversation: conversation,
+      otherUnread: otherConversationUnreadCount(
+          store.conversations.values, widget.conversationId),
+    );
   }
 
   @override
@@ -449,12 +473,12 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
     final content = SizedBox(
         width: double.infinity,
         height: 52,
-        child: FutureBuilder<ChatConversation?>(
+        child:
+            FutureBuilder<({ChatConversation? conversation, int otherUnread})>(
           future: _conversationFuture,
-          initialData:
-              widget.realtimeStore?.conversations[widget.conversationId],
+          initialData: _initialData,
           builder: (context, snapshot) {
-            final conversation = snapshot.data;
+            final conversation = snapshot.data?.conversation;
             final title = conversation?.displayTitle.trim().isNotEmpty == true
                 ? conversation!.displayTitle.trim()
                 : '聊天';
@@ -473,14 +497,22 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
               'topic' => '话题',
               _ => null,
             };
+            final otherUnread = snapshot.data?.otherUnread ?? 0;
             return Stack(alignment: Alignment.center, children: [
               if (widget.compact)
                 Positioned(
                   left: 0,
-                  child: IconButton(
-                    tooltip: '返回会话列表',
-                    onPressed: widget.onBack,
-                    icon: const Icon(Icons.arrow_back),
+                  child: Badge(
+                    key: const ValueKey('conversation-other-unread-badge'),
+                    isLabelVisible: otherUnread > 0,
+                    alignment: AlignmentDirectional.topEnd,
+                    offset: const Offset(-3, 5),
+                    label: Text(formatConversationUnreadCount(otherUnread)),
+                    child: IconButton(
+                      tooltip: '返回会话列表',
+                      onPressed: widget.onBack,
+                      icon: const Icon(Icons.arrow_back),
+                    ),
                   ),
                 ),
               Positioned(
