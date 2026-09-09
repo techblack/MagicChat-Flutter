@@ -595,9 +595,9 @@ class _ConversationViewState extends State<ConversationView>
   }
 
   Future<List<Contact>> _loadConversationContacts() async {
-    // 消息首屏只需要当前会话成员。此前这里先读出整个通讯录缓存，并
-    // 在每条消息中扫描数千个联系人，组织规模变大后会明显阻塞滚动。
-    // 完整通讯录改为用户明确打开“@联系人”时再按需加载。
+    // 先独立加载当前会话和成员，不能等待消息首屏。否则网络较慢时用户
+    // 已经可以输入正文，但 `@` 仍因会话类型未知而无法弹出候选。
+    final contacts = await _fetchConversationContacts(fetchDirectory: false);
     final messageAuthors = <String>{};
     try {
       final messages = await _messagesFuture;
@@ -621,8 +621,22 @@ class _ConversationViewState extends State<ConversationView>
     } catch (_) {
       // 消息加载失败时仍可用会话成员资料展示页面。
     }
-    return _fetchConversationContacts(
-        fetchDirectory: false, extraUserIds: messageAuthors);
+    final known = contacts.map((contact) => contact.id.toLowerCase()).toSet();
+    final unresolved = messageAuthors
+        .where((id) => !known.contains(id.toLowerCase()))
+        .toList(growable: false);
+    if (unresolved.isEmpty) return contacts;
+    try {
+      final resolved = await widget.repository.resolveUsers(unresolved);
+      final merged = <String, Contact>{
+        for (final contact in contacts) contact.id.toLowerCase(): contact,
+        for (final contact in resolved) contact.id.toLowerCase(): contact,
+      }.values.toList(growable: false);
+      unawaited(_writeConversationContactCache(merged));
+      return merged;
+    } catch (_) {
+      return contacts;
+    }
   }
 
   Future<List<Contact>> _fetchConversationContacts(
@@ -2944,8 +2958,11 @@ class _ConversationViewState extends State<ConversationView>
                       IconButton(
                         icon: const Icon(Icons.alternate_email),
                         tooltip: '提及成员',
-                        onPressed:
-                            !canSend || _sendingFile ? null : _pickMention,
+                        onPressed: !canSend ||
+                                _sendingFile ||
+                                _conversationKind != 'group'
+                            ? null
+                            : _pickMention,
                       ),
                       IconButton(
                         key: const ValueKey('markdown-mode-toggle'),
@@ -3169,31 +3186,78 @@ class _ConversationViewState extends State<ConversationView>
   }
 
   Future<void> _pickMention() async {
-    final contacts = await _loadAllContactsOnDemand();
-    if (!mounted) return;
+    if (_conversationKind != 'group') return;
+    var query = '';
     final selected = await showModalBottomSheet<Contact>(
         context: context,
+        isScrollControlled: true,
         showDragHandle: true,
-        builder: (context) => SafeArea(
-              child: ListView(
-                shrinkWrap: true,
-                children: [
-                  ListTile(
-                    leading: const Icon(Icons.campaign_outlined),
-                    title: const Text('所有人'),
-                    onTap: () => Navigator.pop(
-                        context, const Contact(id: 'all', name: '所有人')),
-                  ),
-                  ...contacts.map((contact) => ListTile(
-                        leading: CircleAvatar(
-                            child: Text(contact.displayName.isEmpty
-                                ? '?'
-                                : contact.displayName.substring(0, 1))),
-                        title: Text(contact.displayName),
-                        subtitle: Text(contact.online ? '在线' : '离线'),
-                        onTap: () => Navigator.pop(context, contact),
-                      )),
-                ],
+        builder: (sheetContext) => StatefulBuilder(
+              builder: (sheetContext, setSheetState) => SafeArea(
+                child: SizedBox(
+                  height:
+                      min(560, MediaQuery.sizeOf(sheetContext).height * .72),
+                  child: Column(children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                      child: TextField(
+                        autofocus: true,
+                        decoration: const InputDecoration(
+                          prefixIcon: Icon(Icons.search),
+                          hintText: '搜索群成员',
+                        ),
+                        onChanged: (value) =>
+                            setSheetState(() => query = value),
+                      ),
+                    ),
+                    Expanded(
+                      child: FutureBuilder<List<Contact>>(
+                        future: _contactsFuture,
+                        builder: (context, snapshot) {
+                          final members = _currentMentionMembers.toList();
+                          final fallback = snapshot.data ?? const <Contact>[];
+                          final source = members.isEmpty ? fallback : members;
+                          final candidates = composerMentionCandidates(
+                            source,
+                            query,
+                            limit: source.length + 1,
+                          );
+                          if (candidates.isEmpty) {
+                            return const Center(child: Text('没有匹配的群成员'));
+                          }
+                          return ListView.builder(
+                            itemCount: candidates.length,
+                            itemBuilder: (context, index) {
+                              final candidate = candidates[index];
+                              return ListTile(
+                                key: ValueKey('mention-picker-${candidate.id}'),
+                                leading: CircleAvatar(
+                                  child: candidate.targetType == 'all'
+                                      ? const Icon(Icons.campaign_outlined,
+                                          size: 18)
+                                      : Text(candidate.label.characters.first),
+                                ),
+                                title: Text(candidate.label),
+                                subtitle: Text(candidate.description),
+                                onTap: () => Navigator.pop(
+                                  sheetContext,
+                                  candidate.targetType == 'all'
+                                      ? const Contact(id: 'all', name: '所有人')
+                                      : source
+                                          .where((member) =>
+                                              member.id == candidate.id &&
+                                              member.type ==
+                                                  candidate.targetType)
+                                          .firstOrNull,
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ]),
+                ),
               ),
             ));
     if (selected == null || !mounted) return;

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,6 +16,7 @@ void main() {
 
   test('提及触发只读取光标前连续查询并支持拼音过滤', () {
     expect(composerMentionTrigger('你好 @xiao', 8, 8)?.query, 'xiao');
+    expect(composerMentionTrigger('你好 ＠xiao', 8, 8)?.query, 'xiao');
     expect(composerMentionTrigger('你好 @xiao ai', 10, 10), isNull);
     expect(composerMentionTrigger('@xiao', 0, 5), isNull);
 
@@ -101,6 +104,58 @@ void main() {
     expect(repository.sentMessages, ['{(@user/user-bob)}']);
     await _unmount(tester, drafts);
   });
+
+  testWidgets('点击提及按钮立即展示当前群成员且不加载全组织', (tester) async {
+    final repository = _MentionRepository();
+    final drafts = ConversationDraftStore();
+    await drafts.load(const MessageCacheScope(
+        serverUrl: 'https://chat.example.com', userId: 'user-me'));
+    await _pumpConversation(tester, repository, drafts);
+
+    await tester.tap(find.byTooltip('提及成员'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('搜索群成员'), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('mention-picker-user-bob')), findsOneWidget);
+    expect(find.text('Bob'), findsOneWidget);
+    expect(repository.contactRequests, 0);
+    await tester.tap(find.byKey(const ValueKey('mention-picker-user-bob')));
+    await tester.pumpAndSettle();
+    expect(find.text('搜索群成员'), findsNothing);
+    expect(tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        '{(@user/user-bob)} ');
+    await _unmount(tester, drafts);
+  });
+
+  testWidgets('消息首屏尚未返回时输入 @ 仍立即展示群成员', (tester) async {
+    final repository = _SlowMessageMentionRepository();
+    final drafts = ConversationDraftStore();
+    await drafts.load(const MessageCacheScope(
+        serverUrl: 'https://chat.example.com', userId: 'user-me'));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ConversationView(
+          repository: repository,
+          conversationId: 'group-1',
+          draftStore: drafts,
+        ),
+      ),
+    ));
+    for (var attempt = 0; attempt < 10; attempt++) {
+      await tester.pump();
+    }
+
+    final field = find.byType(TextField);
+    await tester.enterText(field, '@');
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('composer-mention-candidates')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('composer-mention-user-bob')),
+        findsOneWidget);
+    await _unmount(tester, drafts);
+  });
 }
 
 Future<void> _pumpConversation(WidgetTester tester,
@@ -160,4 +215,13 @@ class _MentionRepository extends DemoRepository {
       {String? replyToMessageId, String? clientMessageId}) async {
     sentMessages.add(text);
   }
+}
+
+class _SlowMessageMentionRepository extends _MentionRepository {
+  final pendingMessages = Completer<List<ChatMessage>>();
+
+  @override
+  Future<List<ChatMessage>> messages(String conversationId,
+          {int? beforeSeq, int limit = 50}) =>
+      pendingMessages.future;
 }

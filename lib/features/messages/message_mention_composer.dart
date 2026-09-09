@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:pinyin/pinyin.dart';
 
 import '../../domain/models.dart';
@@ -40,12 +42,13 @@ ComposerMentionTrigger? composerMentionTrigger(
     return null;
   }
   final beforeCursor = value.substring(0, selectionStart);
-  final start = beforeCursor.lastIndexOf('@');
+  final start =
+      max(beforeCursor.lastIndexOf('@'), beforeCursor.lastIndexOf('＠'));
   if (start < 0) {
     return null;
   }
   final query = value.substring(start + 1, selectionStart);
-  if (RegExp(r'[\s@]').hasMatch(query)) {
+  if (RegExp(r'[\s@＠]').hasMatch(query)) {
     return null;
   }
   return ComposerMentionTrigger(
@@ -53,7 +56,8 @@ ComposerMentionTrigger? composerMentionTrigger(
 }
 
 List<ComposerMentionCandidate> composerMentionCandidates(
-    Iterable<Contact> members, String query) {
+    Iterable<Contact> members, String query,
+    {int limit = maxComposerMentionCandidates}) {
   final values = <ComposerMentionCandidate>[
     const ComposerMentionCandidate(
       id: 'all',
@@ -100,7 +104,7 @@ List<ComposerMentionCandidate> composerMentionCandidates(
   return values
       .where((candidate) =>
           normalized.isEmpty || candidate.searchText.contains(normalized))
-      .take(maxComposerMentionCandidates)
+      .take(limit)
       .toList(growable: false);
 }
 
