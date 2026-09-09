@@ -461,6 +461,32 @@ void main() {
     expect(repository.requests, contains(containsPair('label', '发布')));
   });
 
+  testWidgets('项目任务支持按多个负责人筛选并透传服务端参数', (tester) async {
+    final repository = _PagedProjectRepository();
+    await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(
+            colorScheme:
+                ColorScheme.fromSeed(seedColor: const Color(0xFF6750A4)),
+            useMaterial3: true),
+        home: Scaffold(body: ProjectsPage(repository: repository))));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('客户端迭代'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('筛选负责人'));
+    await tester.pumpAndSettle();
+    expect(find.text('Alice'), findsOneWidget);
+    await tester.tap(find.text('Alice'));
+    await tester.tap(find.text('应用'));
+    await tester.pumpAndSettle();
+
+    expect(repository.requests,
+        contains(predicate<Map<String, Object?>>((request) {
+      final value = request['assignee_user_ids'];
+      return value is List && value.contains('member-alice');
+    })));
+  });
+
   testWidgets('项目任务加载失败可重试', (tester) async {
     final repository = _RetryProjectRepository();
     await tester.binding.setSurfaceSize(const Size(1000, 800));
@@ -773,13 +799,15 @@ class _PagedProjectRepository extends _ProjectRepository {
       String keyword = '',
       String label = '',
       List<String> statuses = const [],
-      List<int> priorities = const []}) async {
+      List<int> priorities = const [],
+      List<String> assigneeUserIds = const []}) async {
     cursors.add(cursor);
     requests.add({
       'keyword': keyword,
       'label': label,
       'status': statuses.isEmpty ? '' : statuses.first,
       'priority': priorities.isEmpty ? 0 : priorities.first,
+      'assignee_user_ids': assigneeUserIds,
     });
     if (cursor == null) {
       return const ProjectTaskPage(tasks: [
@@ -807,7 +835,8 @@ class _RetryProjectRepository extends _ProjectRepository {
       String keyword = '',
       String label = '',
       List<String> statuses = const [],
-      List<int> priorities = const []}) async {
+      List<int> priorities = const [],
+      List<String> assigneeUserIds = const []}) async {
     attempts += 1;
     if (attempts == 1) throw StateError('temporary failure');
     return const ProjectTaskPage(tasks: [

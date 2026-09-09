@@ -158,7 +158,8 @@ class _WorkspaceRepository extends DemoRepository {
           String keyword = '',
           String label = '',
           List<String> statuses = const [],
-          List<int> priorities = const []}) async =>
+          List<int> priorities = const [],
+          List<String> assigneeUserIds = const []}) async =>
       ProjectTaskPage(tasks: List.of(taskItems));
 
   @override

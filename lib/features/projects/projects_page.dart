@@ -15,6 +15,7 @@ import '../../domain/models.dart';
 import 'document_editor_page.dart';
 import 'project_avatar.dart';
 import 'project_progress.dart';
+import 'project_task_assignee_filter.dart';
 import 'project_task_calendar_view.dart';
 import 'project_task_details_page.dart';
 import 'project_task_editor_dialog.dart';
@@ -748,6 +749,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
     var label = '';
     var status = '';
     var priority = 0;
+    var assigneeUserIds = <String>[];
     var initialTab = 0;
     final taskItems = <ProjectTask>[];
     String? nextTaskCursor;
@@ -772,7 +774,8 @@ class _ProjectsPageState extends State<ProjectsPage> {
             keyword: keyword,
             label: label,
             statuses: status.isEmpty ? const [] : [status],
-            priorities: priority == 0 ? const [] : [priority]);
+            priorities: priority == 0 ? const [] : [priority],
+            assigneeUserIds: assigneeUserIds);
         if (version != taskRequestVersion) return page;
         final existing = taskItems.map((task) => task.id).toSet();
         taskItems.addAll(page.tasks.where((task) => existing.add(task.id)));
@@ -921,7 +924,18 @@ class _ProjectsPageState extends State<ProjectsPage> {
                                           priority = value ?? 0;
                                           scheduleTaskReload();
                                         })));
-                            if (constraints.maxWidth >= 720) {
+                            final assigneeFilter = SizedBox(
+                                width: 148,
+                                child: ProjectTaskAssigneeFilter(
+                                    repository: repository,
+                                    projectId: project.id,
+                                    selectedUserIds: assigneeUserIds,
+                                    onChanged: (value) {
+                                      setFilterState(
+                                          () => assigneeUserIds = value);
+                                      loadTasks();
+                                    }));
+                            if (constraints.maxWidth >= 880) {
                               return Row(children: [
                                 Expanded(child: search),
                                 const SizedBox(width: 8),
@@ -930,17 +944,21 @@ class _ProjectsPageState extends State<ProjectsPage> {
                                 statusFilter,
                                 const SizedBox(width: 8),
                                 priorityFilter,
+                                const SizedBox(width: 8),
+                                assigneeFilter,
                               ]);
                             }
                             return Column(children: [
                               search,
                               const SizedBox(height: 8),
+                              labelFilter,
+                              const SizedBox(height: 8),
                               Row(children: [
-                                Expanded(child: labelFilter),
+                                Expanded(child: statusFilter),
                                 const SizedBox(width: 8),
-                                statusFilter,
+                                Expanded(child: priorityFilter),
                                 const SizedBox(width: 8),
-                                priorityFilter,
+                                Expanded(child: assigneeFilter),
                               ])
                             ]);
                           })),
