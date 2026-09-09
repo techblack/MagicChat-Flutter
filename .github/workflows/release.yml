@@ -108,48 +108,46 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        if: matrix.arch == 'x64'
-        with:
-          flutter-version: 3.47.2
-          cache: true
-      - name: Install Flutter arm64 SDK
-        if: matrix.arch == 'arm64'
-        working-directory: ${{ runner.temp }}
-        run: |
-          git clone --depth 1 --branch 3.47.2 https://github.com/flutter/flutter.git flutter
-          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/flutter/bin/flutter" --version
-      - name: Install Linux build dependencies
-        run: >-
-          sudo apt-get update && sudo apt-get install -y
-          clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev
-          libayatana-appindicator3-dev libayatana-ido3-0.4-0
-          libkeybinder-3.0-dev gnome-screenshot
-          libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
-      - run: flutter pub get
-      - name: Build Linux release artifact
+      - name: Build Linux release artifact on glibc 2.31 baseline
         shell: bash
         run: |
-          flutter build linux --release \
-            --dart-define=MAGICCHAT_DESKTOP_ARCH=${{ matrix.arch }}
-          # desktop_tray loads Ayatana AppIndicator at runtime. Keep the
-          # release runner honest so a missing transitive runtime dependency
-          # cannot be discovered only after a user downloads the archive.
-          ido_runtime="$(ldconfig -p | awk '/libayatana-ido3-0.4.so.0/{print $NF; exit}')"
-          test -n "$ido_runtime" && test -f "$ido_runtime"
-          bundle="build/linux/${{ matrix.arch }}/release/bundle"
-          cp -L "$ido_runtime" "$bundle/lib/libayatana-ido3-0.4.so.0"
-          tray_plugin="$bundle/lib/libdesktop_tray_plugin.so"
-          test -f "$tray_plugin"
-          readelf -d "$tray_plugin" | grep -Eq 'RUNPATH.*\$ORIGIN'
-          tray_ldd="$(LD_LIBRARY_PATH="$bundle/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ldd "$tray_plugin")"
-          if printf '%s\n' "$tray_ldd" | grep -q 'libayatana-ido3-0.4.so.0'; then
-            printf '%s\n' "$tray_ldd" | grep -Fq "libayatana-ido3-0.4.so.0 => $bundle/lib/libayatana-ido3-0.4.so.0"
-          fi
-          mkdir -p dist
-          tar -C "$bundle" \
-            -czf dist/MagicChat-Linux-${{ matrix.arch }}.tar.gz .
+          docker run --rm \
+            --platform linux/${{ matrix.arch == 'x64' && 'amd64' || 'arm64' }} \
+            -e MAGICCHAT_DESKTOP_ARCH=${{ matrix.arch }} \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            -w /workspace \
+            ubuntu:20.04 bash -euxo pipefail -c '
+              export DEBIAN_FRONTEND=noninteractive
+              sed -i \
+                -e "s|http://archive.ubuntu.com/ubuntu|http://old-releases.ubuntu.com/ubuntu|g" \
+                -e "s|http://security.ubuntu.com/ubuntu|http://old-releases.ubuntu.com/ubuntu|g" \
+                -e "s|http://ports.ubuntu.com/ubuntu-ports|http://old-releases.ubuntu.com/ubuntu-ports|g" \
+                /etc/apt/sources.list
+              apt-get update
+              apt-get install -y ca-certificates git curl unzip xz-utils zip \
+                clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev \
+                libayatana-appindicator3-dev libayatana-ido3-0.4-0 \
+                libkeybinder-3.0-dev gnome-screenshot \
+                libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+              git clone --depth 1 --branch 3.47.2 https://github.com/flutter/flutter.git /opt/flutter
+              /opt/flutter/bin/flutter config --no-analytics
+              /opt/flutter/bin/flutter pub get
+              /opt/flutter/bin/flutter build linux --release \
+                --dart-define=MAGICCHAT_DESKTOP_ARCH="$MAGICCHAT_DESKTOP_ARCH"
+              ido_runtime="$(ldconfig -p | awk "/libayatana-ido3-0.4.so.0/{print \$NF; exit}")"
+              test -n "$ido_runtime" && test -f "$ido_runtime"
+              bundle="build/linux/$MAGICCHAT_DESKTOP_ARCH/release/bundle"
+              cp -L "$ido_runtime" "$bundle/lib/libayatana-ido3-0.4.so.0"
+              tray_plugin="$bundle/lib/libdesktop_tray_plugin.so"
+              test -f "$tray_plugin"
+              readelf -d "$tray_plugin" | grep -Eq "RUNPATH.*\\\$ORIGIN"
+              tray_ldd="$(LD_LIBRARY_PATH="$bundle/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ldd "$tray_plugin")"
+              if printf "%s\\n" "$tray_ldd" | grep -q "libayatana-ido3-0.4.so.0"; then
+                printf "%s\\n" "$tray_ldd" | grep -Fq "libayatana-ido3-0.4.so.0 => $bundle/lib/libayatana-ido3-0.4.so.0"
+              fi
+              mkdir -p dist
+              tar -C "$bundle" -czf "dist/MagicChat-Linux-$MAGICCHAT_DESKTOP_ARCH.tar.gz" .
+            '
       - uses: actions/upload-artifact@v4
         with:
           name: release-linux-${{ matrix.arch }}

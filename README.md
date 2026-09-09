@@ -44,6 +44,8 @@ AppIndicator/IDO 和 GStreamer 开发包。`v0.3.41` 起发布的 Linux 压缩�
 `libayatana-ido3-0.4.so.0` 放入自身 `lib/` 目录；旧版本若启动时报找不到该动态库，
 请先安装以下运行包或直接升级到最新版：
 
+Linux Release 使用 Ubuntu 20.04（glibc 2.31）作为构建基线，兼容 Ubuntu 20.04 及更新版本。
+
 ```bash
 sudo apt-get install clang cmake ninja-build pkg-config \
   libgtk-3-dev libsecret-1-dev \
