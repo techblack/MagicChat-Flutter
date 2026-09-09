@@ -39,6 +39,7 @@ class _CachedAvatarState extends State<CachedAvatar> {
   final _cache = LocalAssetCache();
   Uint8List? _bytes;
   bool _imageFailed = false;
+  bool _loading = false;
 
   String get _cacheKey {
     final scope = widget.cacheScope;
@@ -58,6 +59,7 @@ class _CachedAvatarState extends State<CachedAvatar> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.avatarUri != widget.avatarUri ||
         oldWidget.cacheScope != widget.cacheScope) {
+      _loading = false;
       _bytes = _cache.peek(_cacheKey);
       _imageFailed = false;
       _startLoading();
@@ -65,7 +67,8 @@ class _CachedAvatarState extends State<CachedAvatar> {
   }
 
   void _startLoading() {
-    if (widget.avatarUri == null || _bytes != null) return;
+    if (widget.avatarUri == null || _bytes != null || _loading) return;
+    _loading = true;
     unawaited(_load());
   }
 
@@ -76,21 +79,34 @@ class _CachedAvatarState extends State<CachedAvatar> {
     final future = _inFlight[key] ??= _loadBytes(key, uri);
     try {
       final bytes = await future;
-      if (bytes != null && mounted && key == _cacheKey) {
-        setState(() {
+      if (!mounted || key != _cacheKey) return;
+      setState(() {
+        _loading = false;
+        if (bytes != null) {
           _bytes = bytes;
           _imageFailed = false;
-        });
-      }
+        }
+      });
     } finally {
       if (identical(_inFlight[key], future)) _inFlight.remove(key);
+      if (mounted && key == _cacheKey && _loading) {
+        setState(() {
+          _loading = false;
+          _imageFailed = true;
+        });
+      }
     }
   }
 
   Future<Uint8List?> _loadBytes(String key, Uri uri) async {
+    Uint8List? cached;
     try {
-      final cached = await _cache.read(key);
-      if (cached != null) return cached;
+      cached = await _cache.read(key);
+    } catch (_) {
+      // 缓存目录不可读时继续请求头像，缓存故障不应阻断资料展示。
+    }
+    if (cached != null && cached.isNotEmpty) return cached;
+    try {
       final bytes = await widget.repository.downloadResource(uri);
       if (bytes == null || bytes.isEmpty) return null;
       try {
@@ -100,7 +116,6 @@ class _CachedAvatarState extends State<CachedAvatar> {
       }
       return bytes;
     } catch (_) {
-      // 首屏仍使用 NetworkImage 作为在线回退，缓存失败不影响头像显示。
       return null;
     }
   }
@@ -115,7 +130,8 @@ class _CachedAvatarState extends State<CachedAvatar> {
     ImageProvider<Object>? image;
     if (!_imageFailed && _bytes != null) {
       image = MemoryImage(_bytes!);
-    } else if (!_imageFailed && widget.avatarUri != null) {
+    } else if (!_imageFailed && !_loading && widget.avatarUri != null) {
+      // 只有鉴权缓存加载结束后才启用在线回退，避免首帧同时发起两次请求。
       image = NetworkImage(widget.avatarUri.toString());
     }
     final backgroundColor = widget.backgroundColor ??

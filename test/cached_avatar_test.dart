@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -45,6 +46,35 @@ void main() {
     expect(find.text('A'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('头像缓存加载期间不创建第二条网络图片路径', (tester) async {
+    final repository = _BlockingAvatarCacheRepository();
+    final uri = Uri.parse(
+        'https://avatar.example.com/block-${DateTime.now().microsecondsSinceEpoch}.png');
+
+    await tester.pumpWidget(MaterialApp(
+      home: CachedAvatar(repository: repository, avatarUri: uri, name: 'Alice'),
+    ));
+    await tester.pump();
+    await tester.pump();
+    for (var attempt = 0;
+        attempt < 20 && repository.downloads == 0;
+        attempt++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)));
+      await tester.pump();
+    }
+
+    expect(repository.downloads, 1);
+    expect(find.text('A'), findsOneWidget);
+    expect(find.byType(Image), findsNothing);
+
+    repository.release.complete(_avatarBytes());
+    await tester
+        .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+    await tester.pump();
+    expect(repository.downloads, 1);
+  });
 }
 
 Uint8List _avatarBytes() =>
@@ -57,5 +87,16 @@ class _AvatarCacheRepository extends DemoRepository {
   Future<Uint8List?> downloadResource(Uri uri) async {
     downloads++;
     return _avatarBytes();
+  }
+}
+
+class _BlockingAvatarCacheRepository extends DemoRepository {
+  final release = Completer<Uint8List?>();
+  var downloads = 0;
+
+  @override
+  Future<Uint8List?> downloadResource(Uri uri) {
+    downloads++;
+    return release.future;
   }
 }
