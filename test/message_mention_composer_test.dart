@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magicchat_client/data/conversation_draft_store.dart';
 import 'package:magicchat_client/data/message_cache_store.dart';
 import 'package:magicchat_client/data/repository.dart';
+import 'package:magicchat_client/data/realtime_store.dart';
 import 'package:magicchat_client/domain/models.dart';
 import 'package:magicchat_client/features/messages/message_mention_composer.dart';
 import 'package:magicchat_client/main.dart';
@@ -42,6 +43,13 @@ void main() {
       'user-6'
     ]);
     expect(limited.map((item) => item.id), isNot(contains('user-7')));
+
+    final inserted = insertComposerMentions(
+      '@',
+      const ComposerMentionTrigger(start: 0, end: 1, query: ''),
+      limited.take(2),
+    );
+    expect(inserted.text, '{(@user/all)} {(@user/user-0)} ');
   });
 
   testWidgets('输入 @ 展示当前会话成员并将选择写入草稿', (tester) async {
@@ -128,6 +136,29 @@ void main() {
     await _unmount(tester, drafts);
   });
 
+  testWidgets('提及成员支持多选并一次插入多个提醒标记', (tester) async {
+    final repository = _MentionRepository();
+    final drafts = ConversationDraftStore();
+    await drafts.load(const MessageCacheScope(
+        serverUrl: 'https://chat.example.com', userId: 'user-me'));
+    await _pumpConversation(tester, repository, drafts);
+
+    await tester.tap(find.byTooltip('提及成员'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('多选'));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('mention-picker-user-alice')));
+    await tester.tap(find.byKey(const ValueKey('mention-picker-user-bob')));
+    await tester.pump();
+    expect(find.text('完成(2)'), findsOneWidget);
+    await tester.tap(find.text('完成(2)'));
+    await tester.pumpAndSettle();
+
+    final value = tester.widget<TextField>(find.byType(TextField)).controller!;
+    expect(value.text, '{(@user/user-alice)} {(@user/user-bob)} ');
+    await _unmount(tester, drafts);
+  });
+
   testWidgets('消息首屏尚未返回时输入 @ 仍立即展示群成员', (tester) async {
     final repository = _SlowMessageMentionRepository();
     final drafts = ConversationDraftStore();
@@ -152,6 +183,108 @@ void main() {
 
     expect(find.byKey(const ValueKey('composer-mention-candidates')),
         findsOneWidget);
+    expect(find.byKey(const ValueKey('composer-mention-user-bob')),
+        findsOneWidget);
+    await _unmount(tester, drafts);
+  });
+
+  testWidgets('会话资料尚未返回时点击提及仍会等待并打开成员列表', (tester) async {
+    final repository = _SlowConversationMentionRepository();
+    final drafts = ConversationDraftStore();
+    await drafts.load(const MessageCacheScope(
+        serverUrl: 'https://chat.example.com', userId: 'user-me'));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ConversationView(
+          repository: repository,
+          conversationId: 'group-1',
+          draftStore: drafts,
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    final mentionButton = find.byTooltip('提及成员');
+    final mentionIconButton =
+        find.ancestor(of: mentionButton, matching: find.byType(IconButton));
+    expect(tester.widget<IconButton>(mentionIconButton).onPressed, isNotNull);
+    await tester.tap(mentionButton);
+    await tester.pump();
+    expect(find.text('搜索群成员'), findsNothing);
+
+    repository.pendingConversations.complete(const [
+      ChatConversation(
+        id: 'group-1',
+        title: '项目群',
+        type: 'group',
+        members: [Contact(id: 'user-bob', name: 'Bob')],
+      ),
+    ]);
+    await tester.pumpAndSettle();
+    expect(find.text('搜索群成员'), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('mention-picker-user-bob')), findsOneWidget);
+    await _unmount(tester, drafts);
+  });
+
+  testWidgets('先输入 @ 再收到会话资料时仍展示成员候选', (tester) async {
+    final repository = _SlowConversationMentionRepository();
+    final drafts = ConversationDraftStore();
+    await drafts.load(const MessageCacheScope(
+        serverUrl: 'https://chat.example.com', userId: 'user-me'));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ConversationView(
+          repository: repository,
+          conversationId: 'group-1',
+          draftStore: drafts,
+        ),
+      ),
+    ));
+    await tester.pump();
+    final field = find.byType(TextField);
+    await tester.enterText(field, '@');
+    await tester.pump();
+    expect(find.byKey(const ValueKey('composer-mention-candidates')),
+        findsNothing);
+
+    repository.pendingConversations.complete(const [
+      ChatConversation(
+        id: 'group-1',
+        title: '项目群',
+        type: 'group',
+        members: [Contact(id: 'user-bob', name: 'Bob')],
+      ),
+    ]);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('composer-mention-candidates')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('composer-mention-user-bob')),
+        findsOneWidget);
+    await _unmount(tester, drafts);
+  });
+
+  testWidgets('摘要会话缺少成员时会补齐群成员候选', (tester) async {
+    final repository = _MentionRepository();
+    final drafts = ConversationDraftStore();
+    final realtimeStore = RealtimeStore()
+      ..conversations['group-1'] = const ChatConversation(
+          id: 'group-1', title: '项目群', type: 'group', memberCount: 2);
+    await drafts.load(const MessageCacheScope(
+        serverUrl: 'https://chat.example.com', userId: 'user-me'));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ConversationView(
+          repository: repository,
+          realtimeStore: realtimeStore,
+          conversationId: 'group-1',
+          draftStore: drafts,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '@');
+    await tester.pump();
     expect(find.byKey(const ValueKey('composer-mention-user-bob')),
         findsOneWidget);
     await _unmount(tester, drafts);
@@ -224,4 +357,11 @@ class _SlowMessageMentionRepository extends _MentionRepository {
   Future<List<ChatMessage>> messages(String conversationId,
           {int? beforeSeq, int limit = 50}) =>
       pendingMessages.future;
+}
+
+class _SlowConversationMentionRepository extends _MentionRepository {
+  final pendingConversations = Completer<List<ChatConversation>>();
+
+  @override
+  Future<List<ChatConversation>> conversations() => pendingConversations.future;
 }

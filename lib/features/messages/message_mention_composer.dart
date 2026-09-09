@@ -117,6 +117,19 @@ List<ComposerMentionCandidate> composerMentionCandidates(
   );
 }
 
+({String text, int cursor}) insertComposerMentions(
+    String value,
+    ComposerMentionTrigger trigger,
+    Iterable<ComposerMentionCandidate> candidates) {
+  final selected = candidates.toList(growable: false);
+  if (selected.isEmpty) return (text: value, cursor: trigger.end);
+  final inserted = '${selected.map((candidate) => candidate.token).join(' ')} ';
+  return (
+    text: value.replaceRange(trigger.start, trigger.end, inserted),
+    cursor: trigger.start + inserted.length,
+  );
+}
+
 String _mentionSearchText(Iterable<String> values) {
   final text = values
       .map((value) => value.trim())
