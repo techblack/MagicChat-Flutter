@@ -17,6 +17,13 @@ String? formatMessageTime(String value, {DateTime? now}) {
       : '${local.year}-$date $time';
 }
 
+bool composerUsesEnterToSendForPlatform({
+  required bool isWeb,
+  required TargetPlatform platform,
+}) =>
+    isWeb ||
+    (platform != TargetPlatform.android && platform != TargetPlatform.iOS);
+
 bool shouldShowMessageTimeMarker(ChatMessage? previous, ChatMessage current) {
   if (previous == null) return false;
   final previousAt = DateTime.tryParse(previous.createdAt)?.toUtc();
@@ -47,6 +54,7 @@ String? normalizeSingleLinkMessageUrl(String content) {
 typedef MobileImagePicker = Future<XFile?> Function(ImageSource source);
 typedef MobileGalleryImagePicker = Future<List<XFile>> Function();
 typedef MobileLostImageRetriever = Future<List<XFile>> Function();
+typedef ClipboardImageReader = Future<Uint8List?> Function();
 
 const mobileImageRecoveryConversationKey =
     'magicchat.mobile-image-picker.recovery-conversation.v1';
@@ -161,6 +169,7 @@ class ConversationView extends StatefulWidget {
       this.mobileImagePicker,
       this.mobileGalleryImagePicker,
       this.mobileLostImageRetriever,
+      this.clipboardImageReader,
       required this.conversationId,
       this.focusMessageId,
       this.focusMessageSequence,
@@ -184,6 +193,7 @@ class ConversationView extends StatefulWidget {
   final MobileImagePicker? mobileImagePicker;
   final MobileGalleryImagePicker? mobileGalleryImagePicker;
   final MobileLostImageRetriever? mobileLostImageRetriever;
+  final ClipboardImageReader? clipboardImageReader;
   final String? conversationId;
   final String? focusMessageId;
   final int? focusMessageSequence;
@@ -333,6 +343,9 @@ class _ConversationViewState extends State<ConversationView>
   bool get _supportsTypingStatus =>
       _conversationKind == 'direct' || _conversationKind == 'app';
 
+  bool get _composerUsesEnterToSend => composerUsesEnterToSendForPlatform(
+      isWeb: kIsWeb, platform: defaultTargetPlatform);
+
   bool _canForwardOrSelect(ChatMessage message) =>
       _forwardableMessageTypes.contains(message.contentType);
 
@@ -472,6 +485,10 @@ class _ConversationViewState extends State<ConversationView>
       return;
     }
     _persistDraft();
+    _updateMentionTrigger();
+  }
+
+  void _updateMentionTrigger() {
     final value = _controller.value;
     final next = _conversationKind == 'group'
         ? composerMentionTrigger(
@@ -513,6 +530,7 @@ class _ConversationViewState extends State<ConversationView>
         _resolvedMentionContacts = contacts;
         _selectedMentionIndex = 0;
       });
+      _updateMentionTrigger();
     }, onError: (_) {
       // 成员资料加载失败不阻断正文输入，仍可使用会话内已有名称。
     }));
@@ -689,6 +707,7 @@ class _ConversationViewState extends State<ConversationView>
       _conversation = conversation;
       _canSend = conversation.canSend;
     });
+    _updateMentionTrigger();
     if (_composerFocusNode.hasFocus) _startTypingHeartbeat();
   }
 
@@ -1963,6 +1982,11 @@ class _ConversationViewState extends State<ConversationView>
     }
     if (event.logicalKey != LogicalKeyboardKey.enter &&
         event.logicalKey != LogicalKeyboardKey.numpadEnter) {
+      final keyboard = HardwareKeyboard.instance;
+      final pasteModifier = keyboard.isControlPressed || keyboard.isMetaPressed;
+      if (event.logicalKey == LogicalKeyboardKey.keyV && pasteModifier) {
+        unawaited(_pasteClipboardImage(conversationId));
+      }
       return KeyEventResult.ignored;
     }
     final keyboard = HardwareKeyboard.instance;
@@ -1976,6 +2000,32 @@ class _ConversationViewState extends State<ConversationView>
     if (!shouldSend) return KeyEventResult.ignored;
     unawaited(_sendMessage(conversationId));
     return KeyEventResult.handled;
+  }
+
+  Future<void> _pasteClipboardImage(String conversationId) async {
+    final desktopPlatform = defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.windows;
+    if (kIsWeb ||
+        _sendingFile ||
+        !_conversationCanSend(conversationId) ||
+        (!desktopPlatform && widget.clipboardImageReader == null)) return;
+    try {
+      final bytes = await (widget.clipboardImageReader?.call() ??
+          screenCapturer.readImageFromClipboard());
+      if (bytes == null || bytes.isEmpty || !mounted) return;
+      final image = XFile.fromData(
+        bytes,
+        name: 'clipboard-${DateTime.now().millisecondsSinceEpoch}.png',
+        mimeType: 'image/png',
+      );
+      await _previewAndSendImages(conversationId, [image]);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('粘贴图片失败：${userFacingError(error)}')));
+      }
+    }
   }
 
   void _enqueueOptimisticMessage(
@@ -2814,12 +2864,14 @@ class _ConversationViewState extends State<ConversationView>
                         minLines: 1,
                         maxLines: 5,
                         keyboardType: TextInputType.multiline,
-                        textInputAction: widget.sendMessageShortcut ==
-                                MessageSendShortcut.enter
+                        textInputAction: _composerUsesEnterToSend &&
+                                widget.sendMessageShortcut ==
+                                    MessageSendShortcut.enter
                             ? TextInputAction.send
                             : TextInputAction.newline,
-                        onSubmitted: widget.sendMessageShortcut ==
-                                MessageSendShortcut.enter
+                        onSubmitted: _composerUsesEnterToSend &&
+                                widget.sendMessageShortcut ==
+                                    MessageSendShortcut.enter
                             ? (_) => unawaited(_sendMessage(conversationId))
                             : null,
                         decoration: InputDecoration(

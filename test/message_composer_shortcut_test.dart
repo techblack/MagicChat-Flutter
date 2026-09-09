@@ -62,6 +62,21 @@ void main() {
 
     expect(repository.sentMessages, isEmpty);
   });
+
+  test('移动端 Enter 保留换行，桌面端按设置发送', () {
+    expect(
+        composerUsesEnterToSendForPlatform(
+            isWeb: false, platform: TargetPlatform.android),
+        isFalse);
+    expect(
+        composerUsesEnterToSendForPlatform(
+            isWeb: false, platform: TargetPlatform.iOS),
+        isFalse);
+    expect(
+        composerUsesEnterToSendForPlatform(
+            isWeb: false, platform: TargetPlatform.linux),
+        isTrue);
+  });
 }
 
 Future<void> _pump(WidgetTester tester, _ShortcutRepository repository,

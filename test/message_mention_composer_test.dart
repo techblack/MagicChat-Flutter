@@ -91,6 +91,8 @@ void main() {
     await tester.pump();
 
     expect(repository.sentMessages, isEmpty);
+    expect(find.byKey(const ValueKey('composer-mention-candidates')),
+        findsNothing);
     expect(tester.widget<TextField>(field).controller!.text,
         '{(@user/user-bob)} ');
 
