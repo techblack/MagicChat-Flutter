@@ -466,6 +466,13 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
                     ? widget.realtimeStore
                         ?.conversationStatuses[widget.conversationId]?.text
                     : null;
+            final subtitle = switch (conversation?.type) {
+              'group' => '群聊',
+              'direct' => status ?? '私聊',
+              'app' => status ?? '应用',
+              'topic' => '话题',
+              _ => null,
+            };
             return Stack(alignment: Alignment.center, children: [
               if (widget.compact)
                 Positioned(
@@ -515,8 +522,20 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
                       style: const TextStyle(
                           fontWeight: FontWeight.w600, height: 1.15),
                     ),
-                    if (status != null)
-                      _ConversationStatusIndicator(text: status),
+                    if (subtitle != null)
+                      status != null
+                          ? _ConversationStatusIndicator(text: status)
+                          : Text(subtitle,
+                              key: const ValueKey(
+                                  'conversation-header-subtitle'),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelSmall
+                                  ?.copyWith(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
+                                      height: 1.1)),
                   ],
                 ),
               ),
