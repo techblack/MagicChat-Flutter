@@ -458,13 +458,16 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
             final title = conversation?.displayTitle.trim().isNotEmpty == true
                 ? conversation!.displayTitle.trim()
                 : '聊天';
+            final headerTitle = conversation?.type == 'group'
+                ? '$title (${conversation!.effectiveMemberCount})'
+                : title;
             final status =
                 conversation?.type == 'direct' || conversation?.type == 'app'
                     ? widget.realtimeStore
                         ?.conversationStatuses[widget.conversationId]?.text
                     : null;
             final subtitle = switch (conversation?.type) {
-              'group' => '群聊 · ${conversation!.effectiveMemberCount} 人',
+              'group' => '群聊',
               'direct' => status ?? '私聊',
               'app' => status ?? '应用',
               'topic' => '话题',
@@ -511,7 +514,7 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      title,
+                      headerTitle,
                       key: const ValueKey('conversation-header-title'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
