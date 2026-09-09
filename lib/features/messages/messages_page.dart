@@ -8,6 +8,7 @@ class MessagesPage extends StatelessWidget {
       this.realtimeStore,
       this.cacheScope,
       this.draftStore,
+      this.messageCacheStore,
       required this.selectedId,
       required this.onSelect,
       this.onRestoreLastConversation,
@@ -36,6 +37,7 @@ class MessagesPage extends StatelessWidget {
   final RealtimeStore? realtimeStore;
   final MessageCacheScope? cacheScope;
   final ConversationDraftStore? draftStore;
+  final MessageCacheStore? messageCacheStore;
   final String? selectedId;
   final ValueChanged<String> onSelect;
   final ValueChanged<String>? onRestoreLastConversation;
@@ -73,6 +75,7 @@ class MessagesPage extends StatelessWidget {
                   serverUrl: serverUrl,
                   cacheScope: cacheScope,
                   draftStore: draftStore,
+                  messageCacheStore: messageCacheStore,
                   realtimeStore: realtimeStore,
                   selectedId: selectedId,
                   onSelect: onSelect,
@@ -99,6 +102,7 @@ class MessagesPage extends StatelessWidget {
                 realtimeStore: realtimeStore,
                 cacheScope: cacheScope,
                 draftStore: draftStore,
+                messageCacheStore: messageCacheStore,
                 sendMessageShortcut: sendMessageShortcut,
                 chatAppearance: chatAppearance,
                 conversationAppearance: conversationAppearance,
@@ -771,6 +775,7 @@ class _ConversationList extends StatefulWidget {
       this.serverUrl,
       this.cacheScope,
       this.draftStore,
+      this.messageCacheStore,
       this.realtimeStore,
       required this.selectedId,
       required this.onSelect,
@@ -782,6 +787,7 @@ class _ConversationList extends StatefulWidget {
   final String? serverUrl;
   final MessageCacheScope? cacheScope;
   final ConversationDraftStore? draftStore;
+  final MessageCacheStore? messageCacheStore;
   final RealtimeStore? realtimeStore;
   final String? selectedId;
   final ValueChanged<String> onSelect;
@@ -793,6 +799,12 @@ class _ConversationList extends StatefulWidget {
 }
 
 class _ConversationListState extends State<_ConversationList> {
+  late final MessageCacheStore _preloaderCacheStore =
+      widget.messageCacheStore ?? MessageCacheStore();
+  late final bool _ownsPreloaderCacheStore = widget.messageCacheStore == null;
+  late final ConversationMessagePreloader _messagePreloader =
+      ConversationMessagePreloader(
+          repository: widget.repository, cacheStore: _preloaderCacheStore);
   Future<List<ChatConversation>>? _future;
   List<ChatConversation> _loadedConversations = const [];
   String? _currentUserId;
@@ -861,6 +873,8 @@ class _ConversationListState extends State<_ConversationList> {
 
   @override
   void dispose() {
+    _messagePreloader.cancel();
+    if (_ownsPreloaderCacheStore) unawaited(_preloaderCacheStore.close());
     _fallbackPollTimer?.cancel();
     widget.draftStore?.removeListener(_onDraftsChanged);
     widget.realtimeStore?.removeListener(_onRealtimeChanged);
@@ -889,6 +903,12 @@ class _ConversationListState extends State<_ConversationList> {
 
   Future<List<ChatConversation>> _loadConversations() async {
     final conversations = await widget.repository.conversations();
+    if (mounted && widget.cacheScope != null) {
+      unawaited(_messagePreloader.preload(
+          scope: widget.cacheScope!,
+          conversations: conversations,
+          excludeConversationId: widget.selectedId));
+    }
     if (widget.realtimeStore != null) {
       for (final conversation in conversations) {
         widget.realtimeStore!.conversations[conversation.id] = conversation;
