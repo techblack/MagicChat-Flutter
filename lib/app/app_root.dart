@@ -2018,6 +2018,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
               realtimeStore: widget.realtimeStore,
               cacheScope: _messageCacheScope,
               draftStore: _conversationDraftStore,
+              messageCacheStore: _messageCacheStore,
               sendMessageShortcut: _sendMessageShortcut,
               chatAppearance: widget.chatAppearance,
               conversationAppearance:
