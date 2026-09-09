@@ -1,5 +1,9 @@
 # 更新日志
 
+## 0.3.42
+
+- 修正 Linux 托盘运行库发布校验对不同 Ubuntu Ayatana 包链接方式的兼容性，确保包内运行库和 `$ORIGIN` 路径检查不会误报。
+
 ## 0.3.41
 
 - Linux 发布包内置 Ayatana IDO 运行库，并将托盘插件 RUNPATH 固定为包内 `lib/`，避免在目标机启动时报 `libayatana-ido3-0.4.so.0` 缺失。
