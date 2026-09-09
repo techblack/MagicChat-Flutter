@@ -87,6 +87,31 @@ void main() {
     expect(
         await cache.read(scope, 'stale', conversationType: 'group'), isEmpty);
   });
+
+  test('用户打开同一会话后，预热响应不会覆盖已有缓存', () async {
+    final repository = _PreloaderRepository(block: true);
+    final preloader = ConversationMessagePreloader(
+        repository: repository,
+        cacheStore: cache,
+        maxConcurrent: 1,
+        maxConversations: 1);
+    final loading = preloader.preload(
+      scope: scope,
+      conversations: const [
+        ChatConversation(id: 'active', title: '当前会话', type: 'group'),
+      ],
+    );
+    await repository.started.future;
+    await cache.write(
+        scope, 'active', [messageCacheRecord(_message('fresh-message', 2))],
+        conversationType: 'group');
+    repository.release.complete();
+    await loading;
+
+    final records =
+        await cache.read(scope, 'active', conversationType: 'group', limit: 10);
+    expect(records.map((record) => record['id']), ['fresh-message']);
+  });
 }
 
 ChatMessage _message(String id, int sequence) => ChatMessage(
