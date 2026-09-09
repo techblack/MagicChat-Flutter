@@ -17,6 +17,14 @@ String? formatMessageTime(String value, {DateTime? now}) {
       : '${local.year}-$date $time';
 }
 
+bool shouldShowMessageTimeMarker(ChatMessage? previous, ChatMessage current) {
+  if (previous == null) return false;
+  final previousAt = DateTime.tryParse(previous.createdAt)?.toUtc();
+  final currentAt = DateTime.tryParse(current.createdAt)?.toUtc();
+  if (previousAt == null || currentAt == null) return false;
+  return currentAt.difference(previousAt) > const Duration(hours: 1);
+}
+
 bool supportsMobileImagePicker({
   required bool isWeb,
   required TargetPlatform platform,
@@ -2442,8 +2450,11 @@ class _ConversationViewState extends State<ConversationView>
                           padding: const EdgeInsets.fromLTRB(8, 16, 8, 12),
                           itemCount: allMessages.length,
                           itemBuilder: (context, index) {
-                            final message =
-                                allMessages[allMessages.length - index - 1];
+                            final messageIndex = allMessages.length - index - 1;
+                            final message = allMessages[messageIndex];
+                            final previousMessage = messageIndex == 0
+                                ? null
+                                : allMessages[messageIndex - 1];
                             final optimistic =
                                 _timelineOptimisticById[message.id];
                             if (optimistic != null) {
@@ -2461,7 +2472,7 @@ class _ConversationViewState extends State<ConversationView>
                                 ),
                               );
                             }
-                            return Align(
+                            final bubble = Align(
                               key: _messageKey(message.id),
                               alignment: message.contentType == 'system_event'
                                   ? Alignment.center
@@ -2561,6 +2572,26 @@ class _ConversationViewState extends State<ConversationView>
                                   ),
                                 ),
                               ),
+                            );
+                            if (!shouldShowMessageTimeMarker(
+                                previousMessage, message)) return bubble;
+                            return Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  formatMessageTime(message.createdAt) ?? '',
+                                  key: ValueKey(
+                                      'message-time-marker-${message.id}'),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelSmall
+                                      ?.copyWith(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurfaceVariant),
+                                ),
+                                bubble,
+                              ],
                             );
                           },
                         ),
