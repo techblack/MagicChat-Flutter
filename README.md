@@ -83,17 +83,27 @@ open /Applications/MagicChat.app
 
 Windows、macOS 和 Linux 桌面版可在“设置”中开启“开机自动启动”。该选项默认关闭；开启后会注册当前用户的系统启动项，并在登录系统后使用 `--hidden` 参数静默启动。登录页同样保留系统托盘入口；若系统托盘不可用，应用会自动显示主窗口，避免后台运行后无法打开。
 
-Android 推送默认保持安全降级；发布包需要 JPush 时，在构建环境注入应用密钥（不要提交到仓库）：
+Android 构建默认包含官方 JPush SDK 和公开 AppKey（`d7fa4b31dd21064e095d29d5`）。
+该 AppKey 只是应用标识，不是服务端凭据；连接独立开发或测试 JPush 应用时，可在构建环境通过
+`JPUSH_APP_KEY` 覆盖（不要提交 Master Secret）：
 
 ```bash
-JPUSH_APP_KEY="$YOUR_JPUSH_APP_KEY" \
 JPUSH_CHANNEL=official \
 flutter build apk --release
 ```
 
-未设置 `JPUSH_APP_KEY` 时不会打包 JPush SDK，其他 Android 构建和测试不受影响。
-打包 JPush 的安装包不会在首次启动时自动初始化 SDK；用户需在设置中阅读说明并明确同意“手机通知”，关闭时会停止 JPush 并撤销当前账号的远程授权。
-JPush 配置包还会注册后台通知 Receiver：仅后台显示通知，点击后持久化并解析 route token，重新打开对应会话；默认未配置包不包含该 Receiver。
+需要独立应用时示例：
+
+```bash
+JPUSH_APP_KEY="$YOUR_JPUSH_APP_KEY" \
+JPUSH_CHANNEL=development \
+flutter build apk --debug
+```
+
+无论是否覆盖 AppKey，安装包都不会在首次启动时自动初始化 SDK；用户需在设置中阅读说明并明确同意“手机通知”，
+同意后才会读取 RegistrationID，关闭时会停止 JPush 并撤销当前账号的远程授权。
+Android JPush Receiver 仅在 JPush SDK 包含时工作，收到后台通知后持久化并解析 route token，重新打开对应会话。
+Master Secret 只能配置在 Push Gateway，绝不能放入移动端或仓库。
 
 更新检查默认读取 release 源：Android/iOS 使用
 `https://jiying.chat/releases/version.json`，Windows/macOS/Linux 使用本项目的

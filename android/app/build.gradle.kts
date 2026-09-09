@@ -4,7 +4,13 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-val jpushAppKey = System.getenv("JPUSH_APP_KEY")?.trim().orEmpty()
+// JPush AppKey 是公开的应用标识，不是服务端凭据。与官方客户端保持一致：
+// 普通构建使用官方 AppKey；连接独立开发/测试应用时可通过环境变量覆盖。
+// Master Secret 永远只配置在 Push Gateway，不进入 Android 包或仓库。
+val defaultJPushAppKey = "d7fa4b31dd21064e095d29d5"
+val jpushAppKey = System.getenv("JPUSH_APP_KEY")?.trim()
+    .takeUnless { it.isNullOrEmpty() }
+    ?: defaultJPushAppKey
 val jpushChannel = System.getenv("JPUSH_CHANNEL")?.trim().takeUnless { it.isNullOrEmpty() }
     ?: "official"
 val releaseKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")?.trim()
@@ -67,16 +73,9 @@ android {
     }
 }
 
-if (jpushAppKey.isEmpty()) {
-    android.sourceSets["main"].java.exclude("**/JPushNotificationReceiver.kt")
-    kotlin.sourceSets["main"].kotlin.exclude("**/JPushNotificationReceiver.kt")
-}
-
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
-    if (jpushAppKey.isNotEmpty()) {
-        implementation("cn.jiguang.sdk:jpush:6.2.0")
-    }
+    implementation("cn.jiguang.sdk:jpush:6.2.0")
 }
 
 kotlin {
