@@ -189,6 +189,7 @@ class ConversationView extends StatefulWidget {
 
 class _ConversationViewState extends State<ConversationView>
     with WidgetsBindingObserver {
+  static const _olderMessageCompactionThreshold = 500;
   static const _maxSelectedMessages = 50;
   static const _maxForwardTargets = 20;
   static const _messageTapSlop = 18.0;
@@ -1341,7 +1342,10 @@ class _ConversationViewState extends State<ConversationView>
 
   Future<void> _onScroll() async {
     final id = widget.conversationId;
-    if (id != null && !_historyMode) _requestLatestRead(id);
+    if (id != null && !_historyMode) {
+      _requestLatestRead(id);
+      _compactOlderMessagesIfAtLatest();
+    }
     if (_historyMode &&
         _hasMoreNewer &&
         !_loadingNewer &&
@@ -1438,6 +1442,20 @@ class _ConversationViewState extends State<ConversationView>
     } finally {
       if (mounted) setState(() => _loadingOlder = false);
     }
+  }
+
+  void _compactOlderMessagesIfAtLatest() {
+    if (_historyMode ||
+        _olderMessages.length < _olderMessageCompactionThreshold ||
+        !_isAtBottom() ||
+        _loadingOlder ||
+        _loadingNewer) return;
+    // 旧页已经增量写入 SQLite；回到最新位置后释放它们的 widget 数据，
+    // 上翻时仍可根据最早序号重新分页读取，避免长会话内存线性增长。
+    _olderMessages.clear();
+    _lastOlderBeforeSeq = null;
+    _invalidateTimeline();
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadNewerMessages(
