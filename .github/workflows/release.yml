@@ -124,7 +124,7 @@ jobs:
         run: >-
           sudo apt-get update && sudo apt-get install -y
           clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev
-          libayatana-appindicator3-dev
+          libayatana-appindicator3-dev libayatana-ido3-0.4-0
           libkeybinder-3.0-dev gnome-screenshot
           libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
       - run: flutter pub get
@@ -133,6 +133,10 @@ jobs:
         run: |
           flutter build linux --release \
             --dart-define=MAGICCHAT_DESKTOP_ARCH=${{ matrix.arch }}
+          # desktop_tray loads Ayatana AppIndicator at runtime. Keep the
+          # release runner honest so a missing transitive runtime dependency
+          # cannot be discovered only after a user downloads the archive.
+          ldconfig -p | grep -q 'libayatana-ido3-0.4.so.0'
           mkdir -p dist
           tar -C build/linux/${{ matrix.arch }}/release/bundle \
             -czf dist/MagicChat-Linux-${{ matrix.arch }}.tar.gz .

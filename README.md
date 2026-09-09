@@ -39,12 +39,14 @@ flutter test
 flutter build web --release
 ```
 
-Linux 构建还需要 Clang、CMake、Ninja、GTK3、libsecret 和 GStreamer 开发包：
+Linux 构建和系统托盘运行还需要 Clang、CMake、Ninja、GTK3、libsecret、Ayatana
+AppIndicator/IDO 和 GStreamer 开发包。发布的 Linux 压缩包依赖目标系统提供
+`libayatana-ido3-0.4.so.0`，否则启动时会报找不到该动态库：
 
 ```bash
 sudo apt-get install clang cmake ninja-build pkg-config \
   libgtk-3-dev libsecret-1-dev \
-  libayatana-appindicator3-dev \
+  libayatana-appindicator3-dev libayatana-ido3-0.4-0 \
   libkeybinder-3.0-dev gnome-screenshot \
   libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
 flutter build linux
