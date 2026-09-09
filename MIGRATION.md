@@ -2,7 +2,7 @@
 
 Flutter 工程与现有客户端并行演进，页面层通过 `MagicChatRepository` 访问数据，确保桌面和移动端共享同一套交互与状态模型。
 
-当前官方对齐基线为 `chaitin/MagicChat` `origin/main@89bc306`（2026-09-09）。每批迁移都应重新拉取官方 `main`，不能只按本表的历史快照判断完成度。
+当前官方对齐基线为 `chaitin/MagicChat` `origin/main@13d0d5c`（2026-09-09）。每批迁移都应重新拉取官方 `main`，不能只按本表的历史快照判断完成度。
 
 | 现有能力 | Flutter 入口 | 状态 |
 | --- | --- | --- |

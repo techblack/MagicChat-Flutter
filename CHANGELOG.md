@@ -1,5 +1,9 @@
 # 更新日志
 
+## 0.3.47
+
+- Android 构建默认携带官方 JPush AppKey，支持通过 `JPUSH_APP_KEY` 覆盖；用户仍需在设置中明确同意后才初始化和读取 RegistrationID。
+
 ## 0.3.46
 
 - 修复 Linux glibc 基线容器脚本的引号截断，确保 focal 镜像源、依赖安装和实际构建完整执行。
