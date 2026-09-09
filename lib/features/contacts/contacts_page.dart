@@ -66,6 +66,7 @@ class _ContactsPageState extends State<ContactsPage> {
   List<_ContactDirectoryRow> _cachedHomeRows = const [];
   Timer? _fallbackPollTimer;
   bool _fallbackPollInFlight = false;
+  int _directoryRequestGeneration = 0;
   int _observedUserProfileRevision = 0;
   int _observedContactDirectoryRevision = 0;
   late final ContactDirectoryRefreshScheduler _realtimeRefreshScheduler;
@@ -104,7 +105,7 @@ class _ContactsPageState extends State<ContactsPage> {
       }
     }
     if (_currentUserId.isEmpty) unawaited(_loadCurrentUser());
-    _directoryFuture ??= _loadDirectory();
+    _directoryFuture ??= _loadInitialDirectory(++_directoryRequestGeneration);
   }
 
   void _deactivate() {
@@ -172,6 +173,7 @@ class _ContactsPageState extends State<ContactsPage> {
   void _load({bool cancelPendingSearch = true}) {
     if (!mounted || !widget.active) return;
     if (cancelPendingSearch) _searchDebounce?.cancel();
+    _directoryRequestGeneration++;
     setState(() {
       _directoryFuture = _loadDirectory();
     });
@@ -189,6 +191,7 @@ class _ContactsPageState extends State<ContactsPage> {
 
   Future<void> _refresh() async {
     _searchDebounce?.cancel();
+    _directoryRequestGeneration++;
     final future = _loadDirectory();
     setState(() {
       _directoryFuture = future;
@@ -293,16 +296,36 @@ class _ContactsPageState extends State<ContactsPage> {
   Future<ContactDirectory> _loadDirectory() async {
     final directory = await widget.repository
         .contactDirectory(keyword: _searchController.text.trim());
-    _directoryMode = directory.mode;
     // 联系人资料缓存不应阻塞首屏。组织通讯录可能包含数千人，等待
     // SharedPreferences 序列化会让网络请求完成后仍卡住页面布局。
-    unawaited(_writeContactCache(directory.contacts));
+    unawaited(_writeContactCache(directory));
     return directory;
   }
 
-  Future<void> _writeContactCache(Iterable<Contact> contacts) async {
+  Future<ContactDirectory> _loadInitialDirectory(int generation) async {
+    final cached = await _contactCacheStore.readDirectory(widget.cacheScope);
+    if (cached == null) return _loadDirectory();
+
+    final remote = _loadDirectory();
+    unawaited(remote.then<void>((directory) {
+      if (!mounted ||
+          !widget.active ||
+          generation != _directoryRequestGeneration ||
+          _searchController.text.trim().isNotEmpty) return;
+      for (final contact in directory.contacts) {
+        widget.realtimeStore?.contacts[contact.id] = contact;
+      }
+      setState(() {
+        _directoryFuture = Future.value(directory);
+        _sectionSource = null;
+      });
+    }, onError: (Object _, StackTrace __) {}));
+    return cached;
+  }
+
+  Future<void> _writeContactCache(ContactDirectory directory) async {
     try {
-      await _contactCacheStore.write(widget.cacheScope, contacts);
+      await _contactCacheStore.writeDirectory(widget.cacheScope, directory);
     } catch (_) {
       // 缓存失败不影响通讯录展示。
     }
@@ -326,10 +349,12 @@ class _ContactsPageState extends State<ContactsPage> {
         _friendDialogOpen) {
       return;
     }
+    final generation = ++_directoryRequestGeneration;
     final directory = await _loadDirectory();
     if (!mounted || !widget.active || _friendDialogOpen) {
       return;
     }
+    if (generation != _directoryRequestGeneration) return;
     for (final contact in directory.contacts) {
       widget.realtimeStore?.contacts[contact.id] = contact;
     }
@@ -366,7 +391,10 @@ class _ContactsPageState extends State<ContactsPage> {
       future: _directoryFuture,
       builder: (context, snapshot) {
         final directory = snapshot.data;
-        if (directory != null) _openInitialContact(directory);
+        if (directory != null) {
+          _directoryMode = directory.mode;
+          _openInitialContact(directory);
+        }
         return Column(children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),

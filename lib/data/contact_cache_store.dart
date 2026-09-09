@@ -17,6 +17,9 @@ class ContactCacheStore {
 
   String _key(MessageCacheScope scope) => _scopeKey(scope);
 
+  String _directoryModeKey(MessageCacheScope scope) =>
+      '${_scopeKey(scope)}.directory-mode';
+
   Future<List<Contact>> read(MessageCacheScope? scope) async {
     if (scope == null) return const [];
     final memory = _memory[_scopeKey(scope)];
@@ -60,6 +63,16 @@ class ContactCacheStore {
     }
   }
 
+  Future<ContactDirectory?> readDirectory(MessageCacheScope? scope) async {
+    if (scope == null) return null;
+    final contacts = await read(scope);
+    if (contacts.isEmpty) return null;
+    final prefs = await SharedPreferences.getInstance();
+    final storedMode = prefs.getString(_directoryModeKey(scope));
+    final mode = storedMode == 'friends' ? 'friends' : 'organization';
+    return ContactDirectory(contacts: contacts, mode: mode);
+  }
+
   Future<void> write(
       MessageCacheScope? scope, Iterable<Contact> contacts) async {
     if (scope == null) return;
@@ -77,6 +90,14 @@ class ContactCacheStore {
         .where((contact) => contact.id.trim().isNotEmpty)
         .toList(growable: false);
     await _persist(scope, values);
+  }
+
+  Future<void> writeDirectory(
+      MessageCacheScope? scope, ContactDirectory directory) async {
+    if (scope == null) return;
+    await write(scope, directory.contacts);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_directoryModeKey(scope), directory.mode);
   }
 
   Future<void> replaceUserProfiles(
