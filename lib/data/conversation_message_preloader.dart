@@ -51,6 +51,11 @@ class ConversationMessagePreloader {
           final messages =
               await _repository.messages(conversation.id, limit: messageLimit);
           if (messages.isEmpty || generation != _generation) continue;
+          // 用户可能在预热请求进行期间打开了同一会话并写入了更新后的
+          // 首屏；再次确认缓存非空，避免旧响应覆盖用户刚看到的内容。
+          final currentCache = await _cacheStore.read(scope, conversation.id,
+              conversationType: type, limit: 1);
+          if (currentCache.isNotEmpty || generation != _generation) continue;
           await _cacheStore.upsertAll(
               scope, conversation.id, messages.map(messageCacheRecord),
               conversationType: type);
