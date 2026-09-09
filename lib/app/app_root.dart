@@ -283,6 +283,10 @@ class _MagicChatAppState extends State<MagicChatApp> {
     final server = _serverUrl;
     final token = await const SessionStore().readToken();
     if (server == null || token == null) return;
+    final reminderPreferences = const PushReminderPreferences();
+    final reminderState = await reminderPreferences.read();
+    await reminderPreferences
+        .write(reminderState.copyWith(explicitlyDisabled: !enabled));
     if (enabled) {
       await _registerPush(server, token);
     } else {
@@ -294,6 +298,10 @@ class _MagicChatAppState extends State<MagicChatApp> {
     final server = _serverUrl;
     final token = await const SessionStore().readToken();
     if (server == null || token == null) return;
+    final reminderPreferences = const PushReminderPreferences();
+    final reminderState = await reminderPreferences.read();
+    await reminderPreferences
+        .write(reminderState.copyWith(explicitlyDisabled: !enabled));
     if (enabled) {
       await const PushTokenProvider().setJPushRunning(true);
       await _registerPush(server, token);
@@ -1448,6 +1456,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   final _loadedConversationAppearances = <String, ChatConversationAppearance>{};
   bool _searchDialogOpen = false;
   bool _windowTitleSyncScheduled = false;
+  bool _pushReminderAttempted = false;
 
   void _onWindowTitleDataChanged() => _scheduleWindowTitleSync();
 
@@ -1520,12 +1529,68 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     }
     _resolveNotificationRoute(recordSource: false);
     unawaited(_restoreMobileImageRecoveryRoute());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_maybeShowPushReminder());
+    });
     if (widget.trayOpenRequest > 0 && widget.trayConversationId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           _openConversation(widget.trayConversationId!, recordSource: false);
         }
       });
+    }
+  }
+
+  Future<void> _maybeShowPushReminder() async {
+    if (_pushReminderAttempted ||
+        kIsWeb ||
+        (defaultTargetPlatform != TargetPlatform.android &&
+            defaultTargetPlatform != TargetPlatform.iOS) ||
+        widget.serverUrl == null) return;
+    _pushReminderAttempted = true;
+    final preferences = const PushReminderPreferences();
+    final state = await preferences.read();
+    if (!mounted) return;
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('magicchat.notifications.enabled') == false) return;
+
+    PushReminderKind? kind;
+    if (defaultTargetPlatform == TargetPlatform.android &&
+        await _pushTokenProvider.isJPushConfigured() &&
+        !await _pushTokenProvider.isRegistrationAllowed()) {
+      kind = PushReminderKind.consent;
+    } else {
+      final permission = await _notifications.permissionStatus();
+      if (permission == NotificationPermissionStatus.denied ||
+          permission == NotificationPermissionStatus.notDetermined) {
+        kind = PushReminderKind.permission;
+      }
+    }
+    if (kind == null ||
+        !shouldShowPushReminder(
+            state: state, kind: kind, appVersion: widget.appVersion.version)) {
+      return;
+    }
+    await preferences
+        .write(recordPushReminder(state, kind, widget.appVersion.version));
+    if (!mounted) return;
+    final result = await showPushReminderDialog(
+      context,
+      kind,
+      onEnable: () async {
+        await const PushPreferences().writeJPushConsent(true);
+        await const PushTokenProvider().setJPushRunning(true);
+        await widget.onJPushConsentChanged?.call(true);
+      },
+      onRequestPermission: () async {
+        final granted = await _notifications.requestPermission();
+        return granted &&
+            await _notifications.permissionStatus() ==
+                NotificationPermissionStatus.granted;
+      },
+    );
+    if (result == true && mounted) {
+      await preferences.write(clearPushReminder(state, kind));
     }
   }
 
