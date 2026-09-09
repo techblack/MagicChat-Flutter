@@ -3382,7 +3382,7 @@ class _ConversationViewState extends State<ConversationView>
       final bytes = await image.readAsBytes();
       if (!mounted || widget.conversationId != conversationId) return;
       if (bytes.isEmpty) throw StateError('图片内容为空');
-      if (bytes.length > 200 * 1024 * 1024) {
+      if (bytes.length > desktopMessageFileMaxBytes) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('图片不能超过 200MiB')));
         return;
@@ -3391,18 +3391,24 @@ class _ConversationViewState extends State<ConversationView>
           ? 'image-${index + 1}.jpg'
           : image.name.trim();
       final declaredMime = image.mimeType?.trim();
+      final processed = await prepareMessageImage(
+        bytes: bytes,
+        name: name,
+        mimeType: declaredMime?.startsWith('image/') == true
+            ? declaredMime!
+            : _mimeType(name.split('.').last),
+      );
       prepared.add((
         upload: AttachmentUpload(
-          path: kIsWeb ? '' : image.path,
-          name: name,
-          mimeType: declaredMime?.startsWith('image/') == true
-              ? declaredMime!
-              : _mimeType(name.split('.').last),
-          bytes: bytes,
+          path: '',
+          name: processed.name,
+          mimeType: processed.mimeType,
+          bytes: processed.bytes,
         ),
-        size: bytes.length,
+        size: processed.bytes.length,
       ));
     }
+    if (!mounted || widget.conversationId != conversationId) return;
     final preview = await showMobileImageSendPreviewDialog(
       context,
       images: prepared
@@ -3541,18 +3547,33 @@ class _ConversationViewState extends State<ConversationView>
           file.path.isEmpty ||
           bookmark?.isNotEmpty == true;
       final bytes = needsBytes ? await file.readAsBytes() : null;
-      final upload = AttachmentUpload(
+      var upload = AttachmentUpload(
           path: needsBytes ? '' : file.path,
           name: name,
           mimeType: mimeType,
           bytes: bytes);
+      var uploadSize = size;
+      if (isImage && bytes != null) {
+        final processed = await prepareMessageImage(
+          bytes: bytes,
+          name: name,
+          mimeType: mimeType,
+        );
+        upload = AttachmentUpload(
+          path: '',
+          name: processed.name,
+          mimeType: processed.mimeType,
+          bytes: processed.bytes,
+        );
+        uploadSize = processed.bytes.length;
+      }
       if (!mounted || widget.conversationId != conversationId) return;
-      final confirmed = await _confirmDroppedAttachment(upload, size);
+      final confirmed = await _confirmDroppedAttachment(upload, uploadSize);
       if (confirmed == true &&
           mounted &&
           widget.conversationId == conversationId &&
           _conversationCanSend(conversationId)) {
-        _enqueueAttachment(conversationId, upload, size);
+        _enqueueAttachment(conversationId, upload, uploadSize);
       }
     } catch (error) {
       if (mounted) {
