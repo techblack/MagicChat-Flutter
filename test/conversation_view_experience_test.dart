@@ -417,6 +417,19 @@ void main() {
         isFalse);
   });
 
+  testWidgets('点击消息列表会收起输入框焦点', (tester) async {
+    await _pumpConversation(tester, _ExperienceRepository());
+
+    final field = find.byType(TextField).first;
+    await tester.tap(field);
+    await tester.pump();
+    expect(tester.widget<TextField>(field).focusNode?.hasFocus, isTrue);
+
+    await tester.tap(find.text('可以自由选择复制的正文'));
+    await tester.pump();
+    expect(tester.widget<TextField>(field).focusNode?.hasFocus, isFalse);
+  });
+
   testWidgets('滚动到顶部加载旧消息时显示短暂进度动画', (tester) async {
     final repository = _OlderMessagesRepository();
     await _pumpConversation(tester, repository);
