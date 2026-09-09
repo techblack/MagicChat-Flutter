@@ -7,6 +7,21 @@ import 'package:magicchat_client/data/repository.dart';
 import 'package:magicchat_client/domain/models.dart';
 
 void main() {
+  test('会话解析保留最后消息发送者资料', () {
+    final conversation = ChatConversation.fromJson({
+      'id': 'group-1',
+      'name': '项目群',
+      'type': 'group',
+      'last_message_summary': '已更新',
+      'last_message_sender': {
+        'id': 'user-1',
+        'type': 'user',
+        'name': '张三',
+      },
+    });
+    expect(conversation.lastMessageSender?.displayName, '张三');
+  });
+
   test('文本消息按服务端契约携带 reply_to_message_id', () async {
     late http.Request request;
     final repository = HttpMagicChatRepository(

@@ -147,6 +147,7 @@ class RealtimeStore extends ChangeNotifier {
         pinned: current.pinned,
         muted: current.muted,
         lastMessageAt: current.lastMessageAt,
+        lastMessageSender: current.lastMessageSender,
         lastMessageSeq: current.lastMessageSeq,
         lastReadSeq: result.lastReadSeq,
         lastMentionedSeq: current.lastMentionedSeq,
@@ -437,6 +438,9 @@ class RealtimeStore extends ChangeNotifier {
     final name = sender is Map<String, dynamic> ? sender['name'] : null;
     final nickname = sender is Map<String, dynamic> ? sender['nickname'] : null;
     final senderId = sender is Map<String, dynamic> ? sender['id'] : null;
+    final senderProfile = sender is Map<String, dynamic>
+        ? ConversationMessageSender.fromJson(sender)
+        : null;
     final conversationId = payload['conversation_id'];
     final reply = payload['reply_to'];
     final replyToMessageId = payload['reply_to_message_id'];
@@ -500,7 +504,7 @@ class RealtimeStore extends ChangeNotifier {
                 ? _reactions(payload['reactions'])
                 : previous?.reactions ?? const []);
     _patchConversationFromMessage(resolvedConversationId, sequence, createdAt,
-        body.text, resolvedSenderId,
+        body.text, resolvedSenderId, senderProfile,
         countUnread: countUnread);
   }
 
@@ -512,8 +516,13 @@ class RealtimeStore extends ChangeNotifier {
     }
   }
 
-  void _patchConversationFromMessage(String? conversationId, int? sequence,
-      String createdAt, String summary, String? senderId,
+  void _patchConversationFromMessage(
+      String? conversationId,
+      int? sequence,
+      String createdAt,
+      String summary,
+      String? senderId,
+      ConversationMessageSender? sender,
       {required bool countUnread}) {
     if (conversationId == null || conversationId.isEmpty) return;
     final current = conversations[conversationId];
@@ -535,6 +544,7 @@ class RealtimeStore extends ChangeNotifier {
         pinned: current.pinned,
         muted: current.muted,
         lastMessageAt: createdAt.isNotEmpty ? createdAt : current.lastMessageAt,
+        lastMessageSender: sender ?? current.lastMessageSender,
         lastMessageSeq: sequence ?? current.lastMessageSeq,
         lastReadSeq: current.lastReadSeq,
         lastMentionedSeq: current.lastMentionedSeq,
@@ -596,6 +606,7 @@ class RealtimeStore extends ChangeNotifier {
         lastMessageAt: payload['last_message_at'] is String
             ? payload['last_message_at'] as String
             : current.lastMessageAt,
+        lastMessageSender: current.lastMessageSender,
         lastMessageSeq: (payload['last_message_seq'] as num?)?.toInt() ??
             current.lastMessageSeq,
         lastReadSeq: current.lastReadSeq,
@@ -631,6 +642,7 @@ class RealtimeStore extends ChangeNotifier {
         pinned: current.pinned,
         muted: current.muted,
         lastMessageAt: current.lastMessageAt,
+        lastMessageSender: current.lastMessageSender,
         lastMessageSeq: current.lastMessageSeq,
         lastReadSeq: current.lastReadSeq,
         lastMentionedSeq: event == 'conversation.member_mentioned'
@@ -679,6 +691,7 @@ class RealtimeStore extends ChangeNotifier {
         pinned: current.pinned,
         muted: current.muted,
         lastMessageAt: current.lastMessageAt,
+        lastMessageSender: current.lastMessageSender,
         lastMessageSeq: current.lastMessageSeq,
         lastReadSeq: current.lastReadSeq,
         lastMentionedSeq: current.lastMentionedSeq,
@@ -748,6 +761,7 @@ ChatConversation _conversationWithProfile(ChatConversation conversation,
       pinned: conversation.pinned,
       muted: conversation.muted,
       lastMessageAt: conversation.lastMessageAt,
+      lastMessageSender: conversation.lastMessageSender,
       lastMessageSeq: conversation.lastMessageSeq,
       lastReadSeq: conversation.lastReadSeq,
       lastMentionedSeq: conversation.lastMentionedSeq,

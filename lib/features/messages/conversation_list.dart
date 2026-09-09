@@ -126,6 +126,19 @@ bool matchesConversationQuery(ChatConversation conversation, String query) {
       conversation.announcement.toLowerCase().contains(keyword);
 }
 
+/// 为群聊预览补充最后一条消息的发送者名称，避免用户只能看到一段
+/// 无上下文的正文（或服务端返回的原始发送者 ID）。
+String conversationPreviewText(ChatConversation conversation, String content) {
+  final parentType = conversation.type == 'topic'
+      ? conversation.topic?.parentConversationType
+      : conversation.type;
+  if (parentType != 'group') return content;
+  final sender = conversation.lastMessageSender;
+  if (sender == null) return content;
+  final name = sender.displayName.trim();
+  return name.isEmpty ? content : '$name：$content';
+}
+
 /// 置顶会话优先，其余按最后消息时间倒序；旧服务端缺少时间时回退到序号。
 List<ChatConversation> orderConversations(
     Iterable<ChatConversation> conversations) {

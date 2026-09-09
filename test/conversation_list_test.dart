@@ -305,6 +305,27 @@ void main() {
         ['app', 'group', 'direct']);
   });
 
+  test('群聊预览显示最后消息发送者名称而非原始 ID', () {
+    const group = ChatConversation(
+      id: 'group-1',
+      title: '项目群',
+      type: 'group',
+      lastMessageSender: ConversationMessageSender(
+        id: 'user-1',
+        type: 'user',
+        name: '张三',
+      ),
+    );
+    expect(conversationPreviewText(group, '进度更新'), '张三：进度更新');
+    const idOnly = ChatConversation(
+      id: 'group-2',
+      title: '项目群',
+      type: 'group',
+      lastMessageSender: ConversationMessageSender(id: 'user-2', type: 'user'),
+    );
+    expect(conversationPreviewText(idOnly, '进度更新'), '成员：进度更新');
+  });
+
   test('话题会话挂在对应父会话下并保留嵌套标记', () {
     const parent = ChatConversation(
         id: 'parent', title: '群聊', type: 'group', lastMessageSeq: 3);

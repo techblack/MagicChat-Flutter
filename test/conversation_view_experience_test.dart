@@ -290,6 +290,14 @@ void main() {
     expect(find.textContaining('{(@user/user-alice)}'), findsNothing);
   });
 
+  testWidgets('联系人 ID 大小写不一致时回复预览仍显示名称', (tester) async {
+    await _pumpConversation(tester, _CaseInsensitiveReplyReferenceRepository());
+
+    expect(find.text('回复 Bob：原消息提到 @Alice'), findsOneWidget);
+    expect(find.text('user-bob'), findsNothing);
+    expect(find.text('USER-BOB'), findsNothing);
+  });
+
   testWidgets('实时引用补齐原消息后会刷新回复预览', (tester) async {
     final store = RealtimeStore()..setCurrentUserId('me');
     store.conversations['conversation-1'] = const ChatConversation(
@@ -785,6 +793,24 @@ class _ReplyReferenceRepository extends _ExperienceRepository {
         Contact(id: 'user-alice', name: 'Alice'),
         Contact(id: 'user-bob', name: 'Bob'),
       ];
+}
+
+class _CaseInsensitiveReplyReferenceRepository
+    extends _ReplyReferenceRepository {
+  @override
+  Future<List<Contact>> contacts({String keyword = ''}) async => const [
+        Contact(id: 'USER-ALICE', name: 'Alice'),
+        Contact(id: 'USER-BOB', name: 'Bob'),
+      ];
+
+  @override
+  Future<List<Contact>> resolveUsers(List<String> userIds) async {
+    final all = await contacts();
+    final normalized = userIds.map((id) => id.toLowerCase()).toSet();
+    return all
+        .where((contact) => normalized.contains(contact.id.toLowerCase()))
+        .toList();
+  }
 }
 
 class _RealtimeReplyRepository extends _ExperienceRepository {
