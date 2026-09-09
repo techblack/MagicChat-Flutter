@@ -28,7 +28,9 @@ class DesktopSystemTray
   List<DesktopTrayMessageItem> _messages = const [];
   int _unreadCount = 0;
   bool _initialized = false;
-  Future<void> _refreshQueue = Future.value();
+  bool _refreshing = false;
+  bool _refreshRequested = false;
+  Future<void>? _refreshDrain;
 
   TargetPlatform get _targetPlatform => _platform ?? defaultTargetPlatform;
 
@@ -76,14 +78,38 @@ class DesktopSystemTray
     _unreadCount = unreadCount.clamp(0, 9999).toInt();
     _messages = desktopTrayMessages(conversations, privacy, contacts: contacts);
     if (!_initialized) return;
-    _refreshQueue = _refreshQueue.then(
-      (_) => _refresh(),
-      onError: (_) => _refresh(),
-    );
+    _refreshRequested = true;
+    if (!_refreshing) {
+      _refreshing = true;
+      // A realtime burst should refresh the native menu once with the latest
+      // snapshot instead of creating an unbounded chain of stale updates.
+      _refreshDrain = _drainRefreshes();
+    }
+    // Wait for the active drain so callers that await update() still observe
+    // a menu containing their snapshot (or a newer one).
+    final drain = _refreshDrain;
+    if (drain == null) return;
     try {
-      await _refreshQueue;
+      await drain;
     } catch (_) {
       // 托盘是可选的系统集成，菜单刷新失败不应影响主界面和实时连接。
+    }
+  }
+
+  Future<void> _drainRefreshes() async {
+    try {
+      while (_initialized && _refreshRequested) {
+        _refreshRequested = false;
+        try {
+          await _refresh();
+        } catch (_) {
+          // Native tray backends are optional. A later update can retry while
+          // this failure must not escape into the realtime message pipeline.
+        }
+      }
+    } finally {
+      _refreshing = false;
+      _refreshDrain = null;
     }
   }
 
@@ -95,10 +121,14 @@ class DesktopSystemTray
       if (_messages.isEmpty) {
         items.add(TrayMenuItem(label: '暂无未读消息', disabled: true));
       } else {
-        items.addAll(_messages.map((message) => TrayMenuItem(
+        items.addAll(
+          _messages.map(
+            (message) => TrayMenuItem(
               key: '$_conversationKeyPrefix${message.conversationId}',
               label: message.label,
-            )));
+            ),
+          ),
+        );
       }
       items.add(TrayMenuItem.separator());
     }
@@ -141,6 +171,7 @@ class DesktopSystemTray
   Future<void> dispose() async {
     if (!_initialized) return;
     _initialized = false;
+    _refreshRequested = false;
     desktopTray.removeListener(this);
     await _windowController.setTrayReady(false);
     await desktopTray.destroy();
