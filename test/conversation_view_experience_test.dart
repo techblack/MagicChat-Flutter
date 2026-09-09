@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as image;
 import 'package:image_picker/image_picker.dart';
@@ -486,6 +487,27 @@ void main() {
     expect(find.text('回到底部'), findsOneWidget);
   });
 
+  testWidgets('粘贴图片时打开图片预览并发送', (tester) async {
+    final repository = _PickedImageRepository();
+    await _pumpConversation(
+      tester,
+      repository,
+      clipboardImageReader: () async => repository.imageBytes,
+    );
+    final field = find.byType(TextField);
+    await tester.tap(field);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+
+    expect(find.text('发送图片'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, '发送'));
+    await tester.pumpAndSettle();
+    expect(repository.sentUpload?.mimeType, 'image/png');
+    expect(repository.sentUpload?.bytes, isNotNull);
+  });
+
   testWidgets('缓存首屏刷新和异步布局完成后仍定位到最新底部', (tester) async {
     final cached = List.generate(
         30,
@@ -574,13 +596,15 @@ void main() {
 
 Future<void> _pumpConversation(
     WidgetTester tester, MagicChatRepository repository,
-    {bool settle = true}) async {
+    {bool settle = true, ClipboardImageReader? clipboardImageReader}) async {
   await tester.binding.setSurfaceSize(const Size(600, 700));
   addTearDown(() => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(MaterialApp(
       home: Scaffold(
           body: ConversationView(
-              repository: repository, conversationId: 'conversation-1'))));
+              repository: repository,
+              conversationId: 'conversation-1',
+              clipboardImageReader: clipboardImageReader))));
   if (settle) {
     await tester.pumpAndSettle();
   } else {

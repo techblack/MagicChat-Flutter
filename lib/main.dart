@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:desktop_drop/desktop_drop.dart';
+import 'package:screen_capturer/screen_capturer.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'data/repository.dart';
 import 'data/auth_service.dart';
