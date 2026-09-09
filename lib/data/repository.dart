@@ -155,7 +155,8 @@ abstract interface class MagicChatRepository {
       String keyword = '',
       String label = '',
       List<String> statuses = const [],
-      List<int> priorities = const []});
+      List<int> priorities = const [],
+      List<String> assigneeUserIds = const []});
   Future<List<ProjectTask>> tasks(String projectId);
   Future<ProjectTask> task(String projectId, String taskId);
   Future<List<ProjectTaskActivity>> taskActivities(
@@ -887,7 +888,8 @@ class DemoRepository
       String keyword = '',
       String label = '',
       List<String> statuses = const [],
-      List<int> priorities = const []}) async {
+      List<int> priorities = const [],
+      List<String> assigneeUserIds = const []}) async {
     final values = await tasks(projectId);
     return ProjectTaskPage(tasks: values, nextCursor: null);
   }
@@ -2759,13 +2761,19 @@ class HttpMagicChatRepository
       String keyword = '',
       String label = '',
       List<String> statuses = const [],
-      List<int> priorities = const []}) async {
+      List<int> priorities = const [],
+      List<String> assigneeUserIds = const []}) async {
     final normalizedStatuses = statuses
         .map((status) => status.trim())
         .where((status) => status.isNotEmpty)
         .join(',');
     final normalizedPriorities =
         priorities.map((priority) => '$priority').join(',');
+    final normalizedAssignees = assigneeUserIds
+        .map((userId) => userId.trim())
+        .where((userId) => userId.isNotEmpty)
+        .toSet()
+        .join(',');
     final query = Uri(queryParameters: {
       'limit': '$limit',
       if (cursor != null && cursor.trim().isNotEmpty) 'cursor': cursor.trim(),
@@ -2773,6 +2781,8 @@ class HttpMagicChatRepository
       if (label.trim().isNotEmpty) 'label': label.trim(),
       if (normalizedStatuses.isNotEmpty) 'status': normalizedStatuses,
       if (normalizedPriorities.isNotEmpty) 'priority': normalizedPriorities,
+      if (normalizedAssignees.isNotEmpty)
+        'assignee_user_id': normalizedAssignees,
     }).query;
     final data = _data(await _request('GET',
         '/api/client/projects/${Uri.encodeComponent(projectId)}/tasks?$query'));

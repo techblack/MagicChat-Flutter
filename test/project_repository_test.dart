@@ -444,7 +444,8 @@ void main() {
         limit: 20,
         keyword: ' 发布 ',
         statuses: ['todo', 'in_progress'],
-        priorities: [1, 3]);
+        priorities: [1, 3],
+        assigneeUserIds: ['user-bob', ' user-alice ', 'user-bob']);
 
     expect(request.method, 'GET');
     expect(request.url.path, '/api/client/projects/project-1/tasks');
@@ -454,6 +455,7 @@ void main() {
       'limit': '20',
       'priority': '1,3',
       'status': 'todo,in_progress',
+      'assignee_user_id': 'user-bob,user-alice',
     });
     expect(page.tasks.single.title, '发布检查');
     expect(page.nextCursor, 'next-2');
