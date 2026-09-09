@@ -3227,10 +3227,9 @@ class _ConversationViewState extends State<ConversationView>
       }
       if (file.size >
           messageFileMaxBytes(isWeb: kIsWeb, platform: defaultTargetPlatform)) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(
-                content: Text(
-                    '文件不能超过 ${messageFileSizeLimitLabel(isWeb: kIsWeb, platform: defaultTargetPlatform)}')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                '文件不能超过 ${messageFileSizeLimitLabel(isWeb: kIsWeb, platform: defaultTargetPlatform)}')));
         return;
       }
       final upload = AttachmentUpload(
@@ -3519,10 +3518,9 @@ class _ConversationViewState extends State<ConversationView>
       if (size >
           messageFileMaxBytes(isWeb: kIsWeb, platform: defaultTargetPlatform)) {
         if (mounted) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(
-                  content: Text(
-                      '文件不能超过 ${messageFileSizeLimitLabel(isWeb: kIsWeb, platform: defaultTargetPlatform)}')));
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(
+                  '文件不能超过 ${messageFileSizeLimitLabel(isWeb: kIsWeb, platform: defaultTargetPlatform)}')));
         }
         return;
       }
