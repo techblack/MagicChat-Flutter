@@ -598,6 +598,15 @@ class _ConversationViewState extends State<ConversationView>
     // 先独立加载当前会话和成员，不能等待消息首屏。否则网络较慢时用户
     // 已经可以输入正文，但 `@` 仍因会话类型未知而无法弹出候选。
     final contacts = await _fetchConversationContacts(fetchDirectory: false);
+    // 消息作者资料只用于完善回复/历史消息展示，不应阻塞提及选择器。
+    // 尤其是大群首屏或断线重连时，消息请求可能很久才完成。
+    unawaited(_resolveMessageAuthorContacts(widget.conversationId, contacts));
+    return contacts;
+  }
+
+  Future<void> _resolveMessageAuthorContacts(
+      String? conversationId, List<Contact> contacts) async {
+    if (conversationId == null) return;
     final messageAuthors = <String>{};
     try {
       final messages = await _messagesFuture;
@@ -625,7 +634,7 @@ class _ConversationViewState extends State<ConversationView>
     final unresolved = messageAuthors
         .where((id) => !known.contains(id.toLowerCase()))
         .toList(growable: false);
-    if (unresolved.isEmpty) return contacts;
+    if (unresolved.isEmpty) return;
     try {
       final resolved = await widget.repository.resolveUsers(unresolved);
       final merged = <String, Contact>{
@@ -633,9 +642,14 @@ class _ConversationViewState extends State<ConversationView>
         for (final contact in resolved) contact.id.toLowerCase(): contact,
       }.values.toList(growable: false);
       unawaited(_writeConversationContactCache(merged));
-      return merged;
+      if (!mounted || widget.conversationId != conversationId) return;
+      setState(() {
+        _resolvedMentionContacts = merged;
+        _selectedMentionIndex = 0;
+      });
+      _updateMentionTrigger();
     } catch (_) {
-      return contacts;
+      // 作者资料补全失败时仍保留会话成员列表。
     }
   }
 
@@ -3162,6 +3176,41 @@ class _ConversationViewState extends State<ConversationView>
     }
   }
 
+  Future<void> _showTextSelectionDialog(ChatMessage message) async {
+    List<Contact> contacts;
+    try {
+      contacts = await (_contactsFuture ?? Future.value(const <Contact>[]));
+    } catch (_) {
+      contacts = const [];
+    }
+    if (!mounted) return;
+    final text = formatMentionText(
+        message.text,
+        contacts.map((contact) => (
+              id: contact.id,
+              name: contact.displayName,
+            ))).trim();
+    if (text.isEmpty) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        key: const ValueKey('message-text-selection-dialog'),
+        title: const Text('选择消息文本'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520, maxHeight: 420),
+          child: SingleChildScrollView(
+            child: SelectableText(text),
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('关闭')),
+        ],
+      ),
+    );
+  }
+
   Future<void> _showEmojiPicker() async {
     final expression =
         await showExpressionPicker(context, cacheScope: widget.cacheScope);
@@ -3978,6 +4027,14 @@ class _ConversationViewState extends State<ConversationView>
               title: const Text('复制消息'),
               onTap: () => Navigator.pop(context, 'copy'),
             ),
+          if (_canCopyMessage(message))
+            ListTile(
+              dense: true,
+              visualDensity: VisualDensity.compact,
+              leading: const Icon(Icons.text_fields_outlined),
+              title: const Text('选择文本'),
+              onTap: () => Navigator.pop(context, 'select-text'),
+            ),
           if (!topicArchived && !_isTopicConversation && message.topic == null)
             ListTile(
               dense: true,
@@ -4015,6 +4072,8 @@ class _ConversationViewState extends State<ConversationView>
       if (mounted) setState(() => _selectedMessageIds.add(message.id));
     } else if (action == 'copy') {
       await _copyMessage(message);
+    } else if (action == 'select-text') {
+      await _showTextSelectionDialog(message);
     } else if (action == 'reply' && _topicIsOpen(conversationId)) {
       if (mounted) {
         setState(() => _replyTo = MessageReply(
