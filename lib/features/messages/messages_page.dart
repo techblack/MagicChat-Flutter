@@ -449,15 +449,24 @@ class _ConversationHeaderState extends State<_ConversationHeader> {
             widget.realtimeStore!.conversations.values, widget.conversationId),
       );
     }
-    final conversations = await widget.repository.conversations();
     ChatConversation? selected;
-    for (final conversation in conversations) {
-      if (conversation.id == widget.conversationId) selected = conversation;
+    try {
+      selected =
+          await widget.repository.conversationById(widget.conversationId);
+    } catch (_) {
+      // 兼容不支持 include_conversation_id 的旧服务端。
     }
+    final conversations = selected == null
+        ? await widget.repository.conversations()
+        : <ChatConversation>[selected];
+    selected ??= conversations
+        .where((conversation) => conversation.id == widget.conversationId)
+        .firstOrNull;
     return (
       conversation: selected,
-      otherUnread:
-          otherConversationUnreadCount(conversations, widget.conversationId),
+      otherUnread: otherConversationUnreadCount(
+          widget.realtimeStore?.conversations.values ?? conversations,
+          widget.conversationId),
     );
   }
 

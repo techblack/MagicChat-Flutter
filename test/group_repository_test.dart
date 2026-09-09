@@ -115,6 +115,42 @@ void main() {
     expect(conversation.effectiveMemberCount, 12);
   });
 
+  test('可通过会话 ID 查询不在最近列表中的会话', () async {
+    final requests = <http.BaseRequest>[];
+    final repository = HttpMagicChatRepository(
+      serverUrl: 'https://chat.example.com',
+      sessionToken: 'test-token',
+      client: MockClient((request) async {
+        requests.add(request);
+        return http.Response(
+            jsonEncode({
+              'data': {
+                'conversations': [
+                  {
+                    'id': 'hidden/group-1',
+                    'name': '历史项目群',
+                    'type': 'group',
+                    'members': [
+                      {'id': 'user-1', 'name': 'Alice', 'type': 'user'}
+                    ],
+                  }
+                ]
+              }
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'});
+      }),
+    );
+
+    final conversation = await repository.conversationById('hidden/group-1');
+
+    expect(conversation?.displayTitle, '历史项目群');
+    expect(conversation?.members.single.displayName, 'Alice');
+    expect(requests.single.url.queryParameters['include_conversation_id'],
+        'hidden/group-1');
+    expect(requests.single.headers['authorization'], 'Bearer test-token');
+  });
+
   testWidgets('按群成员角色展示对应群聊操作', (tester) async {
     final repository = _RoleRepository('member');
     await tester

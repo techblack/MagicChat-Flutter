@@ -122,21 +122,24 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
   }
 
   Future<_ConversationDetailsData> _load() async {
-    final results = await Future.wait([
-      widget.repository.conversations(),
-      widget.repository.currentUser(),
-    ]);
-    final conversations = results[0] as List<ChatConversation>;
-    final currentUser = results[1] as CurrentUser;
-    ChatConversation? conversation =
+    final currentUserFuture = widget.repository.currentUser();
+    ChatConversation? conversation;
+    try {
+      conversation =
+          await widget.repository.conversationById(widget.conversationId);
+    } catch (_) {
+      // 兼容不支持 include_conversation_id 的旧服务端，下面回退到列表。
+    }
+    final currentUser = await currentUserFuture;
+    if (conversation == null) {
+      final conversations = await widget.repository.conversations();
+      conversation = conversations
+          .where((item) => item.id == widget.conversationId)
+          .firstOrNull;
+    }
+    conversation ??=
         widget.realtimeStore?.conversations[widget.conversationId] ??
             widget.initialConversation;
-    for (final item in conversations) {
-      if (item.id == widget.conversationId) {
-        conversation = item;
-        break;
-      }
-    }
     if (conversation == null) {
       throw StateError('会话不存在或已不可用');
     }

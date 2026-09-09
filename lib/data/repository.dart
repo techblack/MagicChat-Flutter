@@ -20,6 +20,9 @@ abstract interface class MagicChatRepository {
   Future<CurrentUser> updateProfile({String? nickname, String? avatar});
   Future<CurrentUser> uploadAvatar(AttachmentUpload upload);
   Future<List<ChatConversation>> conversations();
+
+  /// 查询一个可能不在最近会话列表中的会话，用于通知/深链打开。
+  Future<ChatConversation?> conversationById(String conversationId);
   Future<ChatConversation> createGroupConversation(String name,
       {List<String> memberIds = const [], List<String> appIds = const []});
   Future<ChatConversation> createAppConversation(String appId);
@@ -236,6 +239,15 @@ class DemoRepository
             unread: 2,
             type: 'group'),
       ];
+
+  @override
+  Future<ChatConversation?> conversationById(String conversationId) async {
+    final id = conversationId.trim();
+    if (id.isEmpty) return null;
+    return (await conversations())
+        .where((conversation) => conversation.id == id)
+        .firstOrNull;
+  }
 
   @override
   Future<ChatConversation> createGroupConversation(String name,
@@ -1603,6 +1615,22 @@ class HttpMagicChatRepository
         .map(_conversationFromJson)
         .where((item) => item.id.isNotEmpty)
         .toList();
+  }
+
+  @override
+  Future<ChatConversation?> conversationById(String conversationId) async {
+    final id = conversationId.trim();
+    if (id.isEmpty) return null;
+    final query = Uri(queryParameters: {'include_conversation_id': id}).query;
+    final data =
+        _data(await _request('GET', '/api/client/conversations?$query'));
+    final values = data['conversations'];
+    if (values is! List) throw const FormatException('会话列表响应格式不正确');
+    return values
+        .whereType<Map<String, dynamic>>()
+        .map(_conversationFromJson)
+        .where((item) => item.id == id)
+        .firstOrNull;
   }
 
   @override
