@@ -50,6 +50,7 @@ import 'data/chat_preferences.dart';
 import 'data/chat_appearance_preferences.dart';
 import 'data/update_service.dart';
 import 'data/message_upload_limits.dart';
+import 'data/message_image_processor.dart';
 import 'features/contacts/contacts_page.dart';
 import 'features/contacts/contact_directory_model.dart';
 import 'features/contacts/entity_details_page.dart';

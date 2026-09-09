@@ -32,16 +32,16 @@ void main() {
       localPosition: Offset.zero,
       globalPosition: Offset.zero,
     ));
-    await tester.pumpAndSettle();
+    await _pumpUntilVisible(tester, find.text('发送图片'));
 
     expect(find.text('发送图片'), findsOneWidget);
-    expect(find.textContaining('preview.png'), findsOneWidget);
+    expect(find.textContaining('preview.webp'), findsOneWidget);
     expect(find.byType(Image), findsOneWidget);
     await tester.tap(find.widgetWithText(FilledButton, '发送'));
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(repository.sentImage?.name, 'preview.png');
-    expect(repository.sentImage?.mimeType, 'image/png');
+    expect(repository.sentImage?.name, 'preview.webp');
+    expect(repository.sentImage?.mimeType, 'image/webp');
     expect(repository.sentFile, isNull);
   });
 
@@ -76,6 +76,15 @@ void main() {
 
     expect(_dropTarget(tester).enable, isFalse);
   });
+}
+
+Future<void> _pumpUntilVisible(WidgetTester tester, Finder finder) async {
+  for (var attempt = 0; attempt < 100 && finder.evaluate().isEmpty; attempt++) {
+    await tester
+        .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
+    await tester.pump();
+  }
+  expect(finder, findsOneWidget);
 }
 
 DropTarget _dropTarget(WidgetTester tester) => tester.widget<DropTarget>(

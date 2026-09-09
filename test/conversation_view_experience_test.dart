@@ -89,6 +89,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byTooltip('从相册选择图片'));
+    await _pumpUntilVisible(tester, find.text('发送图片'));
     await tester.pumpAndSettle();
     expect(pickedSource, ImageSource.gallery);
     expect(find.text('发送图片'), findsOneWidget);
@@ -99,7 +100,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repository.sentCaption, '现场进度');
-    expect(repository.sentUpload?.name, '现场.png');
+    expect(repository.sentUpload?.name, '现场.webp');
+    expect(repository.sentUpload?.mimeType, 'image/webp');
     expect(find.text('现场进度'), findsOneWidget);
   });
 
@@ -126,6 +128,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byTooltip('从相册选择图片'));
+    await _pumpUntilVisible(tester, find.text('发送 3 张图片'));
     await tester.pumpAndSettle();
     expect(find.text('发送 3 张图片'), findsOneWidget);
     expect(find.bySemanticsLabel('待发送图片 1'), findsOneWidget);
@@ -136,7 +139,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repository.sentUploads.map((item) => item.name),
-        ['图片1.png', '图片2.png', '图片3.png']);
+        ['图片1.webp', '图片2.webp', '图片3.webp']);
     expect(repository.sentCaptions, ['本周进度', '', '']);
   });
 
@@ -167,6 +170,7 @@ void main() {
       ),
     ));
     await tester.pumpAndSettle();
+    await _pumpUntilVisible(tester, find.text('发送图片'));
 
     expect(recoveryCount, 1);
     expect(find.text('发送图片'), findsOneWidget);
@@ -507,12 +511,12 @@ void main() {
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
-    await tester.pumpAndSettle();
+    await _pumpUntilVisible(tester, find.text('发送图片'));
 
     expect(find.text('发送图片'), findsOneWidget);
     await tester.tap(find.widgetWithText(FilledButton, '发送'));
     await tester.pumpAndSettle();
-    expect(repository.sentUpload?.mimeType, 'image/png');
+    expect(repository.sentUpload?.mimeType, 'image/webp');
     expect(repository.sentUpload?.bytes, isNotNull);
   });
 
@@ -600,6 +604,15 @@ void main() {
     expect(find.text('最新消息 130'), findsOneWidget);
     expect(position.pixels, closeTo(position.minScrollExtent, 1));
   });
+}
+
+Future<void> _pumpUntilVisible(WidgetTester tester, Finder finder) async {
+  for (var attempt = 0; attempt < 100 && finder.evaluate().isEmpty; attempt++) {
+    await tester
+        .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
+    await tester.pump();
+  }
+  expect(finder, findsOneWidget);
 }
 
 Future<void> _pumpConversation(
