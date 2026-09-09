@@ -1004,7 +1004,7 @@ class _ConversationListState extends State<_ConversationList> {
                     : widget.draftStore?.draftFor(c.id);
                 final previewContent = c.announcement.isNotEmpty
                     ? '公告：${c.announcement}'
-                    : c.preview;
+                    : conversationPreviewText(c, c.preview);
                 final mentionLabels = conversationPreviewMentionLabels(
                     draft?.preview ?? previewContent,
                     c,

@@ -1379,59 +1379,52 @@ class HttpMagicChatRepository
         });
   }
 
-  ChatConversation _conversationFromJson(
-          Map<String, dynamic> item) =>
-      ChatConversation(
-          id: '${item['id'] ?? ''}',
-          title: '${item['name'] ?? '未命名会话'}',
-          type: '${item['type'] ?? 'direct'}',
-          preview: '${item['last_message_summary'] ?? item['summary'] ?? ''}',
-          announcement: '${item['announcement'] ?? ''}',
-          isPublic: item['visibility'] == 'public' || item['is_public'] == true,
-          avatar: '${item['avatar'] ?? ''}',
-          createdAt: item[
-                  'created_at'] is String
-              ? item['created_at'] as String
-              : '',
-          unread: (item['unread_count'] as num?)?.toInt() ?? 0,
-          pinned: item['pinned'] == true,
-          muted: item['notification_muted'] == true || item['muted'] == true,
-          lastMessageAt:
-              item[
-                      'last_message_at'] is String
-                  ? item['last_message_at'] as String
-                  : '',
-          lastMessageSeq: (item['last_message_seq'] as num?)?.toInt() ?? 0,
-          lastReadSeq: (item['last_read_seq'] as num?)?.toInt() ?? 0,
-          lastMentionedSeq: (item['last_mentioned_seq'] as num?)?.toInt() ?? 0,
-          lastChoiceSeq: (item['last_choice_seq'] as num?)?.toInt() ?? 0,
-          memberCount: (item['member_count'] as num?)?.toInt() ?? 0,
-          canSend: item['can_send'] != false,
-          projects: item[
-                  'projects'] is List
-              ? (item[
-                      'projects'] as List)
-                  .whereType<Map<String, dynamic>>()
-                  .where(
-                      (project) =>
-                          project['id'] is String && project['name'] is String)
-                  .map((project) => Project(
-                      id: project['id'] as String,
-                      name: project['name'] as String,
-                      description:
-                          project['description']
-                                  is String
-                              ? project['description'] as String
-                              : '',
-                      avatar: project['avatar'] is String
-                          ? project['avatar'] as String
-                          : ''))
-                  .toList(growable: false)
-              : const <Project>[],
-          topic: item['topic'] is Map<String, dynamic>
-              ? TopicMetadata.fromJson(item['topic'] as Map<String, dynamic>)
-              : null,
-          members: _membersFromJson(item['members']));
+  ChatConversation _conversationFromJson(Map<String, dynamic> item) => ChatConversation(
+      id: '${item['id'] ?? ''}',
+      title: '${item['name'] ?? '未命名会话'}',
+      type: '${item['type'] ?? 'direct'}',
+      preview: '${item['last_message_summary'] ?? item['summary'] ?? ''}',
+      announcement: '${item['announcement'] ?? ''}',
+      isPublic: item['visibility'] == 'public' || item['is_public'] == true,
+      avatar: '${item['avatar'] ?? ''}',
+      createdAt:
+          item['created_at'] is String ? item['created_at'] as String : '',
+      unread: (item['unread_count'] as num?)?.toInt() ?? 0,
+      pinned: item['pinned'] == true,
+      muted: item['notification_muted'] == true || item['muted'] == true,
+      lastMessageAt: item['last_message_at'] is String
+          ? item['last_message_at'] as String
+          : '',
+      lastMessageSender: item['last_message_sender'] is Map<String, dynamic>
+          ? ConversationMessageSender.fromJson(
+              item['last_message_sender'] as Map<String, dynamic>)
+          : null,
+      lastMessageSeq: (item['last_message_seq'] as num?)?.toInt() ?? 0,
+      lastReadSeq: (item['last_read_seq'] as num?)?.toInt() ?? 0,
+      lastMentionedSeq: (item['last_mentioned_seq'] as num?)?.toInt() ?? 0,
+      lastChoiceSeq: (item['last_choice_seq'] as num?)?.toInt() ?? 0,
+      memberCount: (item['member_count'] as num?)?.toInt() ?? 0,
+      canSend: item['can_send'] != false,
+      projects: item['projects'] is List
+          ? (item['projects'] as List)
+              .whereType<Map<String, dynamic>>()
+              .where((project) =>
+                  project['id'] is String && project['name'] is String)
+              .map((project) => Project(
+                  id: project['id'] as String,
+                  name: project['name'] as String,
+                  description: project['description'] is String
+                      ? project['description'] as String
+                      : '',
+                  avatar: project['avatar'] is String
+                      ? project['avatar'] as String
+                      : ''))
+              .toList(growable: false)
+          : const <Project>[],
+      topic: item['topic'] is Map<String, dynamic>
+          ? TopicMetadata.fromJson(item['topic'] as Map<String, dynamic>)
+          : null,
+      members: _membersFromJson(item['members']));
 
   ChatConversation _conversationFromEnvelope(
       Map<String, dynamic> data, String errorMessage) {

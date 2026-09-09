@@ -39,6 +39,16 @@ bool supportsMobileImagePicker({
     !isWeb &&
     (platform == TargetPlatform.android || platform == TargetPlatform.iOS);
 
+bool _sameContactId(String? left, String? right) {
+  final a = left?.trim();
+  final b = right?.trim();
+  return a != null &&
+      b != null &&
+      a.isNotEmpty &&
+      b.isNotEmpty &&
+      a.toLowerCase() == b.toLowerCase();
+}
+
 String? normalizeSingleLinkMessageUrl(String content) {
   final value = content.trim();
   if (value.isEmpty || RegExp(r'\s').hasMatch(value)) return null;
@@ -2268,10 +2278,13 @@ class _ConversationViewState extends State<ConversationView>
     }
     if (!mounted) return;
     final content = _messageDetailsText(message, contacts);
-    final authorContact =
-        contacts.where((contact) => contact.id == message.authorId).firstOrNull;
+    final authorContact = contacts
+        .where((contact) => _sameContactId(contact.id, message.authorId))
+        .firstOrNull;
     final author = authorContact?.displayName ??
-        (message.author == message.authorId ? '成员' : message.author);
+        (_sameContactId(message.author, message.authorId)
+            ? '成员'
+            : message.author);
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => Dialog.fullscreen(
@@ -2781,13 +2794,14 @@ class _ConversationViewState extends State<ConversationView>
                           builder: (context, snapshot) {
                             final contacts = snapshot.data ?? const <Contact>[];
                             final matched = contacts
-                                .where((contact) =>
-                                    contact.id == _replyTo!.authorId)
+                                .where((contact) => _sameContactId(
+                                    contact.id, _replyTo!.authorId))
                                 .firstOrNull;
                             final rawAuthor = _replyTo!.author.trim();
                             final author = matched?.displayName ??
                                 (rawAuthor.isEmpty ||
-                                        rawAuthor == _replyTo!.authorId ||
+                                        _sameContactId(
+                                            rawAuthor, _replyTo!.authorId) ||
                                         rawAuthor == '用户' ||
                                         rawAuthor == '成员'
                                     ? '成员'
@@ -5012,7 +5026,7 @@ class _MessageBubble extends StatelessWidget {
     final id = referenceId ?? message.authorId;
     if (id == null || contacts == null) return null;
     for (final contact in contacts) {
-      if (contact.id == id) return contact;
+      if (_sameContactId(contact.id, id)) return contact;
     }
     return null;
   }
@@ -5020,7 +5034,7 @@ class _MessageBubble extends StatelessWidget {
   String? _contactName(Contact? contact) {
     if (contact == null) return null;
     final name = contact.displayName.trim();
-    if (name.isEmpty || name == contact.id.trim()) return null;
+    if (name.isEmpty || _sameContactId(name, contact.id)) return null;
     return name;
   }
 
@@ -5033,7 +5047,7 @@ class _MessageBubble extends StatelessWidget {
       final fallback = (target?.author ?? reply.author).trim();
       final author = _contactName(contact) ??
           (fallback.isEmpty ||
-                  fallback == authorId ||
+                  _sameContactId(fallback, authorId) ||
                   fallback == '用户' ||
                   fallback == '成员'
               ? '成员'
@@ -5075,7 +5089,9 @@ class _MessageBubble extends StatelessWidget {
   String get _nonIdAuthor {
     final author = message.author.trim();
     return message.authorId != null &&
-            (author == message.authorId || author == '用户' || author == '成员')
+            (_sameContactId(author, message.authorId) ||
+                author == '用户' ||
+                author == '成员')
         ? ''
         : author;
   }

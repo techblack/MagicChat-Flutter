@@ -29,6 +29,7 @@ class ChatConversation {
       this.pinned = false,
       this.muted = false,
       this.lastMessageAt = '',
+      this.lastMessageSender,
       this.lastMessageSeq = 0,
       this.lastReadSeq = 0,
       this.lastMentionedSeq = 0,
@@ -50,6 +51,9 @@ class ChatConversation {
   final bool pinned;
   final bool muted;
   final String lastMessageAt;
+
+  /// 最后一条消息的发送者资料。群聊预览需要用它替代裸用户 ID。
+  final ConversationMessageSender? lastMessageSender;
   final int lastMessageSeq;
   final int lastReadSeq;
   final int lastMentionedSeq;
@@ -151,6 +155,10 @@ class ChatConversation {
       lastMessageAt: value['last_message_at'] is String
           ? value['last_message_at'] as String
           : '',
+      lastMessageSender: value['last_message_sender'] is Map<String, dynamic>
+          ? ConversationMessageSender.fromJson(
+              value['last_message_sender'] as Map<String, dynamic>)
+          : null,
       lastMessageSeq: (value['last_message_seq'] as num?)?.toInt() ?? 0,
       lastReadSeq: (value['last_read_seq'] as num?)?.toInt() ?? 0,
       lastMentionedSeq: (value['last_mentioned_seq'] as num?)?.toInt() ?? 0,
@@ -163,6 +171,51 @@ class ChatConversation {
           ? TopicMetadata.fromJson(rawTopic)
           : null,
     );
+  }
+}
+
+/// 会话列表中最后一条消息的发送者（服务端 `last_message_sender`）。
+///
+/// 该字段可能只提供 ID；展示层始终回退到可读的角色文案，避免把原始
+/// ID 直接暴露给用户。
+class ConversationMessageSender {
+  const ConversationMessageSender({
+    required this.id,
+    required this.type,
+    this.name = '',
+    this.nickname = '',
+  });
+
+  final String id;
+  final String type;
+  final String name;
+  final String nickname;
+
+  factory ConversationMessageSender.fromJson(Map<String, dynamic> value) {
+    final id = value['id'];
+    if (id is! String || id.trim().isEmpty)
+      return const ConversationMessageSender(id: '', type: 'system');
+    final type = value['type'];
+    return ConversationMessageSender(
+      id: id,
+      type: type is String ? type : 'user',
+      name: value['name'] is String ? value['name'] as String : '',
+      nickname: value['nickname'] is String ? value['nickname'] as String : '',
+    );
+  }
+
+  String get displayName {
+    final nick = nickname.trim();
+    if (nick.isNotEmpty && nick.toLowerCase() != id.trim().toLowerCase())
+      return nick;
+    final value = name.trim();
+    if (value.isNotEmpty && value.toLowerCase() != id.trim().toLowerCase())
+      return value;
+    return switch (type) {
+      'app' => '应用',
+      'system' => '系统',
+      _ => '成员',
+    };
   }
 }
 
