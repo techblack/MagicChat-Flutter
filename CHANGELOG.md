@@ -1,5 +1,9 @@
 # 更新日志
 
+## 0.3.45
+
+- Linux Release 的 Ubuntu 20.04 glibc 基线构建改用按架构可用的镜像源，完成旧版 Ubuntu 兼容发布链路。
+
 ## 0.3.44
 
 - Linux Release 改用 Ubuntu 20.04（glibc 2.31）基线构建，避免在旧版 Ubuntu 上因 glibc 版本过高无法启动。
