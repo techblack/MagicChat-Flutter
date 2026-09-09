@@ -530,6 +530,46 @@ void main() {
     expect(position.pixels, closeTo(position.minScrollExtent, 1));
     expect(find.text('最新消息 60'), findsOneWidget);
   });
+
+  testWidgets('从历史定位返回最新消息时不复用旧窗口位置', (tester) async {
+    final repository = _HistoryToLatestRepository();
+    await tester.binding.setSurfaceSize(const Size(600, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ConversationView(
+          repository: repository,
+          conversationId: 'conversation-1',
+          focusMessageId: 'history-20',
+          focusMessageSequence: 20,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('历史消息 20'), findsOneWidget);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ConversationView(
+          repository: repository,
+          conversationId: 'conversation-1',
+        ),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump();
+    repository.completeLatest();
+    await tester.pumpAndSettle();
+
+    final list = find.byKey(const ValueKey('conversation-message-list'));
+    final position = tester
+        .state<ScrollableState>(
+            find.descendant(of: list, matching: find.byType(Scrollable)))
+        .position;
+    expect(find.text('最新消息 130'), findsOneWidget);
+    expect(position.pixels, closeTo(position.minScrollExtent, 1));
+  });
 }
 
 Future<void> _pumpConversation(
@@ -828,6 +868,33 @@ class _CachedRefreshRepository extends _ExperienceRepository {
       {int? beforeSeq, int limit = 50}) {
     if (beforeSeq != null) return Future.value(const []);
     return refresh.future;
+  }
+}
+
+class _HistoryToLatestRepository extends _ExperienceRepository {
+  final _latest = Completer<List<ChatMessage>>();
+
+  @override
+  Future<List<ChatMessage>> messages(String conversationId,
+      {int? beforeSeq, int limit = 50}) {
+    if (beforeSeq == null) return _latest.future;
+    return Future.value(_messages(conversationId, latest: false));
+  }
+
+  void completeLatest() =>
+      _latest.complete(_messages('conversation-1', latest: true));
+
+  List<ChatMessage> _messages(String conversationId, {required bool latest}) {
+    final start = latest ? 101 : 1;
+    final end = latest ? 130 : 40;
+    return List.generate(
+        end - start + 1,
+        (index) => ChatMessage(
+            id: '${latest ? 'latest' : 'history'}-${start + index}',
+            conversationId: conversationId,
+            sequence: start + index,
+            author: '成员',
+            text: '${latest ? '最新' : '历史'}消息 ${start + index}'));
   }
 }
 

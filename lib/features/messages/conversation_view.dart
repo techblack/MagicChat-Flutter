@@ -1687,10 +1687,25 @@ class _ConversationViewState extends State<ConversationView>
     }
     if (!messages.any((message) => message.id == targetId)) return;
     _focusedMessageId = targetId;
+    _tryFocusMessage(conversationId, targetId, attempt: 0);
+  }
+
+  void _tryFocusMessage(String conversationId, String targetId,
+      {required int attempt}) {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted || widget.conversationId != conversationId) return;
+      if (!mounted ||
+          widget.conversationId != conversationId ||
+          widget.focusMessageId != targetId) return;
       final targetContext = _messageKeys[targetId]?.currentContext;
-      if (targetContext == null) return;
+      if (targetContext == null) {
+        // 反向列表只构建视口附近的行；即使历史模式扩大了 cacheExtent，
+        // 首帧仍可能尚未完成目标行布局。多等几帧再取 context，避免
+        // ensureVisible 失败后永远停留在错误位置。
+        if (attempt < 12 && widget.focusMessageId == targetId) {
+          _tryFocusMessage(conversationId, targetId, attempt: attempt + 1);
+        }
+        return;
+      }
       setState(() => _highlightedMessageId = targetId);
       await Scrollable.ensureVisible(targetContext,
           duration: const Duration(milliseconds: 260),
@@ -2412,6 +2427,10 @@ class _ConversationViewState extends State<ConversationView>
             child: Stack(
               children: [
                 FutureBuilder<List<ChatMessage>>(
+                  // 从搜索/历史窗口返回最新消息时，不能让 FutureBuilder
+                  // 暂时沿用旧窗口快照触发错误的首屏定位。
+                  key: ValueKey(
+                      'conversation-messages-$conversationId-${_historyMode ? 'history' : 'latest'}'),
                   future: _messagesFuture,
                   builder: (context, snapshot) {
                     if (snapshot.hasError) {
@@ -4502,6 +4521,16 @@ class _MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    try {
+      return _buildMessage(context);
+    } catch (_) {
+      // 单条结构化消息损坏时保留整条会话可用；实时更新或重新加载后
+      // 该消息会重新尝试渲染，不把内部异常和原始 ID暴露给用户。
+      return _MessageRenderFallback(message: message);
+    }
+  }
+
+  Widget _buildMessage(BuildContext context) {
     final messageTime = formatMessageTime(message.createdAt);
     if (message.contentType == 'system_event') {
       return Padding(
@@ -5089,6 +5118,31 @@ class _MessageBubble extends StatelessWidget {
       }
     }
   }
+}
+
+class _MessageRenderFallback extends StatelessWidget {
+  const _MessageRenderFallback({required this.message});
+
+  final ChatMessage message;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        key: ValueKey('message-render-fallback-${message.id}'),
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.warning_amber_outlined,
+              size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant),
+          const SizedBox(width: 8),
+          Text('消息暂时无法显示',
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant)),
+        ]),
+      );
 }
 
 class _CachedConversationImage extends StatefulWidget {
