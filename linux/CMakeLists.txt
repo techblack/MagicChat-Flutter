@@ -101,6 +101,26 @@ install(CODE "
 set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}/lib")
 
+# desktop_tray loads Ayatana's IDO widgets at runtime.  The shared object is
+# not declared as a link-time dependency by the plugin, so Flutter's generated
+# bundle would otherwise omit it and fail on hosts without the distro package.
+# Resolve the symlink to copy the actual SONAME target into the relocatable
+# bundle.  The glob covers both Debian multi-arch and non-multi-arch layouts.
+file(GLOB AYATANA_IDO_RUNTIME_CANDIDATES
+  "/lib*/libayatana-ido3-0.4.so.0"
+  "/usr/lib*/libayatana-ido3-0.4.so.0"
+  "/lib/*/libayatana-ido3-0.4.so.0"
+  "/usr/lib/*/libayatana-ido3-0.4.so.0")
+if(AYATANA_IDO_RUNTIME_CANDIDATES)
+  list(GET AYATANA_IDO_RUNTIME_CANDIDATES 0 AYATANA_IDO_RUNTIME)
+  get_filename_component(AYATANA_IDO_RUNTIME_REALPATH
+    "${AYATANA_IDO_RUNTIME}" REALPATH)
+  install(FILES "${AYATANA_IDO_RUNTIME_REALPATH}"
+    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+    RENAME "libayatana-ido3-0.4.so.0"
+    COMPONENT Runtime)
+endif()
+
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 
