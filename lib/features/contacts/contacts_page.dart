@@ -680,6 +680,7 @@ class _ContactsPageState extends State<ContactsPage> {
           .createGroupConversation(name.trim(), memberIds: memberIds);
       if (!mounted) return;
       setState(_selectedContactIds.clear);
+      widget.realtimeStore?.replaceConversation(conversation);
       widget.onOpenConversation?.call(conversation.id, null);
     } catch (error) {
       if (mounted) {

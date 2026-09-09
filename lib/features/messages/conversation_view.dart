@@ -500,10 +500,10 @@ class _ConversationViewState extends State<ConversationView>
 
   void _updateMentionTrigger() {
     final value = _controller.value;
-    final next = _conversationKind == 'group'
-        ? composerMentionTrigger(
-            value.text, value.selection.start, value.selection.end)
-        : null;
+    // 资料请求完成前也保留触发范围。否则用户刚进入群聊就输入 `@`
+    // 时，触发状态会先被清掉，等会话资料回来后也无法恢复候选列表。
+    final next = composerMentionTrigger(
+        value.text, value.selection.start, value.selection.end);
     if (_mentionTrigger?.start == next?.start &&
         _mentionTrigger?.end == next?.end &&
         _mentionTrigger?.query == next?.query) {
@@ -653,12 +653,29 @@ class _ConversationViewState extends State<ConversationView>
     final memberUserIds = <String>{};
     memberUserIds.addAll(extraUserIds.where((id) => id.trim().isNotEmpty));
     if (id != null) {
+      List<ChatConversation>? listedConversations;
       ChatConversation? selected =
           _conversation ?? widget.realtimeStore?.conversations[id];
       if (selected == null) {
         // 没有本地/实时快照时才回退到远程会话列表。
-        final conversations = await widget.repository.conversations();
-        selected = conversations.where((item) => item.id == id).firstOrNull;
+        listedConversations = await widget.repository.conversations();
+        selected =
+            listedConversations.where((item) => item.id == id).firstOrNull;
+      }
+      if (selected != null &&
+          selected.type == 'group' &&
+          selected.members.isEmpty) {
+        // 创建/加入群聊后，部分响应只返回会话摘要。此时不能把摘要当作
+        // 完整成员快照，否则输入 `@` 只能看到“所有人”而没有成员列表。
+        // 仅对缺少成员的当前群聊补一次会话列表，正常首屏不会增加请求。
+        try {
+          final conversations =
+              listedConversations ?? await widget.repository.conversations();
+          selected = conversations.where((item) => item.id == id).firstOrNull ??
+              selected;
+        } catch (_) {
+          // 保留摘要快照，仍允许发送 `@所有人`。
+        }
       }
       if (selected != null) {
         for (final member in selected.members) {
@@ -2962,7 +2979,8 @@ class _ConversationViewState extends State<ConversationView>
                         tooltip: '提及成员',
                         onPressed: !canSend ||
                                 _sendingFile ||
-                                _conversationKind != 'group'
+                                (_conversationKind != null &&
+                                    _conversationKind != 'group')
                             ? null
                             : _pickMention,
                       ),
@@ -3188,9 +3206,14 @@ class _ConversationViewState extends State<ConversationView>
   }
 
   Future<void> _pickMention() async {
-    if (_conversationKind != 'group') return;
+    // 会话资料可能仍在加载，不能因为暂时未知类型而把工具栏按钮置为
+    // 无效。点击后等待同一份会话加载任务，再决定是否显示成员选择器。
+    await _ensureConversationForMention();
+    if (!mounted || _conversationKind != 'group') return;
     var query = '';
-    final selected = await showModalBottomSheet<Contact>(
+    var multiSelect = false;
+    final selectedKeys = <String>{};
+    final selected = await showModalBottomSheet<List<Contact>>(
         context: context,
         isScrollControlled: true,
         showDragHandle: true,
@@ -3202,8 +3225,32 @@ class _ConversationViewState extends State<ConversationView>
                   child: Column(children: [
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                      child: Row(children: [
+                        const Expanded(
+                          child: Text('选择提醒的人',
+                              style: TextStyle(
+                                  fontSize: 18, fontWeight: FontWeight.w600)),
+                        ),
+                        TextButton(
+                          onPressed: () =>
+                              setSheetState(() => multiSelect = !multiSelect),
+                          child: Text(multiSelect ? '取消多选' : '多选'),
+                        ),
+                        if (multiSelect)
+                          FilledButton(
+                            onPressed: selectedKeys.isEmpty
+                                ? null
+                                : () => Navigator.pop(
+                                    sheetContext,
+                                    _mentionContactsForKeys(
+                                        selectedKeys, _currentMentionMembers)),
+                            child: Text('完成(${selectedKeys.length})'),
+                          ),
+                      ]),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                       child: TextField(
-                        autofocus: true,
                         decoration: const InputDecoration(
                           prefixIcon: Icon(Icons.search),
                           hintText: '搜索群成员',
@@ -3231,8 +3278,23 @@ class _ConversationViewState extends State<ConversationView>
                             itemCount: candidates.length,
                             itemBuilder: (context, index) {
                               final candidate = candidates[index];
+                              final candidateKey =
+                                  '${candidate.targetType}:${candidate.id.toLowerCase()}';
+                              final selectedCandidate =
+                                  selectedKeys.contains(candidateKey);
                               return ListTile(
                                 key: ValueKey('mention-picker-${candidate.id}'),
+                                selected: selectedCandidate,
+                                trailing: multiSelect
+                                    ? Checkbox(
+                                        value: selectedCandidate,
+                                        onChanged: (_) => setSheetState(() {
+                                          if (!selectedKeys.add(candidateKey)) {
+                                            selectedKeys.remove(candidateKey);
+                                          }
+                                        }),
+                                      )
+                                    : null,
                                 leading: CircleAvatar(
                                   child: candidate.targetType == 'all'
                                       ? const Icon(Icons.campaign_outlined,
@@ -3241,17 +3303,26 @@ class _ConversationViewState extends State<ConversationView>
                                 ),
                                 title: Text(candidate.label),
                                 subtitle: Text(candidate.description),
-                                onTap: () => Navigator.pop(
-                                  sheetContext,
-                                  candidate.targetType == 'all'
+                                onTap: () {
+                                  final contact = candidate.targetType == 'all'
                                       ? const Contact(id: 'all', name: '所有人')
                                       : source
                                           .where((member) =>
                                               member.id == candidate.id &&
                                               member.type ==
                                                   candidate.targetType)
-                                          .firstOrNull,
-                                ),
+                                          .firstOrNull;
+                                  if (contact == null) return;
+                                  if (!multiSelect) {
+                                    Navigator.pop(sheetContext, [contact]);
+                                    return;
+                                  }
+                                  setSheetState(() {
+                                    if (!selectedKeys.add(candidateKey)) {
+                                      selectedKeys.remove(candidateKey);
+                                    }
+                                  });
+                                },
                               );
                             },
                           );
@@ -3262,18 +3333,58 @@ class _ConversationViewState extends State<ConversationView>
                 ),
               ),
             ));
-    if (selected == null || !mounted) return;
-    final token = selected.id == 'all'
-        ? '{(@user/all)}'
-        : '{(@${selected.type}/${selected.id})}';
+    if (selected == null || selected.isEmpty || !mounted) return;
     final value = _controller.value;
     final text = value.text;
     final start = value.selection.isValid ? value.selection.start : text.length;
     final end = value.selection.isValid ? value.selection.end : start;
-    final next = text.replaceRange(start, end, '$token ');
+    final candidates = selected.map((contact) => ComposerMentionCandidate(
+          id: contact.id,
+          label: contact.displayName,
+          targetType: contact.id == 'all' ? 'all' : contact.type,
+          description: contact.type == 'app' ? '应用' : '成员',
+          searchText: contact.displayName.toLowerCase(),
+        ));
+    final inserted = insertComposerMentions(text,
+        ComposerMentionTrigger(start: start, end: end, query: ''), candidates);
     _controller.value = TextEditingValue(
-        text: next,
-        selection: TextSelection.collapsed(offset: start + token.length + 1));
+        text: inserted.text,
+        selection: TextSelection.collapsed(offset: inserted.cursor));
+  }
+
+  Future<void> _ensureConversationForMention() async {
+    final id = widget.conversationId;
+    if (id == null || _conversationKind != null) return;
+    try {
+      final future = _contactsFuture ??= _startConversationContactLoad();
+      await future;
+    } catch (_) {
+      // 成员资料失败时仍由调用方根据当前快照判断；不阻断正文输入。
+    }
+    if (!mounted || _conversationKind != null) return;
+    // 首次会话列表请求可能恰好在断线窗口失败。用户明确点击提及时
+    // 再补发一次请求，避免按钮看似无效而只能重进聊天页面。
+    try {
+      final retry = _loadConversationContacts();
+      _contactsFuture = retry;
+      await retry;
+    } catch (_) {
+      // 保持原有输入能力，下一次点击仍可再次尝试。
+    }
+  }
+
+  List<Contact> _mentionContactsForKeys(
+      Set<String> keys, Iterable<Contact> members) {
+    final values = <Contact>[];
+    for (final member in members) {
+      if (keys.contains('${member.type}:${member.id.toLowerCase()}')) {
+        values.add(member);
+      }
+    }
+    if (keys.contains('all:all')) {
+      values.insert(0, const Contact(id: 'all', name: '所有人'));
+    }
+    return values;
   }
 
   Future<void> _pickAndSendFile(String conversationId) async {
