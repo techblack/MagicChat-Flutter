@@ -152,11 +152,7 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
               member.type == 'user' && !_sameId(member.id, currentUser.id))
           .firstOrNull;
       if (peer != null) {
-        try {
-          blockStatus = await widget.repository.userBlockStatus(peer.id);
-        } catch (_) {
-          // 旧服务端没有安全接口时不阻断聊天详情，其余设置仍可使用。
-        }
+        blockStatus = await _loadBlockStatus(peer.id);
       }
     }
     final contactsById = <String, Contact>{};
@@ -218,6 +214,24 @@ class _ConversationDetailsPageState extends State<ConversationDetailsPage> {
         unavailableMemberIds: _unavailableMemberIds(contacts),
         availableProjects: availableProjects,
         topicDetail: topicDetail);
+  }
+
+  Future<UserBlockStatus?> _loadBlockStatus(String userId) async {
+    try {
+      return await widget.repository.userBlockStatus(userId);
+    } on MagicChatRequestException catch (error) {
+      // 404 表示服务端尚未提供黑名单接口，不需要重复请求；其他
+      // 短暂网络/服务端错误按官方客户端重试一次。
+      if (error.statusCode == 404) return null;
+    } catch (_) {
+      // 解析或网络错误同样允许一次轻量重试。
+    }
+    try {
+      return await widget.repository.userBlockStatus(userId);
+    } catch (_) {
+      // 旧服务端没有安全接口时不阻断聊天详情，其余设置仍可使用。
+      return null;
+    }
   }
 
   Future<void> _rememberResolvedContacts(List<Contact> contacts) async {
