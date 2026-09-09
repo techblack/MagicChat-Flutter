@@ -43,6 +43,27 @@ void main() {
     expect(normalizeSingleLinkMessageUrl('javascript:alert(1)'), isNull);
   });
 
+  test('相邻消息间隔超过一小时显示时间分隔标记', () {
+    const first = ChatMessage(
+        id: 'time-first',
+        createdAt: '2026-09-09T10:00:00Z',
+        author: '成员',
+        text: '第一条');
+    const exactlyOneHour = ChatMessage(
+        id: 'time-hour',
+        createdAt: '2026-09-09T11:00:00Z',
+        author: '成员',
+        text: '整一小时');
+    const afterOneHour = ChatMessage(
+        id: 'time-after',
+        createdAt: '2026-09-09T11:00:01Z',
+        author: '成员',
+        text: '超过一小时');
+
+    expect(shouldShowMessageTimeMarker(first, exactlyOneHour), isFalse);
+    expect(shouldShowMessageTimeMarker(first, afterOneHour), isTrue);
+  });
+
   testWidgets('相册图片发送前预览并携带说明', (tester) async {
     final repository = _PickedImageRepository();
     ImageSource? pickedSource;
