@@ -657,10 +657,18 @@ class _ConversationViewState extends State<ConversationView>
       ChatConversation? selected =
           _conversation ?? widget.realtimeStore?.conversations[id];
       if (selected == null) {
-        // 没有本地/实时快照时才回退到远程会话列表。
-        listedConversations = await widget.repository.conversations();
-        selected =
-            listedConversations.where((item) => item.id == id).firstOrNull;
+        // 深链或通知可能指向不在最近 30 条列表中的会话；优先使用服务端
+        // 的 include_conversation_id 查询，避免标题、类型和群成员全部丢失。
+        try {
+          selected = await widget.repository.conversationById(id);
+        } catch (_) {
+          // 兼容旧服务端，下面回退到普通列表查询。
+        }
+        if (selected == null) {
+          listedConversations = await widget.repository.conversations();
+          selected =
+              listedConversations.where((item) => item.id == id).firstOrNull;
+        }
       }
       if (selected != null &&
           selected.type == 'group' &&

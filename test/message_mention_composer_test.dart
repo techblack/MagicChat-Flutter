@@ -289,6 +289,30 @@ void main() {
         findsOneWidget);
     await _unmount(tester, drafts);
   });
+
+  testWidgets('不在最近列表中的群聊仍可通过会话 ID 打开并提及成员', (tester) async {
+    final repository = _UnlistedMentionRepository();
+    final drafts = ConversationDraftStore();
+    await drafts.load(const MessageCacheScope(
+        serverUrl: 'https://chat.example.com', userId: 'user-me'));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ConversationView(
+          repository: repository,
+          conversationId: 'hidden-group',
+          draftStore: drafts,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '@');
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('composer-mention-user-bob')),
+        findsOneWidget);
+    expect(repository.conversationLookupCount, greaterThan(0));
+    await _unmount(tester, drafts);
+  });
 }
 
 Future<void> _pumpConversation(WidgetTester tester,
@@ -364,4 +388,22 @@ class _SlowConversationMentionRepository extends _MentionRepository {
 
   @override
   Future<List<ChatConversation>> conversations() => pendingConversations.future;
+}
+
+class _UnlistedMentionRepository extends _MentionRepository {
+  var conversationLookupCount = 0;
+
+  @override
+  Future<List<ChatConversation>> conversations() async => const [];
+
+  @override
+  Future<ChatConversation?> conversationById(String conversationId) async {
+    conversationLookupCount++;
+    return const ChatConversation(
+      id: 'hidden-group',
+      title: '历史项目群',
+      type: 'group',
+      members: [Contact(id: 'user-bob', name: 'Bob')],
+    );
+  }
 }
