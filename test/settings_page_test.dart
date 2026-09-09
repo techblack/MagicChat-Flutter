@@ -110,6 +110,30 @@ void main() {
     expect(service.checks, 1);
   });
 
+  testWidgets('帮助与反馈使用系统浏览器打开帮助中心并提示失败', (tester) async {
+    final openedUris = <Uri>[];
+    await tester.binding.setSurfaceSize(const Size(600, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SettingsPage(
+                repository: DemoRepository(),
+                serverUrl: 'https://chat.example.com',
+                externalLinkLauncher: (uri) async {
+                  openedUris.add(uri);
+                  return false;
+                }))));
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(find.text('帮助与反馈'), 250,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.text('帮助与反馈'));
+    await tester.pumpAndSettle();
+
+    expect(openedUris, [Uri.parse('https://jiying.docs.baizhi.cloud/')]);
+    expect(find.text('暂时无法打开帮助中心，请稍后重试'), findsOneWidget);
+  });
+
   testWidgets('检查更新失败后在设置行原位重试', (tester) async {
     final service = _FakeUpdateService([
       () async => throw const FormatException('版本服务暂时不可用'),

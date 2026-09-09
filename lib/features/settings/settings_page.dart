@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../data/app_links.dart';
 import '../../data/auth_service.dart';
 import '../../data/app_version_info.dart';
 import '../../data/chat_preferences.dart';
@@ -26,9 +27,10 @@ import '../../data/message_cache_store.dart';
 import '../../data/push_preferences.dart';
 import '../../data/push_token_provider.dart';
 import '../../domain/models.dart';
-import '../shared/user_facing_error.dart';
 import '../qr_scanner_page.dart';
 import '../shared/cached_avatar.dart';
+import '../shared/external_link_launcher.dart';
+import '../shared/user_facing_error.dart';
 import 'about_magicchat_page.dart';
 import 'account_deactivation_page.dart';
 import 'app_update_dialog.dart';
@@ -85,6 +87,7 @@ class SettingsPage extends StatefulWidget {
       this.sendMessageShortcut = MessageSendShortcut.enter,
       this.desktopAutoLaunch,
       this.updateService,
+      this.externalLinkLauncher,
       super.key});
   final Future<void> Function()? onLogout;
   final Future<void> Function(String code)? onDeactivateAccount;
@@ -124,6 +127,7 @@ class SettingsPage extends StatefulWidget {
   final MessageSendShortcut sendMessageShortcut;
   final DesktopAutoLaunchController? desktopAutoLaunch;
   final UpdateService? updateService;
+  final ExternalUriLauncher? externalLinkLauncher;
   @override
   State<SettingsPage> createState() => _SettingsPageState();
 }
@@ -516,6 +520,18 @@ class _SettingsPageState extends State<SettingsPage> {
         MessageNotificationPrivacy.metadata => '仅显示来源',
         MessageNotificationPrivacy.preview => '显示预览',
       };
+
+  Future<void> _openHelpCenter() async {
+    final opened = await launchExternalWebLink(
+      context,
+      Uri.parse(magicChatHelpCenterUrl),
+      launcher: widget.externalLinkLauncher,
+    );
+    if (opened == false && mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('暂时无法打开帮助中心，请稍后重试')));
+    }
+  }
 
   Future<void> _checkForUpdate() async {
     if (_checkingForUpdate) return;
@@ -1113,6 +1129,12 @@ class _SettingsPageState extends State<SettingsPage> {
               subtitle: const Text('检查网络、实时连接、缓存与通知状态'),
               trailing: const Icon(Icons.chevron_right),
               onTap: _openRuntimeDiagnostics),
+          ListTile(
+              leading: const Icon(Icons.help_outline),
+              title: const Text('帮助与反馈'),
+              subtitle: const Text('查看使用帮助与问题反馈方式'),
+              trailing: const Icon(Icons.open_in_new),
+              onTap: _openHelpCenter),
           ListTile(
               leading: const Icon(Icons.system_update_outlined),
               title: const Text('检查更新'),
