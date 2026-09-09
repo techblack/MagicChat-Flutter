@@ -40,8 +40,9 @@ flutter build web --release
 ```
 
 Linux 构建和系统托盘运行还需要 Clang、CMake、Ninja、GTK3、libsecret、Ayatana
-AppIndicator/IDO 和 GStreamer 开发包。发布的 Linux 压缩包依赖目标系统提供
-`libayatana-ido3-0.4.so.0`，否则启动时会报找不到该动态库：
+AppIndicator/IDO 和 GStreamer 开发包。`v0.3.41` 起发布的 Linux 压缩包会将
+`libayatana-ido3-0.4.so.0` 放入自身 `lib/` 目录；旧版本若启动时报找不到该动态库，
+请先安装以下运行包或直接升级到最新版：
 
 ```bash
 sudo apt-get install clang cmake ninja-build pkg-config \
