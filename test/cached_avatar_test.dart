@@ -57,7 +57,9 @@ void main() {
     ));
     await tester.pump();
     await tester.pump();
-    for (var attempt = 0; attempt < 20 && repository.downloads == 0; attempt++) {
+    for (var attempt = 0;
+        attempt < 20 && repository.downloads == 0;
+        attempt++) {
       await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 5)));
       await tester.pump();
@@ -68,8 +70,8 @@ void main() {
     expect(find.byType(Image), findsNothing);
 
     repository.release.complete(_avatarBytes());
-    await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 20)));
+    await tester
+        .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
     await tester.pump();
     expect(repository.downloads, 1);
   });
