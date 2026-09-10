@@ -2029,7 +2029,8 @@ class _ConversationViewState extends State<ConversationView>
         final direction =
             event.logicalKey == LogicalKeyboardKey.arrowDown ? 1 : -1;
         setState(() => _selectedMentionIndex =
-            (_selectedMentionIndex + direction) % candidates.length);
+            (_selectedMentionIndex + direction + candidates.length) %
+                candidates.length);
         return KeyEventResult.handled;
       }
       if (event.logicalKey == LogicalKeyboardKey.escape) {

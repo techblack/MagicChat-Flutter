@@ -113,6 +113,25 @@ void main() {
     await _unmount(tester, drafts);
   });
 
+  testWidgets('提及候选按上键可从首项循环到末项', (tester) async {
+    final repository = _MentionRepository();
+    final drafts = ConversationDraftStore();
+    await drafts.load(const MessageCacheScope(
+        serverUrl: 'https://chat.example.com', userId: 'user-me'));
+    await _pumpConversation(tester, repository, drafts);
+
+    final field = find.byType(TextField);
+    await tester.tap(field);
+    await tester.enterText(field, '@');
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+
+    expect(tester.widget<TextField>(field).controller!.text,
+        '{(@app/app-helper)} ');
+    await _unmount(tester, drafts);
+  });
+
   testWidgets('点击提及按钮立即展示当前群成员且不加载全组织', (tester) async {
     final repository = _MentionRepository();
     final drafts = ConversationDraftStore();
