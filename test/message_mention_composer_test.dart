@@ -359,6 +359,30 @@ void main() {
     expect(repository.conversationLookupCount, greaterThan(0));
     await _unmount(tester, drafts);
   });
+
+  testWidgets('话题会话提及时使用父群聊成员列表', (tester) async {
+    final repository = _TopicMentionRepository();
+    final drafts = ConversationDraftStore();
+    await drafts.load(const MessageCacheScope(
+        serverUrl: 'https://chat.example.com', userId: 'user-me'));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ConversationView(
+          repository: repository,
+          conversationId: 'topic-1',
+          draftStore: drafts,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '@bo');
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('composer-mention-user-bob')),
+        findsOneWidget);
+    await _unmount(tester, drafts);
+  });
 }
 
 Future<void> _pumpConversation(WidgetTester tester,
@@ -451,5 +475,43 @@ class _UnlistedMentionRepository extends _MentionRepository {
       type: 'group',
       members: [Contact(id: 'user-bob', name: 'Bob')],
     );
+  }
+}
+
+class _TopicMentionRepository extends _MentionRepository {
+  static const _topic = ChatConversation(
+    id: 'topic-1',
+    title: '发布讨论',
+    type: 'topic',
+    topic: TopicMetadata(
+      archived: false,
+      parentConversationId: 'group-1',
+      parentConversationName: '项目群',
+      parentConversationType: 'group',
+      participating: true,
+      sourceMessageId: 'message-1',
+      sourceMessageSeq: 1,
+      sourceSender: TopicSourceSender(id: 'user-alice', type: 'user'),
+    ),
+  );
+
+  @override
+  Future<List<ChatConversation>> conversations() async => const [_topic];
+
+  @override
+  Future<ChatConversation?> conversationById(String conversationId) async {
+    if (conversationId == 'topic-1') return _topic;
+    if (conversationId == 'group-1') {
+      return const ChatConversation(
+        id: 'group-1',
+        title: '项目群',
+        type: 'group',
+        members: [
+          Contact(id: 'user-alice', name: 'Alice'),
+          Contact(id: 'user-bob', name: 'Bob'),
+        ],
+      );
+    }
+    return null;
   }
 }
