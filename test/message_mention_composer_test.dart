@@ -188,6 +188,33 @@ void main() {
     await _unmount(tester, drafts);
   });
 
+  testWidgets('消息首屏尚未返回时点击提及仍立即打开成员列表', (tester) async {
+    final repository = _SlowMessageMentionRepository();
+    final drafts = ConversationDraftStore();
+    await drafts.load(const MessageCacheScope(
+        serverUrl: 'https://chat.example.com', userId: 'user-me'));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ConversationView(
+          repository: repository,
+          conversationId: 'group-1',
+          draftStore: drafts,
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('提及成员'));
+    for (var attempt = 0; attempt < 10; attempt++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    expect(find.text('搜索群成员'), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('mention-picker-user-bob')), findsOneWidget);
+    await _unmount(tester, drafts);
+  });
+
   testWidgets('会话资料尚未返回时点击提及仍会等待并打开成员列表', (tester) async {
     final repository = _SlowConversationMentionRepository();
     final drafts = ConversationDraftStore();
