@@ -155,6 +155,27 @@ void main() {
     await _unmount(tester, drafts);
   });
 
+  testWidgets('已有 @ 查询时通过提及按钮选择会替换查询文本', (tester) async {
+    final repository = _MentionRepository();
+    final drafts = ConversationDraftStore();
+    await drafts.load(const MessageCacheScope(
+        serverUrl: 'https://chat.example.com', userId: 'user-me'));
+    await _pumpConversation(tester, repository, drafts);
+
+    final field = find.byType(TextField);
+    await tester.tap(field);
+    await tester.enterText(field, '请 @bo');
+    await tester.pump();
+    await tester.tap(find.byTooltip('提及成员'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('mention-picker-user-bob')));
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<TextField>(field).controller!.text,
+        '请 {(@user/user-bob)} ');
+    await _unmount(tester, drafts);
+  });
+
   testWidgets('提及成员支持多选并一次插入多个提醒标记', (tester) async {
     final repository = _MentionRepository();
     final drafts = ConversationDraftStore();

@@ -3449,8 +3449,17 @@ class _ConversationViewState extends State<ConversationView>
     if (selected == null || selected.isEmpty || !mounted) return;
     final value = _controller.value;
     final text = value.text;
-    final start = value.selection.isValid ? value.selection.start : text.length;
-    final end = value.selection.isValid ? value.selection.end : start;
+    final activeTrigger = _mentionTrigger;
+    final start = activeTrigger != null
+        ? activeTrigger.start
+        : value.selection.isValid
+            ? value.selection.start
+            : text.length;
+    final end = activeTrigger != null
+        ? activeTrigger.end
+        : value.selection.isValid
+            ? value.selection.end
+            : start;
     final candidates = selected.map((contact) => ComposerMentionCandidate(
           id: contact.id,
           label: contact.displayName,
