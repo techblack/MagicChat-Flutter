@@ -285,6 +285,7 @@ class _ConversationViewState extends State<ConversationView>
   bool _timelineDirty = true;
   MessageReply? _replyTo;
   ChatConversation? _conversation;
+  ChatConversation? _topicParentConversation;
   TopicDetail? _topicDetail;
   bool _canSend = true;
   final _messageKeys = <String, GlobalKey>{};
@@ -556,7 +557,9 @@ class _ConversationViewState extends State<ConversationView>
       final parentId = conversation?.topic?.parentConversationId;
       conversation = parentId == null
           ? conversation
-          : widget.realtimeStore?.conversations[parentId] ?? conversation;
+          : widget.realtimeStore?.conversations[parentId] ??
+              _topicParentConversation ??
+              conversation;
     }
     final resolved = <String, Contact>{
       for (final contact in _resolvedMentionContacts)
@@ -702,8 +705,25 @@ class _ConversationViewState extends State<ConversationView>
           // 保留摘要快照，仍允许发送 `@所有人`。
         }
       }
+      ChatConversation? topicParent;
+      if (selected?.type == 'topic') {
+        final parentId = selected?.topic?.parentConversationId;
+        if (parentId != null && parentId.isNotEmpty) {
+          topicParent =
+              await _loadTopicParentConversation(parentId, topicId: id);
+        }
+      }
       if (selected != null) {
-        for (final member in selected.members) {
+        final selectedMembers = <Contact>[
+          ...selected.members,
+          if (topicParent?.type == 'group') ...topicParent!.members,
+        ];
+        final seenMemberKeys = <String>{};
+        for (final member in selectedMembers) {
+          if (!seenMemberKeys
+              .add('${member.type}:${member.id.toLowerCase()}')) {
+            continue;
+          }
           if (member.type == 'user' && member.id.trim().isNotEmpty) {
             memberUserIds.add(member.id.trim());
           }
@@ -780,6 +800,10 @@ class _ConversationViewState extends State<ConversationView>
   Future<void> _loadTopicDetail(String id) async {
     try {
       final detail = await widget.repository.topicDetail(id);
+      if (detail.parentConversation.type == 'group') {
+        await _loadTopicParentConversation(detail.parentConversation.id,
+            topicId: id);
+      }
       if (!mounted || widget.conversationId != id) return;
       widget.realtimeStore?.conversations[id] = detail.conversation;
       setState(() {
@@ -790,6 +814,34 @@ class _ConversationViewState extends State<ConversationView>
     } catch (_) {
       // 普通会话没有话题详情，忽略该请求；消息本身仍可正常加载。
     }
+  }
+
+  Future<ChatConversation?> _loadTopicParentConversation(String parentId,
+      {String? topicId}) async {
+    final cached = widget.realtimeStore?.conversations[parentId] ??
+        (_topicParentConversation?.id == parentId
+            ? _topicParentConversation
+            : null);
+    if (cached != null) {
+      _topicParentConversation = cached;
+      return cached;
+    }
+    ChatConversation? parent;
+    try {
+      parent = await widget.repository.conversationById(parentId);
+    } catch (_) {
+      // 旧服务端不支持按 ID 查询时，保留话题本身并继续显示 @所有人。
+    }
+    if (parent == null) return null;
+    if (!mounted ||
+        widget.conversationId == null ||
+        (topicId != null && widget.conversationId != topicId)) {
+      return parent;
+    }
+    _topicParentConversation = parent;
+    widget.realtimeStore?.conversations[parent.id] = parent;
+    setState(() {});
+    return parent;
   }
 
   ChatMessage? _messageFromCache(Object? value) {
