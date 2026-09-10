@@ -644,6 +644,9 @@ class _ConversationViewState extends State<ConversationView>
       unawaited(_writeConversationContactCache(merged));
       if (!mounted || widget.conversationId != conversationId) return;
       setState(() {
+        // 将后台补全结果回写到展示层使用的 Future，回复预览、消息正文
+        // 和复制操作都能立即使用可读名称，同时不让首次成员列表等待它。
+        _contactsFuture = Future.value(merged);
         _resolvedMentionContacts = merged;
         _selectedMentionIndex = 0;
       });
