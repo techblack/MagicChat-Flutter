@@ -343,6 +343,32 @@ void main() {
     expect(submittedCode, '12345678');
   });
 
+  testWidgets('macOS 登录页默认使用邮箱验证码登录', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final service = AuthService(
+        client: MockClient((_) async => http.Response(
+            '{"data":{"app_name":"即应","organization_name":"团队","authenticated":false,"password_login_enabled":true,"email_code_login_enabled":true,"third_party_providers":[]}}',
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'})));
+    await tester.pumpWidget(MaterialApp(
+      home: LoginPage(
+        initialServer: 'https://chat.example.com',
+        authService: service,
+        onLogin: (_, __, ___) async {},
+        onCodeLogin: (_, __, ___) async {},
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(TextFormField, '邮箱验证码'), findsOneWidget);
+    expect(find.text('使用密码登录'), findsOneWidget);
+
+    await tester.tap(find.text('使用密码登录'));
+    await tester.pump();
+    expect(find.widgetWithText(TextFormField, '密码'), findsOneWidget);
+  });
+
   testWidgets('显示跨端导航入口', (tester) async {
     await tester
         .pumpWidget(MaterialApp(home: AppShell(repository: DemoRepository())));

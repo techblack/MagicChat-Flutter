@@ -704,6 +704,7 @@ class _LoginPageState extends State<LoginPage> {
   bool _submitting = false;
   bool _sendingCode = false;
   bool _codeMode = false;
+  bool _loginModeSelected = false;
   bool _passwordVisible = false;
   bool _legalConsentAccepted = false;
   bool _infoLoading = false;
@@ -766,6 +767,9 @@ class _LoginPageState extends State<LoginPage> {
           _codeMode = true;
         } else if (!info.emailCodeLoginEnabled) {
           _codeMode = false;
+        } else if (!_loginModeSelected &&
+            defaultTargetPlatform == TargetPlatform.macOS) {
+          _codeMode = true;
         }
       });
     } catch (error) {
@@ -787,6 +791,7 @@ class _LoginPageState extends State<LoginPage> {
       _error = null;
       _serverStatus = null;
       _codeMode = false;
+      _loginModeSelected = false;
     });
   }
 
@@ -1110,8 +1115,10 @@ class _LoginPageState extends State<LoginPage> {
                                   child: TextButton(
                                     onPressed: _submitting || _sendingCode
                                         ? null
-                                        : () => setState(
-                                            () => _codeMode = !_codeMode),
+                                        : () => setState(() {
+                                            _codeMode = !_codeMode;
+                                            _loginModeSelected = true;
+                                          }),
                                     child: Text(
                                         _codeMode ? '使用密码登录' : '使用邮箱验证码登录'),
                                   ),
